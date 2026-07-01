@@ -1,0 +1,114 @@
+"""
+Leg policy contract — the single source of truth for the sim↔real interface.
+
+Loads ``configs/leg_policy_params.json`` (generated from the ESC pull; see repo
+``POLICY_CONTRACT.md``) into a typed, immutable object the runtime and the trainer must
+agree on **exactly**:
+
+- ``joint_order``   — canonical 12-leg order (indices 0..11)
+- ``default_pose``  — per-joint starting pose (rad); also the action offset
+- gains / effort / Kt / signed gear / position limits — per joint, pulled from the ESCs
+- ``action_scale``, ``policy_dt``, ``control_dt`` — control constants
+- observation layout — the 45-dim obs field order
+
+If the trainer changes any of these, regenerate the contract and re-load here; never
+hand-edit one side.
+"""
+from __future__ import annotations
+
+import json
+from dataclasses import dataclass
+from pathlib import Path
+
+import numpy as np
+
+# Repo root = two levels up from this file (humanoid_control/config.py -> repo/)
+REPO_ROOT = Path(__file__).resolve().parent.parent
+DEFAULT_CONTRACT_PATH = REPO_ROOT / "configs" / "leg_policy_params.json"
+# Live robot config (studio source of truth). Point the daemon --config at the same file.
+LIVE_ROBOT_CONFIG_PATH = Path("/home/nse/humanoid-studio/configs/humanoid_lite.json")
+
+
+@dataclass(frozen=True)
+class LegPolicyContract:
+    """Immutable, ordered view of the legs-only policy contract."""
+
+    joint_order: tuple[str, ...]          # length 12, canonical order
+    default_pose: np.ndarray              # (12,) rad — starting pose / action offset
+    kp: np.ndarray                        # (12,) firmware position_kp
+    kd: np.ndarray                        # (12,) firmware velocity_kp (acts as Kd)
+    effort_limit: np.ndarray              # (12,) Nm (firmware torque_limit)
+    torque_constant: np.ndarray           # (12,) Nm/A
+    gear_ratio: np.ndarray                # (12,) signed
+    position_offset: np.ndarray           # (12,) rad (session calibration; informational)
+    pos_limit_lower: np.ndarray           # (12,) rad
+    pos_limit_upper: np.ndarray           # (12,) rad
+
+    action_scale: float
+    policy_dt: float
+    control_dt: float
+    num_observations: int
+    obs_layout: tuple[str, ...]
+
+    meta: dict
+
+    # --- derived ---------------------------------------------------------
+    @property
+    def num_joints(self) -> int:
+        return len(self.joint_order)
+
+    def index_of(self, joint_name: str) -> int:
+        return self.joint_order.index(joint_name)
+
+    def clamp_targets(self, targets: np.ndarray) -> np.ndarray:
+        """Clamp a (12,) target vector to per-joint position limits."""
+        return np.clip(targets, self.pos_limit_lower, self.pos_limit_upper)
+
+    # --- loading ---------------------------------------------------------
+    @classmethod
+    def load(cls, path: str | Path = DEFAULT_CONTRACT_PATH) -> "LegPolicyContract":
+        data = json.loads(Path(path).read_text())
+        order = list(data["canonical_joint_order"])
+        by_name = {j["joint_name"]: j for j in data["joints"]}
+        # Preserve canonical order regardless of list order in the file.
+        rows = [by_name[n] for n in order]
+
+        def col(key: str) -> np.ndarray:
+            return np.array([r[key] for r in rows], dtype=np.float32)
+
+        ctrl = data["control"]
+        obs = data["observation"]
+        return cls(
+            joint_order=tuple(order),
+            default_pose=col("default_pose"),
+            kp=col("kp"),
+            kd=col("kd"),
+            effort_limit=col("effort_limit"),
+            torque_constant=col("torque_constant"),
+            gear_ratio=col("gear_ratio"),
+            position_offset=col("position_offset"),
+            pos_limit_lower=col("position_limit_lower"),
+            pos_limit_upper=col("position_limit_upper"),
+            action_scale=float(ctrl["action_scale"]),
+            policy_dt=float(ctrl["policy_dt"]),
+            control_dt=float(ctrl["control_dt"]),
+            num_observations=int(obs["num_observations"]),
+            obs_layout=tuple(obs["layout"]),
+            meta=data.get("_meta", {}),
+        )
+
+    def summary(self) -> str:
+        lines = [
+            f"LegPolicyContract: {self.num_joints} joints, "
+            f"policy_dt={self.policy_dt}s ({1/self.policy_dt:.0f} Hz), action_scale={self.action_scale}",
+            f"  obs({self.num_observations}): {' + '.join(self.obs_layout)}",
+        ]
+        for i, n in enumerate(self.joint_order):
+            lines.append(
+                f"  [{i:2d}] {n:24s} default={self.default_pose[i]:+.4f} "
+                f"kp={self.kp[i]:6.2f} kd={self.kd[i]:5.2f} eff={self.effort_limit[i]:4.1f} "
+                f"lim=[{self.pos_limit_lower[i]:+.3f},{self.pos_limit_upper[i]:+.3f}]"
+            )
+        if self.meta.get("STATUS"):
+            lines.append(f"  STATUS: {self.meta['STATUS']}")
+        return "\n".join(lines)

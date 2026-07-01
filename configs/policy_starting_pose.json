@@ -1,0 +1,51 @@
+{
+  "_meta": {
+    "captured_utc": "20260701T190322Z",
+    "method": "avg(left,right) current position, clamped to position_limits; ankle_roll = left copied to both (right encoder broken)",
+    "clamp_bounds": "URDF position_limits from humanoid_lite.json (symmetric per pair)",
+    "recomputed_utc": "20260701T191719Z",
+    "symmetry": "exact per-pair (shared intersection of L/R URDF limits)"
+  },
+  "raw_current_position": {
+    "left_hip_roll_joint": -0.016727352142333986,
+    "left_hip_yaw_joint": -0.01703047752380371,
+    "left_hip_pitch_joint": 1.0408369302749634,
+    "left_knee_pitch_joint": 2.4836326479911803,
+    "left_ankle_pitch_joint": -0.8916521072387695,
+    "left_ankle_roll_joint": 0.013601303100585938,
+    "right_hip_roll_joint": 0.07591485977172852,
+    "right_hip_yaw_joint": 0.024632367491722106,
+    "right_hip_pitch_joint": 1.1060325264930726,
+    "right_knee_pitch_joint": 2.466129779815674,
+    "right_ankle_pitch_joint": -0.7855004668235779,
+    "right_ankle_roll_joint": -0.25412946939468384
+  },
+  "averaged_before_clamp": {
+    "left_hip_roll_joint": 0.029593753814697265,
+    "right_hip_roll_joint": 0.029593753814697265,
+    "left_hip_yaw_joint": 0.0038009449839591977,
+    "right_hip_yaw_joint": 0.0038009449839591977,
+    "left_hip_pitch_joint": 1.073434728384018,
+    "right_hip_pitch_joint": 1.073434728384018,
+    "left_knee_pitch_joint": 2.4748812139034273,
+    "right_knee_pitch_joint": 2.4748812139034273,
+    "left_ankle_pitch_joint": -0.8385762870311737,
+    "right_ankle_pitch_joint": -0.8385762870311737,
+    "left_ankle_roll_joint": 0.013601303100585938,
+    "right_ankle_roll_joint": 0.013601303100585938
+  },
+  "starting_pose_final": {
+    "left_hip_roll_joint": 0.029593753814697265,
+    "right_hip_roll_joint": 0.029593753814697265,
+    "left_hip_yaw_joint": 0.0038009449839591977,
+    "right_hip_yaw_joint": 0.0038009449839591977,
+    "left_hip_pitch_joint": 0.9817477042468103,
+    "right_hip_pitch_joint": 0.9817477042468103,
+    "left_knee_pitch_joint": 2.443460952792061,
+    "right_knee_pitch_joint": 2.443460952792061,
+    "left_ankle_pitch_joint": -0.7853981633974483,
+    "right_ankle_pitch_joint": -0.7853981633974483,
+    "left_ankle_roll_joint": 0.013601303100585938,
+    "right_ankle_roll_joint": 0.013601303100585938
+  }
+}

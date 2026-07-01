@@ -1,0 +1,8 @@
+# humanoid_control runtime deps.
+# The vendored daemon client speaks UDP/JSON — no python-can needed (the C++ daemon owns CAN).
+numpy>=1.24
+pydantic>=2.0
+
+# Optional — only needed to run a trained policy (scripts/run_policy.py):
+#   onnxruntime>=1.16      # for .onnx checkpoints
+#   torch>=2.0             # for .pt checkpoints

@@ -13,11 +13,43 @@ policy runner (Python)  ──UDP :9001/:9000──▶  daemon (C++, owns CAN @2
   [`humanoid-studio`](https://github.com/topolski852/humanoid-studio); keep the two
   in sync.** Build with `cd daemon && make`. Only one daemon may own the CAN bus at
   a time (don't run this and the humanoid-studio app's daemon simultaneously).
-- `docs/HANDOFF.md`, `docs/DAEMON_SPEC.md` — the authoritative, source-verified
-  reference for the firmware, CAN protocol, daemon UDP API, joint model, and the
-  planned IMU telemetry contract. **Read these first.**
-- `PROMPT.md` — the build plan / kickoff brief for this repo.
-- Control package — to be written (see `PROMPT.md`).
+- `humanoid_control/` — the Python control package (this repo's core):
+  - `daemon/` — **vendored** studio client (`daemon_client.py`, `robot_config.py`,
+    `actuator.py` trimmed to `ActuatorState`). The only thing that talks to the daemon.
+  - `config.py` — loads the policy contract (`configs/leg_policy_params.json`).
+  - `base_state.py` — pluggable base state (upright stub now → IMU telemetry later).
+  - `observation.py` / `action.py` — obs assembly (45) and action→target mapping + clamps.
+  - `policy.py` — Policy ABC + Zero/Onnx/Torch loaders.
+  - `safety.py` — E-stop (port 9002), keyboard kill, ramp-to-pose.
+  - `interface.py` / `runner.py` — leg read/write adapter and the `PolicyRunner` loop.
+- `scripts/` — `smoke_test.py` (read-only telemetry), `hold_pose.py` (M3, motion),
+  `run_policy.py` (M5, motion). Motion scripts require `--i-am-present`.
+- `configs/` — `esc_pull_latest.json` (per-joint config pulled from the ESCs),
+  `policy_starting_pose.json`, `leg_policy_params.json` (the trainer contract).
+- `POLICY_CONTRACT.md` — the sim↔real interface the trainer must match.
+- `docs/HANDOFF.md`, `docs/DAEMON_SPEC.md` — authoritative firmware/CAN/daemon reference.
+- `PROMPT.md` — the build plan / kickoff brief.
+
+## Quick start
+```bash
+cd daemon && make                 # build the daemon
+# ensure the leg CAN adapters are powered (can_left_leg / can_right_leg come up)
+./build/humanoid_daemon --config /home/nse/humanoid-studio/configs/humanoid_lite.json &
+cd .. && pip install -r requirements.txt
+python scripts/smoke_test.py --connect --seconds 3    # read-only telemetry (no motion)
+```
+Motion (user present, robot supported/gantried, E-stop = ENTER/'q'/Ctrl-C):
+```bash
+python scripts/hold_pose.py --i-am-present            # M3: ramp to default_pose and hold
+python scripts/run_policy.py --policy legs.onnx --i-am-present   # M5: run a trained policy
+```
+
+## Safety (non-negotiable)
+Never drive the robot beyond a supported/gantry dry-run without a human present. Targets
+are always clamped to per-joint `position_limits`; the runner ramps to the default pose on
+start (never steps); E-stop (priority port 9002) and a keyboard kill are always armed. The
+upright base-state stub can hold a pose but **cannot** close a real balance loop — keep the
+robot supported until the IMU lands.
 
 ## Config is shared, not forked
 The robot's live per-joint config (gains, offsets, gear signs, limits — updated by
@@ -26,4 +58,9 @@ at `/home/nse/humanoid-studio/configs/humanoid_lite.json`. Point the daemon
 (`--config`) and `RobotConfig` at it so tuning done in the app is reflected here.
 
 ## Status
-Scaffold: daemon + docs in place. Control code not yet written — start from `PROMPT.md`.
+- ✅ M1 daemon smoke test (all 12 legs enumerate, IDLE, live telemetry, fw v3.2.0)
+- ✅ M2 vendored client + config load + canonical order + 50 Hz telemetry stream
+- ✅ M4 obs/action plumbing validated offline (zero-policy identity, safety clamp)
+- ✅ M5 PolicyRunner + ONNX/Torch loaders (code complete; untested with a real net)
+- ⏳ M3 hold-pose and M6 supported squat→stand — **require the user present + support**
+- Trainer contract exported to `POLICY_CONTRACT.md` / `configs/leg_policy_params.json`

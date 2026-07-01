@@ -1,0 +1,208 @@
+{
+  "_meta": {
+    "description": "Legs-only (12-joint) policy contract. kp/kd/effort/Kt/gear/offset/limits PULLED FROM ESCs (device truth); default_pose/action_scale/obs are policy choices pending trainer confirmation.",
+    "source_esc_pull": "20260701T185139Z",
+    "position_offsets_note": "Re-pulled after power-up recalibration. position_offset resets each power cycle and must be recaptured per session.",
+    "broken_encoder": {
+      "right_ankle_roll_joint": "mirror left_ankle_roll for base/starting pose"
+    },
+    "STATUS": "PROVISIONAL \u2014 joint order + obs layout pending new-trainer confirmation; starting_pose captured & clamped",
+    "default_pose_source": "starting pose 20260701T191719Z: per-pair avg(left,right) current position, clamped to URDF position_limits; ankle_roll=left copied to both (right encoder broken)",
+    "position_limits_source": "URDF position_limits from humanoid_lite.json (ESC-read limits are offset-adjusted in firmware frame and drifted after recal \u2014 do NOT use for clamping)"
+  },
+  "canonical_joint_order": [
+    "left_hip_roll_joint",
+    "left_hip_yaw_joint",
+    "left_hip_pitch_joint",
+    "left_knee_pitch_joint",
+    "left_ankle_pitch_joint",
+    "left_ankle_roll_joint",
+    "right_hip_roll_joint",
+    "right_hip_yaw_joint",
+    "right_hip_pitch_joint",
+    "right_knee_pitch_joint",
+    "right_ankle_pitch_joint",
+    "right_ankle_roll_joint"
+  ],
+  "control": {
+    "policy_dt": 0.04,
+    "control_dt": 0.004,
+    "action_scale": 0.25
+  },
+  "observation": {
+    "num_observations": 45,
+    "layout": [
+      "command(3)",
+      "base_ang_vel(3)",
+      "projected_gravity(3)",
+      "joint_pos_minus_default(12)",
+      "joint_vel(12)",
+      "prev_action(12)"
+    ],
+    "note": "joint_pos fed relative to default_pose. projected_gravity stub=[0,0,-1] until IMU lands."
+  },
+  "action": {
+    "num_actions": 12,
+    "formula": "target = clip(action)*action_scale + default_pose, then clamp to [position_limit_lower, position_limit_upper]"
+  },
+  "joints": [
+    {
+      "index": 0,
+      "joint_name": "left_hip_roll_joint",
+      "kp": 20.0,
+      "kd": 4.0,
+      "effort_limit": 6.0,
+      "torque_constant": 0.0895799994468689,
+      "gear_ratio": 15.0,
+      "position_offset": -1.3300976753234863,
+      "position_limit_lower": -0.17453292519943295,
+      "position_limit_upper": 1.5707963267948966,
+      "default_pose": 0.029593753814697265
+    },
+    {
+      "index": 1,
+      "joint_name": "left_hip_yaw_joint",
+      "kp": 10.5,
+      "kd": 0.5,
+      "effort_limit": 12.0,
+      "torque_constant": 0.0895799994468689,
+      "gear_ratio": -15.0,
+      "position_offset": -0.781866729259491,
+      "position_limit_lower": -0.9826203688728075,
+      "position_limit_upper": 0.5899212871740833,
+      "default_pose": 0.0038009449839591977
+    },
+    {
+      "index": 2,
+      "joint_name": "left_hip_pitch_joint",
+      "kp": 68.4000015258789,
+      "kd": 9.800000190734863,
+      "effort_limit": 9.5,
+      "torque_constant": 0.0895799994468689,
+      "gear_ratio": -15.0,
+      "position_offset": 1.5023807287216187,
+      "position_limit_lower": -1.8980455615438334,
+      "position_limit_upper": 0.9817477042468103,
+      "default_pose": 0.9817477042468103
+    },
+    {
+      "index": 3,
+      "joint_name": "left_knee_pitch_joint",
+      "kp": 27.0,
+      "kd": 2.450000047683716,
+      "effort_limit": 6.0,
+      "torque_constant": 0.0895799994468689,
+      "gear_ratio": 15.0,
+      "position_offset": -0.03180453181266785,
+      "position_limit_lower": 0.0,
+      "position_limit_upper": 2.443460952792061,
+      "default_pose": 2.443460952792061
+    },
+    {
+      "index": 4,
+      "joint_name": "left_ankle_pitch_joint",
+      "kp": 18.0,
+      "kd": 2.0,
+      "effort_limit": 6.0,
+      "torque_constant": 0.06588000059127808,
+      "gear_ratio": 15.0,
+      "position_offset": -0.3135456144809723,
+      "position_limit_lower": -0.7853981633974483,
+      "position_limit_upper": 0.7853981633974483,
+      "default_pose": -0.7853981633974483
+    },
+    {
+      "index": 5,
+      "joint_name": "left_ankle_roll_joint",
+      "kp": 23.299999237060547,
+      "kd": 4.0,
+      "effort_limit": 7.0,
+      "torque_constant": 0.06588000059127808,
+      "gear_ratio": 15.0,
+      "position_offset": 0.3422822654247284,
+      "position_limit_lower": -0.2617993877991494,
+      "position_limit_upper": 0.2617993877991494,
+      "default_pose": 0.013601303100585938
+    },
+    {
+      "index": 6,
+      "joint_name": "right_hip_roll_joint",
+      "kp": 20.0,
+      "kd": 4.0,
+      "effort_limit": 6.0,
+      "torque_constant": 0.0895799994468689,
+      "gear_ratio": -15.0,
+      "position_offset": -1.735170841217041,
+      "position_limit_lower": -0.17453292519943295,
+      "position_limit_upper": 1.5707963267948966,
+      "default_pose": 0.029593753814697265
+    },
+    {
+      "index": 7,
+      "joint_name": "right_hip_yaw_joint",
+      "kp": 20.0,
+      "kd": 1.0,
+      "effort_limit": 6.0,
+      "torque_constant": 0.0895799994468689,
+      "gear_ratio": 15.0,
+      "position_offset": -0.11581218987703323,
+      "position_limit_lower": -0.9826203688728075,
+      "position_limit_upper": 0.5899212871740833,
+      "default_pose": 0.0038009449839591977
+    },
+    {
+      "index": 8,
+      "joint_name": "right_hip_pitch_joint",
+      "kp": 68.4000015258789,
+      "kd": 9.800000190734863,
+      "effort_limit": 9.5,
+      "torque_constant": 0.0895799994468689,
+      "gear_ratio": 15.0,
+      "position_offset": 1.68273,
+      "position_limit_lower": -1.8989182261698305,
+      "position_limit_upper": 0.9826203688728075,
+      "default_pose": 0.9817477042468103
+    },
+    {
+      "index": 9,
+      "joint_name": "right_knee_pitch_joint",
+      "kp": 30.0,
+      "kd": 1.2200000286102295,
+      "effort_limit": 6.0,
+      "torque_constant": 0.0895799994468689,
+      "gear_ratio": -15.0,
+      "position_offset": -0.5353593230247498,
+      "position_limit_lower": 0.0,
+      "position_limit_upper": 2.443460952792061,
+      "default_pose": 2.443460952792061
+    },
+    {
+      "index": 10,
+      "joint_name": "right_ankle_pitch_joint",
+      "kp": 20.0,
+      "kd": 0.5,
+      "effort_limit": 6.0,
+      "torque_constant": 0.06588000059127808,
+      "gear_ratio": -15.0,
+      "position_offset": -0.2321424037218094,
+      "position_limit_lower": -0.7853981633974483,
+      "position_limit_upper": 0.7853981633974483,
+      "default_pose": -0.7853981633974483
+    },
+    {
+      "index": 11,
+      "joint_name": "right_ankle_roll_joint",
+      "kp": 20.0,
+      "kd": 2.0,
+      "effort_limit": 6.0,
+      "torque_constant": 0.06588000059127808,
+      "gear_ratio": 15.0,
+      "position_offset": 0.33144211769104004,
+      "position_limit_lower": -0.2617993877991494,
+      "position_limit_upper": 0.2617993877991494,
+      "default_pose": 0.013601303100585938,
+      "encoder_broken": true,
+      "notes": "Encoder broken: position_offset + live position unreliable. Mirror left_ankle_roll for base/starting pose."
+    }
+  ]
+}
