@@ -1,0 +1,889 @@
+#include "control/robot.hpp"
+
+#include <cmath>
+#include <cstdio>
+#include <cstring>
+#include <chrono>
+#include <thread>
+
+#include "json.hpp"
+
+using json = nlohmann::json;
+using Clock = std::chrono::steady_clock;
+using ms    = std::chrono::milliseconds;
+
+// ── Constructor / destructor ─────────────────────────────────────────────────
+
+Robot::Robot(RobotConfig cfg, RobotOptions opts)
+    : cfg_(std::move(cfg))
+    , opts_(opts)
+    , udp_server_(opts_.cmd_port)
+    , priority_server_(9002)
+    , broadcaster_("127.0.0.1", opts_.telemetry_port)
+{}
+
+Robot::~Robot() {
+    stop();
+}
+
+// ── start() ──────────────────────────────────────────────────────────────────
+
+bool Robot::start() {
+    // Collect unique CAN interface names.
+    std::vector<std::string> ifnames;
+    for (const auto& jc : cfg_.joints) {
+        bool found = false;
+        for (const auto& n : ifnames) if (n == jc.can_channel) { found = true; break; }
+        if (!found) ifnames.push_back(jc.can_channel);
+    }
+
+    bus_mgr_ = std::make_unique<CanBusManager>(ifnames);
+
+    // Build Actuator objects.
+    for (const auto& jc : cfg_.joints) {
+        auto a = std::make_unique<Actuator>(jc);
+        actuator_by_name_[jc.name] = a.get();
+        actuators_.push_back(std::move(a));
+    }
+
+    // Wire UDP server.
+    udp_server_.set_handler([this](const std::string& req) {
+        return handle_command(req);
+    });
+
+    if (!udp_server_.start()) {
+        fprintf(stderr, "[Robot] UDP server failed to start\n");
+        return false;
+    }
+
+    // Wire priority E-Stop server (port 9002).
+    // Handles only ESTOP — never blocked by apply_config on port 9001.
+    priority_server_.set_handler([this](const std::string& req) -> std::string {
+        try {
+            auto j = json::parse(req);
+            if (j.value("type", "") == "ESTOP") {
+                estop_pending_.store(true, std::memory_order_release);
+                return R"({"type":"ACK"})";
+            }
+        } catch (...) {}
+        return R"({"type":"ERROR","msg":"priority port: ESTOP only"})";
+    });
+
+    if (!priority_server_.start()) {
+        fprintf(stderr, "[Robot] Priority E-Stop server failed to start on port 9002\n");
+        // Non-fatal — normal E-Stop via port 9001 still works.
+    }
+
+    running_ = true;
+
+    // Start telemetry thread.
+    telemetry_thread_ = std::thread(&Robot::telemetry_loop, this);
+
+    // Start 200 Hz control loop.
+    ControlLoop::Options cl_opts;
+    cl_opts.period_s    = 1.0 / 200.0;
+    cl_opts.sched_prio  = opts_.control_prio;
+    cl_opts.cpu_affinity = opts_.control_cpu;
+    cl_opts.name        = "control";
+    control_loop_.start([this]{ control_tick(); }, cl_opts);
+
+    fprintf(stderr, "[Robot] started — %zu joints, %zu buses\n",
+            actuators_.size(), ifnames.size());
+    return true;
+}
+
+// ── stop() ───────────────────────────────────────────────────────────────────
+
+void Robot::stop() {
+    if (!running_.exchange(false)) return;
+
+    // Stop control loop first so no more frames are sent.
+    control_loop_.stop();
+
+    // Damp all enabled joints.
+    for (auto& a : actuators_) {
+        auto s = a->state();
+        if (s.joint_state == JointState::ENABLED ||
+            s.joint_state == JointState::CALIBRATING)
+        {
+            can_frame nmt{};
+            nmt.can_id  = make_arb_id(static_cast<uint8_t>(FuncCode::FUNC_NMT),
+                                      static_cast<uint8_t>(a->device_id()));
+            nmt.can_dlc = 2;
+            nmt.data[0] = static_cast<uint8_t>(MotorMode::MODE_DAMPING);
+            nmt.data[1] = static_cast<uint8_t>(a->device_id());
+            bus_mgr_->send(a->can_channel(), nmt);
+        }
+    }
+    std::this_thread::sleep_for(ms(500));
+
+    // Idle all joints.
+    for (auto& a : actuators_) {
+        can_frame nmt{};
+        nmt.can_id  = make_arb_id(static_cast<uint8_t>(FuncCode::FUNC_NMT),
+                                  static_cast<uint8_t>(a->device_id()));
+        nmt.can_dlc = 2;
+        nmt.data[0] = static_cast<uint8_t>(MotorMode::MODE_IDLE);
+        nmt.data[1] = static_cast<uint8_t>(a->device_id());
+        bus_mgr_->send(a->can_channel(), nmt);
+    }
+    std::this_thread::sleep_for(ms(200));
+
+    udp_server_.stop();
+    priority_server_.stop();
+    if (telemetry_thread_.joinable()) telemetry_thread_.join();
+
+    fprintf(stderr, "[Robot] stopped\n");
+}
+
+// ── Control tick (200 Hz) ────────────────────────────────────────────────────
+
+void Robot::control_tick() {
+    // 0. Instant E-Stop: checked before anything else in the tick.
+    if (estop_pending_.load(std::memory_order_acquire)) {
+        estop_pending_.store(false, std::memory_order_release);
+        for (auto& a : actuators_) {
+            can_frame nmt{};
+            nmt.can_id  = make_arb_id(static_cast<uint8_t>(FuncCode::FUNC_NMT),
+                                      static_cast<uint8_t>(a->device_id()));
+            nmt.can_dlc = 2;
+            nmt.data[0] = static_cast<uint8_t>(MotorMode::MODE_IDLE);
+            nmt.data[1] = static_cast<uint8_t>(a->device_id());
+            bus_mgr_->send(a->can_channel(), nmt);
+            a->request_state(JointState::IDLE);
+        }
+    }
+
+    // 1. Drain all pending Rx frames and dispatch to actuators + generic listeners.
+    bus_mgr_->drain_all([this](const std::string& ifname, const can_frame& frame) {
+        uint32_t arb = frame.can_id & CAN_EFF_MASK;
+        int dev_id = static_cast<int>(get_device_id(arb));
+        for (auto& a : actuators_) {
+            if (a->device_id() == dev_id && a->can_channel() == ifname) {
+                a->on_rx_frame(frame);
+                break;
+            }
+        }
+        generic_listener_.on_frame(ifname, frame);
+    });
+
+    // 2. Tick each actuator (send PDO2 or heartbeat).
+    for (auto& a : actuators_) {
+        a->tick(*bus_mgr_);
+    }
+}
+
+// ── Telemetry loop ───────────────────────────────────────────────────────────
+
+void Robot::telemetry_loop() {
+    int hz = (cfg_.telemetry_hz > 0 && cfg_.telemetry_hz <= 100)
+             ? cfg_.telemetry_hz : opts_.telemetry_hz;
+    auto period = std::chrono::duration_cast<std::chrono::nanoseconds>(
+        std::chrono::duration<double>(1.0 / hz));
+    auto next_wake = Clock::now() + period;
+
+    while (running_.load()) {
+        std::string payload = build_telemetry_json(telemetry_seq_++);
+        broadcaster_.send(payload);
+
+        auto now = Clock::now();
+        if (now < next_wake) std::this_thread::sleep_for(next_wake - now);
+        next_wake += period;
+    }
+}
+
+// ── Helpers ──────────────────────────────────────────────────────────────────
+
+static json firmware_version_json(uint32_t fw) {
+    if (fw == 0) return json(nullptr);
+    char buf[16];
+    // Version is packed 0xMMmmPPrr (major, minor, patch, reserved).
+    // The patch byte is bits 8-15; the low byte is reserved/zero.  Reading
+    // (fw & 0xFFFF) here mis-printed the patch (e.g. 0x03010100 → "v3.1.256").
+    std::snprintf(buf, sizeof(buf), "v%u.%u.%u",
+                  (fw >> 24) & 0xFF, (fw >> 16) & 0xFF, (fw >> 8) & 0xFF);
+    return json(buf);
+}
+
+// ── Telemetry JSON builder ───────────────────────────────────────────────────
+
+std::string Robot::build_telemetry_json(uint64_t seq) {
+    json j;
+    j["type"] = "TELEMETRY";
+    j["seq"]  = seq;
+    j["timestamp_us"] = std::chrono::duration_cast<std::chrono::microseconds>(
+        Clock::now().time_since_epoch()).count();
+
+    json joints_obj = json::object();
+    for (auto& a : actuators_) {
+        ActuatorState s = a->state();
+        json jj;
+        jj["state"]    = joint_state_name(s.joint_state);
+        jj["position"] = s.position;
+        jj["velocity"] = s.velocity;
+        jj["torque"]   = s.torque;
+        jj["current"]  = s.current;
+        jj["mode"]     = static_cast<int>(s.mode);
+        jj["error"]    = s.error;
+        jj["bus_voltage"]      = (s.bus_voltage >= 0.0f) ? json(s.bus_voltage) : json(nullptr);
+        jj["firmware_version"] = firmware_version_json(s.firmware_version);
+        joints_obj[a->name()] = std::move(jj);
+    }
+    j["joints"] = std::move(joints_obj);
+
+    // Bus health.
+    json buses_obj = json::object();
+    for (auto& [name, stats] : bus_mgr_->stats()) {
+        json bj;
+        bj["open"]       = stats.open;
+        bj["tx_dropped"] = stats.tx_dropped;
+        bj["rx_frames"]  = stats.rx_frames;
+        buses_obj[name]  = std::move(bj);
+    }
+    j["bus_health"] = std::move(buses_obj);
+
+    return j.dump();
+}
+
+// ── Command handler ──────────────────────────────────────────────────────────
+
+std::string Robot::handle_command(const std::string& request) {
+    json req, resp;
+    try {
+        req = json::parse(request);
+    } catch (...) {
+        return R"({"type":"ERROR","msg":"JSON parse error"})";
+    }
+
+    std::string type = req.value("type", "");
+    std::string id   = req.value("id", "");
+
+    auto ack = [&]() -> std::string {
+        return json{{"type", "ACK"}, {"id", id}}.dump();
+    };
+    auto error = [&](const std::string& msg) -> std::string {
+        return json{{"type", "ERROR"}, {"id", id}, {"msg", msg}}.dump();
+    };
+
+    if (type == "PING") {
+        return json{{"type", "PONG"}, {"id", id}, {"daemon_version", "1.0"}}.dump();
+    }
+
+    if (type == "GET_STATE") {
+        std::string name = req.value("joint_name", "");
+        auto it = actuator_by_name_.find(name);
+        if (it == actuator_by_name_.end()) return error("unknown joint: " + name);
+        ActuatorState s = it->second->state();
+        json r;
+        r["type"] = "STATE";
+        r["id"]   = id;
+        r["state"]["position"]   = s.position;
+        r["state"]["velocity"]   = s.velocity;
+        r["state"]["torque"]     = s.torque;
+        r["state"]["current"]    = s.current;
+        r["state"]["mode"]       = static_cast<int>(s.mode);
+        r["state"]["error"]      = s.error;
+        r["state"]["joint_state"]      = joint_state_name(s.joint_state);
+        r["state"]["bus_voltage"]      = (s.bus_voltage >= 0.0f) ? json(s.bus_voltage) : json(nullptr);
+        r["state"]["firmware_version"] = firmware_version_json(s.firmware_version);
+        return r.dump();
+    }
+
+    if (type == "GET_ALL_STATES") {
+        json r;
+        r["type"] = "ALL_STATES";
+        r["id"]   = id;
+        r["states"] = json::object();
+        for (auto& a : actuators_) {
+            ActuatorState s = a->state();
+            json jj;
+            jj["position"]   = s.position;
+            jj["velocity"]   = s.velocity;
+            jj["torque"]     = s.torque;
+            jj["current"]    = s.current;
+            jj["mode"]       = static_cast<int>(s.mode);
+            jj["error"]      = s.error;
+            jj["joint_state"]      = joint_state_name(s.joint_state);
+            jj["bus_voltage"]      = (s.bus_voltage >= 0.0f) ? json(s.bus_voltage) : json(nullptr);
+            jj["firmware_version"] = firmware_version_json(s.firmware_version);
+            r["states"][a->name()] = std::move(jj);
+        }
+        return r.dump();
+    }
+
+    if (type == "SET_MODE") {
+        std::string name = req.value("joint_name", "");
+        std::string mode = req.value("mode", "");
+        auto it = actuator_by_name_.find(name);
+        if (it == actuator_by_name_.end()) return error("unknown joint: " + name);
+        if (mode == "POSITION" || mode == "ENABLED") {
+            it->second->request_state(JointState::ENABLED);
+        } else if (mode == "IDLE") {
+            it->second->request_state(JointState::IDLE);
+        } else if (mode == "DISABLED") {
+            it->second->request_state(JointState::DISABLED);
+        } else {
+            return error("unknown mode: " + mode);
+        }
+        return ack();
+    }
+
+    if (type == "SET_ALL_MODE") {
+        std::string mode = req.value("mode", "");
+        JointState target;
+        if (mode == "POSITION" || mode == "ENABLED") {
+            target = JointState::ENABLED;
+        } else if (mode == "IDLE") {
+            target = JointState::IDLE;
+        } else if (mode == "DISABLED") {
+            target = JointState::DISABLED;
+        } else {
+            return error("unknown mode: " + mode);
+        }
+        for (auto& a : actuators_) a->request_state(target);
+        return ack();
+    }
+
+    if (type == "SET_POSITION") {
+        std::string name = req.value("joint_name", "");
+        float pos = req.value("position_rad", 0.0f);
+        auto it = actuator_by_name_.find(name);
+        if (it == actuator_by_name_.end()) return error("unknown joint: " + name);
+        it->second->set_position_target(pos);
+        return ack();
+    }
+
+    if (type == "CLEAR_ERROR") {
+        std::string name = req.value("joint_name", "");
+        auto it = actuator_by_name_.find(name);
+        if (it == actuator_by_name_.end()) return error("unknown joint: " + name);
+        it->second->clear_fault(*bus_mgr_);
+        return ack();
+    }
+
+    if (type == "APPLY_CONFIG") {
+        std::string name = req.value("joint_name", "");
+        auto it = actuator_by_name_.find(name);
+        if (it == actuator_by_name_.end()) return error("unknown joint: " + name);
+        // If the Python side included updated config values, apply them to the
+        // in-memory JointConfig before writing to device RAM.  Without this the
+        // daemon would re-apply its startup config, overwriting any changes the
+        // user made via the Tune page.
+        if (req.contains("config") && req["config"].is_object()) {
+            it->second->update_cfg(req["config"]);
+        }
+        bool ok = it->second->apply_config(*bus_mgr_);
+        return ok ? ack() : error("apply_config failed for " + name);
+    }
+
+    if (type == "APPLY_ALL_CONFIGS") {
+        // Wake phase: transition all motors to IDLE via the state machine so that the
+        // daemon state is already IDLE when the heartbeat ACK arrives.  Using
+        // request_state() rather than a raw CAN send is essential: a raw NMT IDLE send
+        // leaves daemon state as DISABLED, so the heartbeat ACK triggers
+        // needs_idle_wakeup_ again and immediately sends another NMT IDLE — a loop.
+        // request_state(IDLE) sets the daemon state in the next control tick (< 5 ms),
+        // so by the time the ACK arrives the condition is already IDLE and no spurious
+        // wakeup fires.  NMT IDLE is idempotent for motors already in IDLE.
+        for (auto& a : actuators_) {
+            if (!bus_mgr_->is_open(a->can_channel())) continue;
+            a->request_state(JointState::IDLE);
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(300));
+
+        // Skip joints whose CAN bus is not open — avoids 500 ms SDO timeout per
+        // joint when only a subset of buses are physically connected.  A partial
+        // robot (e.g. only left_leg attached) can now apply_config successfully
+        // without blocking for up to N_offline × 500 ms seconds.
+        int configured = 0, skipped = 0, failed = 0;
+        for (auto& a : actuators_) {
+            if (!bus_mgr_->is_open(a->can_channel())) {
+                fprintf(stderr, "[Robot] APPLY_ALL_CONFIGS: skipping %s (bus %s not open)\n",
+                        a->name().c_str(), a->can_channel().c_str());
+                ++skipped;
+                continue;
+            }
+            if (a->apply_config(*bus_mgr_)) {
+                ++configured;
+            } else {
+                fprintf(stderr, "[Robot] apply_config failed for %s\n", a->name().c_str());
+                ++failed;
+            }
+        }
+        return json{{"type","ACK"},{"id",id},
+                    {"configured",configured},{"skipped",skipped},{"failed",failed}}.dump();
+    }
+
+    if (type == "STORE_TO_FLASH") {
+        std::string name = req.value("joint_name", "");
+        auto it = actuator_by_name_.find(name);
+        if (it == actuator_by_name_.end()) return error("unknown joint: " + name);
+        it->second->store_to_flash(*bus_mgr_);
+        return ack();
+    }
+
+    if (type == "READ_CONFIG") {
+        std::string name = req.value("joint_name", "");
+        auto it = actuator_by_name_.find(name);
+        if (it == actuator_by_name_.end()) return error("unknown joint: " + name);
+
+        if (!bus_mgr_->is_open(it->second->can_channel()))
+            return error("bus not open for joint " + name +
+                         " (channel: " + it->second->can_channel() + ")");
+
+        using P = ParamId;
+        static const std::vector<std::pair<std::string, uint16_t>> PARAMS = {
+            {"gear_ratio",               static_cast<uint16_t>(P::PARAM_POSITION_CONTROLLER_GEAR_RATIO)},
+            {"position_kp",              static_cast<uint16_t>(P::PARAM_POSITION_CONTROLLER_POSITION_KP)},
+            {"position_ki",              static_cast<uint16_t>(P::PARAM_POSITION_CONTROLLER_POSITION_KI)},
+            {"velocity_kp",              static_cast<uint16_t>(P::PARAM_POSITION_CONTROLLER_VELOCITY_KP)},
+            {"velocity_ki",              static_cast<uint16_t>(P::PARAM_POSITION_CONTROLLER_VELOCITY_KI)},
+            {"torque_limit",             static_cast<uint16_t>(P::PARAM_POSITION_CONTROLLER_TORQUE_LIMIT)},
+            {"velocity_limit",           static_cast<uint16_t>(P::PARAM_POSITION_CONTROLLER_VELOCITY_LIMIT)},
+            {"position_limit_min",       static_cast<uint16_t>(P::PARAM_POSITION_CONTROLLER_POSITION_LIMIT_LOWER)},
+            {"position_limit_max",       static_cast<uint16_t>(P::PARAM_POSITION_CONTROLLER_POSITION_LIMIT_UPPER)},
+            {"position_offset",          static_cast<uint16_t>(P::PARAM_POSITION_CONTROLLER_POSITION_OFFSET)},
+            {"torque_filter_alpha",      static_cast<uint16_t>(P::PARAM_POSITION_CONTROLLER_TORQUE_FILTER_ALPHA)},
+            {"current_limit",            static_cast<uint16_t>(P::PARAM_CURRENT_CONTROLLER_I_LIMIT)},
+            {"current_kp",               static_cast<uint16_t>(P::PARAM_CURRENT_CONTROLLER_I_KP)},
+            {"current_ki",               static_cast<uint16_t>(P::PARAM_CURRENT_CONTROLLER_I_KI)},
+            {"undervoltage_threshold",   static_cast<uint16_t>(P::PARAM_POWERSTAGE_UNDERVOLTAGE_THRESHOLD)},
+            {"overvoltage_threshold",    static_cast<uint16_t>(P::PARAM_POWERSTAGE_OVERVOLTAGE_THRESHOLD)},
+            {"bus_voltage_filter_alpha", static_cast<uint16_t>(P::PARAM_POWERSTAGE_BUS_VOLTAGE_FILTER_ALPHA)},
+            {"torque_constant",          static_cast<uint16_t>(P::PARAM_MOTOR_TORQUE_CONSTANT)},
+            {"encoder_position_offset",  static_cast<uint16_t>(P::PARAM_ENCODER_POSITION_OFFSET)},
+            {"velocity_filter_alpha",    static_cast<uint16_t>(P::PARAM_ENCODER_VELOCITY_FILTER_ALPHA)},
+            {"electrical_offset",        static_cast<uint16_t>(P::PARAM_ENCODER_FLUX_OFFSET)},
+            {"fast_frame_frequency",     static_cast<uint16_t>(P::PARAM_FAST_FRAME_FREQUENCY)},
+            {"watchdog_timeout",         static_cast<uint16_t>(P::PARAM_WATCHDOG_TIMEOUT)},
+            {"max_calibration_current",  static_cast<uint16_t>(P::PARAM_MOTOR_MAX_CALIBRATION_CURRENT)},
+        };
+
+        nlohmann::json cfg_j;
+        for (auto& [key, param_id] : PARAMS) {
+            float v = it->second->read_config_param(*bus_mgr_, param_id, 300);
+            cfg_j[key] = std::isnan(v) ? nlohmann::json(nullptr) : nlohmann::json(v);
+        }
+        nlohmann::json resp;
+        resp["type"]   = "CONFIG";
+        resp["id"]     = id;
+        resp["config"] = cfg_j;
+        return resp.dump();
+    }
+
+    if (type == "SHUTDOWN") {
+        // Respond first, then stop asynchronously.
+        std::thread([this]{ std::this_thread::sleep_for(ms(100)); stop(); }).detach();
+        return ack();
+    }
+
+    // ── Generic CAN passthrough commands ─────────────────────────────────────
+    // These allow the Flash Wizard (and any other Python caller) to perform
+    // SDO reads/writes, heartbeat waits, bus sniffs, and calibration against
+    // arbitrary device IDs without opening a second SocketCAN socket.
+
+    if (type == "GENERIC_SDO_WRITE") {
+        std::string channel  = req.value("channel", "");
+        int         device_id = req.value("device_id", -1);
+        int         param_id  = req.value("param_id", -1);
+        std::string val_type  = req.value("value_type", "u32");
+        int         timeout_ms = req.value("timeout_ms", 500);
+
+        if (!bus_mgr_->is_open(channel))
+            return error("bus not open: " + channel);
+        if (device_id < 0 || device_id > 127 || param_id < 0)
+            return error("invalid device_id or param_id");
+
+        uint8_t val_bytes[4] = {};
+        if (val_type == "f32") {
+            float v = req.value("value", 0.0f);
+            std::memcpy(val_bytes, &v, 4);
+        } else if (val_type == "i32") {
+            int32_t v = req.value("value", 0);
+            std::memcpy(val_bytes, &v, 4);
+        } else {
+            uint32_t v = req.value<uint32_t>("value", 0u);
+            std::memcpy(val_bytes, &v, 4);
+        }
+
+        auto fut = generic_listener_.expect_once(channel,
+            static_cast<uint8_t>(device_id), FUNC_TRANSMIT_SDO);
+
+        can_frame f{};
+        f.can_id  = make_arb_id(FUNC_RECEIVE_SDO, static_cast<uint8_t>(device_id));
+        f.can_dlc = 8;
+        f.data[0] = SDO_CMD_WRITE;
+        f.data[1] = static_cast<uint8_t>(param_id & 0xFF);
+        f.data[2] = static_cast<uint8_t>((param_id >> 8) & 0xFF);
+        f.data[3] = 0;
+        std::memcpy(f.data + 4, val_bytes, 4);
+        bus_mgr_->send(channel, f);
+
+        auto stat = fut.wait_for(ms(timeout_ms));
+        if (stat != std::future_status::ready) {
+            generic_listener_.cancel_stale(channel,
+                static_cast<uint8_t>(device_id), FUNC_TRANSMIT_SDO);
+            return json{{"type","SDO_WRITE_RESULT"},{"id",id},{"status","NO_ACK"}}.dump();
+        }
+        can_frame ack_frame = fut.get();
+        if (ack_frame.can_dlc < 1 || ack_frame.data[0] != SDO_WRITE_ACK) {
+            return json{{"type","SDO_WRITE_RESULT"},{"id",id},{"status","BAD_ACK"}}.dump();
+        }
+        return json{{"type","SDO_WRITE_RESULT"},{"id",id},{"status","OK"}}.dump();
+    }
+
+    if (type == "GENERIC_SDO_READ") {
+        std::string channel  = req.value("channel", "");
+        int         device_id = req.value("device_id", -1);
+        int         param_id  = req.value("param_id", -1);
+        int         timeout_ms = req.value("timeout_ms", 500);
+
+        if (!bus_mgr_->is_open(channel))
+            return error("bus not open: " + channel);
+        if (device_id < 0 || device_id > 127 || param_id < 0)
+            return error("invalid device_id or param_id");
+
+        can_frame f{};
+        f.can_id  = make_arb_id(FUNC_RECEIVE_SDO, static_cast<uint8_t>(device_id));
+        f.can_dlc = 8;
+        f.data[0] = SDO_CMD_READ;
+        f.data[1] = static_cast<uint8_t>(param_id & 0xFF);
+        f.data[2] = static_cast<uint8_t>((param_id >> 8) & 0xFF);
+        std::memset(f.data + 3, 0, 5);
+
+        // Diagnostic sniff: captures every FUNC_TRANSMIT_SDO from this device across
+        // all retry attempts. If one-shots all time out but sniff is non-empty, frames
+        // arrived but the dispatcher didn't fire (bug). If sniff is empty, no response
+        // reached the host at all (TX loss or ESC not responding).
+        uint64_t sniff_id = generic_listener_.begin_sniff(
+            channel, static_cast<uint8_t>(device_id), FUNC_TRANSMIT_SDO);
+
+        static constexpr int MAX_SDO_ATTEMPTS = 3;
+        // Divide per-attempt budget so total time ≤ timeout_ms + 100 ms (fits the
+        // Python socket timeout of timeout + 1.0 s).
+        const int per_attempt_ms = std::max(100, timeout_ms / MAX_SDO_ATTEMPTS);
+        can_frame rx{};
+        bool rx_ok = false;
+
+        for (int attempt = 0; attempt < MAX_SDO_ATTEMPTS && !rx_ok; ++attempt) {
+            if (attempt > 0) std::this_thread::sleep_for(ms(50));
+
+            auto fut = generic_listener_.expect_once(channel,
+                static_cast<uint8_t>(device_id), FUNC_TRANSMIT_SDO);
+            bus_mgr_->send(channel, f);
+
+            if (fut.wait_for(ms(per_attempt_ms)) == std::future_status::ready) {
+                rx    = fut.get();
+                rx_ok = true;
+            } else {
+                generic_listener_.cancel_stale(channel,
+                    static_cast<uint8_t>(device_id), FUNC_TRANSMIT_SDO);
+                fprintf(stderr,
+                    "[GENERIC_SDO_READ] attempt %d/%d TIMEOUT: device=%d channel=%s "
+                    "param=0x%04X arb_tx=0x%03X arb_rx=0x%03X per_attempt=%dms\n",
+                    attempt + 1, MAX_SDO_ATTEMPTS, device_id, channel.c_str(), param_id,
+                    (FUNC_RECEIVE_SDO << 7) | device_id,
+                    (FUNC_TRANSMIT_SDO << 7) | device_id,
+                    per_attempt_ms);
+            }
+        }
+
+        auto sniff_frames = generic_listener_.end_sniff(sniff_id);
+
+        if (!rx_ok) {
+            const char* diag = sniff_frames.empty()
+                ? "no FUNC_TRANSMIT_SDO frames seen on bus — TX loss or ESC not responding"
+                : "SDO response frames arrived but one-shot was not fulfilled — dispatcher bug";
+            fprintf(stderr,
+                "[GENERIC_SDO_READ] FAILED after %d attempts: device=%d channel=%s "
+                "param=0x%04X — %s (sniff captured %zu frames)\n",
+                MAX_SDO_ATTEMPTS, device_id, channel.c_str(), param_id,
+                diag, sniff_frames.size());
+            return json{{"type","SDO_READ_RESULT"},{"id",id},{"status","TIMEOUT"},
+                        {"sniff_count",(int)sniff_frames.size()}}.dump();
+        }
+
+        // Production firmware: 8-byte response, value at bytes 4-7.
+        // Commissioning ELF v3.0.0: 4-byte response, value at bytes 0-3.
+        uint8_t vbytes[4] = {};
+        if (rx.can_dlc >= 8 && rx.data[0] == SDO_READ_RESP) {
+            std::memcpy(vbytes, rx.data + 4, 4);
+        } else if (rx.can_dlc >= 4) {
+            std::memcpy(vbytes, rx.data, 4);
+        } else {
+            return json{{"type","SDO_READ_RESULT"},{"id",id},{"status","BAD_RESPONSE"}}.dump();
+        }
+
+        uint32_t u32 = 0; float f32 = 0.0f; int32_t i32 = 0;
+        std::memcpy(&u32, vbytes, 4);
+        std::memcpy(&f32, vbytes, 4);
+        std::memcpy(&i32, vbytes, 4);
+
+        return json{{"type","SDO_READ_RESULT"},{"id",id},{"status","OK"},
+                    {"value_u32",u32},{"value_f32",f32},{"value_i32",i32}}.dump();
+    }
+
+    if (type == "WAIT_HEARTBEAT") {
+        std::string channel  = req.value("channel", "");
+        int         device_id = req.value("device_id", -1);
+        int         timeout_ms = req.value("timeout_ms", 3000);
+
+        if (!bus_mgr_->is_open(channel))
+            return error("bus not open: " + channel);
+        if (device_id < 0 || device_id > 127)
+            return error("invalid device_id");
+
+        auto fut = generic_listener_.expect_once(channel,
+            static_cast<uint8_t>(device_id), FUNC_HEARTBEAT);
+
+        auto stat = fut.wait_for(ms(timeout_ms));
+        if (stat != std::future_status::ready) {
+            generic_listener_.cancel_stale(channel,
+                static_cast<uint8_t>(device_id), FUNC_HEARTBEAT);
+            return json{{"type","HEARTBEAT_RESULT"},{"id",id},{"status","TIMEOUT"}}.dump();
+        }
+        can_frame hb = fut.get();
+        uint8_t  mode = (hb.can_dlc >= 1) ? hb.data[0] : 0;
+        uint32_t err  = 0;
+        if (hb.can_dlc >= 5) std::memcpy(&err, hb.data + 1, 4);
+        return json{{"type","HEARTBEAT_RESULT"},{"id",id},{"status","OK"},
+                    {"mode",mode},{"error",err}}.dump();
+    }
+
+    if (type == "SNIFF_BUS") {
+        std::string channel    = req.value("channel", "");
+        int         duration_ms = req.value("duration_ms", 3000);
+        if (duration_ms > 30000) duration_ms = 30000;
+
+        if (!bus_mgr_->is_open(channel))
+            return error("bus not open: " + channel);
+
+        uint64_t sniff_id = generic_listener_.begin_sniff(channel);
+        std::this_thread::sleep_for(ms(duration_ms));
+        auto frames = generic_listener_.end_sniff(sniff_id);
+
+        json frames_arr = json::array();
+        for (const auto& fr : frames) {
+            uint32_t arb = fr.can_id & CAN_EFF_MASK;
+            char hex[17] = {};
+            int dlc = (fr.can_dlc <= 8) ? fr.can_dlc : 8;
+            for (int i = 0; i < dlc; i++)
+                std::snprintf(hex + i * 2, 3, "%02x", fr.data[i]);
+            frames_arr.push_back(json{
+                {"device_id", get_device_id(arb)},
+                {"func_id",   get_func_id(arb)},
+                {"dlc",       dlc},
+                {"data",      hex}
+            });
+        }
+        return json{{"type","SNIFF_RESULT"},{"id",id},{"status","OK"},
+                    {"frames",frames_arr}}.dump();
+    }
+
+    if (type == "SEND_NMT") {
+        std::string channel  = req.value("channel", "");
+        int         device_id = req.value("device_id", -1);
+        int         mode      = req.value("mode", -1);
+
+        if (!bus_mgr_->is_open(channel))
+            return error("bus not open: " + channel);
+        if (device_id < 0 || device_id > 127 || mode < 0 || mode > 255)
+            return error("invalid device_id or mode");
+
+        can_frame f{};
+        f.can_id  = make_arb_id(FUNC_NMT, static_cast<uint8_t>(device_id));
+        f.can_dlc = 2;
+        f.data[0] = static_cast<uint8_t>(mode);
+        f.data[1] = static_cast<uint8_t>(device_id);
+        bus_mgr_->send(channel, f);
+        return ack();
+    }
+
+    if (type == "SEND_FLASH_STORE") {
+        std::string channel  = req.value("channel", "");
+        int         device_id = req.value("device_id", -1);
+
+        if (!bus_mgr_->is_open(channel))
+            return error("bus not open: " + channel);
+        if (device_id < 0 || device_id > 127)
+            return error("invalid device_id");
+
+        can_frame f{};
+        f.can_id  = make_arb_id(FUNC_FLASH, static_cast<uint8_t>(device_id));
+        f.can_dlc = 1;
+        f.data[0] = 0x01;
+        bus_mgr_->send(channel, f);
+        // Flash write takes ~150 ms; wait 300 ms to ensure completion.
+        std::this_thread::sleep_for(ms(300));
+        return ack();
+    }
+
+    if (type == "FEED_WATCHDOG") {
+        std::string channel  = req.value("channel", "");
+        int         device_id = req.value("device_id", -1);
+
+        if (!bus_mgr_->is_open(channel))
+            return error("bus not open: " + channel);
+        if (device_id < 0 || device_id > 127)
+            return error("invalid device_id");
+
+        // Send NMT IDLE instead of FUNC_HEARTBEAT.
+        // FUNC_HEARTBEAT (0x700+id) is the motor's OWN outgoing arb_id — sending on it
+        // from the host causes bus collisions.  NMT uses 0x000+id, which is safe.
+        // The firmware's watchdog only fires in motion modes (not IDLE/DAMPING/DISABLED),
+        // so a true watchdog feed is unnecessary here; NMT IDLE keeps the motor responsive.
+        can_frame f{};
+        f.can_id  = make_arb_id(FUNC_NMT, static_cast<uint8_t>(device_id));
+        f.can_dlc = 2;
+        f.data[0] = static_cast<uint8_t>(MotorMode::MODE_IDLE);
+        f.data[1] = static_cast<uint8_t>(device_id);
+        bus_mgr_->send(channel, f);
+        return ack();
+    }
+
+    if (type == "CALIBRATE_DEVICE") {
+        std::string channel  = req.value("channel", "");
+        int         device_id = req.value("device_id", -1);
+        int         timeout_ms = req.value("timeout_ms", 90000);
+
+        if (!bus_mgr_->is_open(channel))
+            return error("bus not open: " + channel);
+        if (device_id < 0 || device_id > 127)
+            return error("invalid device_id");
+
+        // Phase 1: Wait for the motor to enter calibration mode (up to 5 s).
+        // IMPORTANT: register the future BEFORE sending NMT. The motor sends its
+        // mode=CALIBRATION heartbeat ACK within ~0.2 ms of receiving the NMT command.
+        // If the future is registered after NMT is sent, the control loop (5 ms period)
+        // may drain that heartbeat before the future exists, causing a permanent miss —
+        // the motor's updateService() is blocked for the full ~15 s calibration sequence
+        // and sends no further CALIBRATION heartbeats after the initial NMT ACK.
+        {
+            auto phase1_end = Clock::now() + ms(5000);
+            bool entered = false;
+            bool nmt_sent = false;
+
+            while (!entered && Clock::now() < phase1_end) {
+                int rem = static_cast<int>(
+                    std::chrono::duration_cast<ms>(phase1_end - Clock::now()).count());
+                if (rem <= 0) break;
+
+                // Register future first, THEN send NMT on the first iteration.
+                auto fut = generic_listener_.expect_once(channel,
+                    static_cast<uint8_t>(device_id), FUNC_HEARTBEAT);
+
+                if (!nmt_sent) {
+                    can_frame nmt{};
+                    nmt.can_id  = make_arb_id(FUNC_NMT, static_cast<uint8_t>(device_id));
+                    nmt.can_dlc = 2;
+                    nmt.data[0] = MODE_CALIBRATION;
+                    nmt.data[1] = static_cast<uint8_t>(device_id);
+                    bus_mgr_->send(channel, nmt);
+                    nmt_sent = true;
+                }
+
+                if (fut.wait_for(ms(std::min(rem, 1000))) != std::future_status::ready) {
+                    generic_listener_.cancel_stale(channel,
+                        static_cast<uint8_t>(device_id), FUNC_HEARTBEAT);
+                    continue;
+                }
+                can_frame hb = fut.get();
+                if (hb.can_dlc >= 1 && hb.data[0] == MODE_CALIBRATION)
+                    entered = true;
+            }
+            if (!entered) {
+                return json{{"type","CALIBRATE_RESULT"},{"id",id},{"status","TIMEOUT"},
+                            {"error_code",0}}.dump();
+            }
+        }
+
+        // Phase 2: Wait for calibration to complete — motor returns to IDLE or DISABLED.
+        // The motor's main loop is blocked inside calibration (~15 s) and sends no
+        // heartbeats during that time.  After calibration it resumes heartbeats every
+        // ~500 ms.  As a safety net, once the expected calibration window has passed
+        // (~20 s) we send NMT IDLE every second to provoke a heartbeat ACK so Phase 2
+        // doesn't rely purely on autonomous heartbeats.
+        auto deadline   = Clock::now() + ms(timeout_ms);
+        auto cal_expected_done = Clock::now() + ms(20000);
+        while (Clock::now() < deadline) {
+            int remaining = static_cast<int>(
+                std::chrono::duration_cast<ms>(deadline - Clock::now()).count());
+            if (remaining <= 0) break;
+
+            auto fut = generic_listener_.expect_once(channel,
+                static_cast<uint8_t>(device_id), FUNC_HEARTBEAT);
+            auto stat = fut.wait_for(ms(std::min(remaining, 1000)));
+
+            if (stat != std::future_status::ready) {
+                generic_listener_.cancel_stale(channel,
+                    static_cast<uint8_t>(device_id), FUNC_HEARTBEAT);
+                // Past the expected calibration window — nudge the motor with NMT IDLE
+                // to provoke a heartbeat ACK revealing its current mode.
+                if (Clock::now() > cal_expected_done) {
+                    can_frame nmt_idle{};
+                    nmt_idle.can_id  = make_arb_id(FUNC_NMT, static_cast<uint8_t>(device_id));
+                    nmt_idle.can_dlc = 2;
+                    nmt_idle.data[0] = MODE_IDLE;
+                    nmt_idle.data[1] = static_cast<uint8_t>(device_id);
+                    bus_mgr_->send(channel, nmt_idle);
+                }
+                continue;
+            }
+
+            can_frame hb = fut.get();
+            uint8_t  hb_mode = (hb.can_dlc >= 1) ? hb.data[0] : 0xFF;
+            uint32_t hb_err  = 0;
+            if (hb.can_dlc >= 5) std::memcpy(&hb_err, hb.data + 1, 4);
+
+            if (hb_err & ERROR_CALIBRATION_ERROR) {
+                return json{{"type","CALIBRATE_RESULT"},{"id",id},{"status","ERROR"},
+                            {"error_code",hb_err}}.dump();
+            }
+            if (hb_mode == MODE_IDLE || hb_mode == MODE_DISABLED) {
+                return json{{"type","CALIBRATE_RESULT"},{"id",id},{"status","OK"},
+                            {"error_code",hb_err}}.dump();
+            }
+        }
+        return json{{"type","CALIBRATE_RESULT"},{"id",id},{"status","TIMEOUT"}}.dump();
+    }
+
+    if (type == "DISABLE_SLOW_POLL") {
+        std::string name = req.value("joint_name", "");
+        auto it = actuator_by_name_.find(name);
+        if (it == actuator_by_name_.end()) return error("unknown joint: " + name);
+        it->second->set_slow_poll_enabled(false);
+        return ack();
+    }
+
+    if (type == "ENABLE_SLOW_POLL") {
+        std::string name = req.value("joint_name", "");
+        auto it = actuator_by_name_.find(name);
+        if (it == actuator_by_name_.end()) return error("unknown joint: " + name);
+        it->second->set_slow_poll_enabled(true);
+        return ack();
+    }
+
+    if (type == "DISABLE_ALL_SLOW_POLL") {
+        for (auto& a : actuators_) a->set_slow_poll_enabled(false);
+        return ack();
+    }
+
+    if (type == "ENABLE_ALL_SLOW_POLL") {
+        for (auto& a : actuators_) a->set_slow_poll_enabled(true);
+        return ack();
+    }
+
+    if (type == "WRITE_GAINS") {
+        std::string name = req.value("joint_name", "");
+        auto it = actuator_by_name_.find(name);
+        if (it == actuator_by_name_.end()) return error("unknown joint: " + name);
+        float kp           = req.value("position_kp",  0.0f);
+        float ki           = req.value("position_ki",  0.0f);
+        float velocity_kp  = req.value("velocity_kp",  0.0f);
+        float torque_limit = req.value("torque_limit", 0.0f);
+        bool ok = it->second->write_gains(*bus_mgr_, kp, ki, velocity_kp, torque_limit);
+        return ok ? ack() : error("write_gains failed for " + name);
+    }
+
+    return error("unknown command type: " + type);
+}
