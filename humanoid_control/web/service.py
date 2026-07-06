@@ -303,6 +303,40 @@ class ControlService:
                 self._cal_captures[joint] = {"lower": None, "upper": None}
         return {"joint": joint, "captured": self._cal_captures.get(joint, {})}
 
+    # Small tolerance (rad) so a joint resting exactly at a hardstop isn't flagged by noise.
+    _CAL_LIMIT_TOL = 0.05
+
+    def cal_check_limits(self) -> list[dict]:
+        """Return the joints whose live position is OUTSIDE their configured limits (or offline).
+        Empty list ⇒ every joint's ESC offset looks valid."""
+        bad: list[dict] = []
+        for i, name in enumerate(self.contract.joint_order):
+            st = self.client.get_cached_joint_state(name)
+            state = (st or {}).get("state") or (st or {}).get("joint_state")
+            pos = (st or {}).get("position")
+            lo = float(self.contract.pos_limit_lower[i])
+            hi = float(self.contract.pos_limit_upper[i])
+            if st is None or state in (None, "OFFLINE") or pos is None:
+                bad.append({"joint": name, "reason": "offline", "position": None, "min": lo, "max": hi})
+            elif pos < lo - self._CAL_LIMIT_TOL or pos > hi + self._CAL_LIMIT_TOL:
+                bad.append({"joint": name, "reason": "out_of_limits", "position": pos, "min": lo, "max": hi})
+        return bad
+
+    def cal_mark_complete(self) -> dict:
+        """Operator override: mark ALL joints calibrated without re-running per-joint calibration.
+        Only allowed when every joint's live position is within its configured limits — a sanity
+        check that the ESC offsets are still valid (e.g. the app/session restarted but the robot
+        stayed powered). Refuses (marks nothing) if any joint is out of limits or offline."""
+        if self._state != SessionState.CONNECTED:
+            raise ControlError(f"Connect first (state={self._state.value}).", 409)
+        bad = self.cal_check_limits()
+        if bad:
+            return {"marked": False, "out_of_limits": bad}
+        with self._lock:
+            self._calibrated = {n: True for n in self._joints}
+        _log.info("calibration marked complete by operator override (all joints within limits).")
+        return {"marked": True, "out_of_limits": []}
+
     def disarm(self) -> None:
         with self._lock:
             self._armed = False

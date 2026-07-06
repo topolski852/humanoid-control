@@ -72,6 +72,7 @@ export const api = {
     request(`/api/calibrate/${joint}/capture`, { method: 'POST', body: JSON.stringify({ which }) }),
   calApply: (joint) => request(`/api/calibrate/${joint}/apply`, { method: 'POST' }),
   calReset: (joint) => request(`/api/calibrate/${joint}/reset`, { method: 'POST' }),
+  calComplete: () => request('/api/calibrate/complete', { method: 'POST' }),
 
   // manual control + saved poses (values in degrees)
   getPoses: () => request('/api/poses'),

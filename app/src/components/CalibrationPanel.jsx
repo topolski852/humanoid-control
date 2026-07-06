@@ -16,6 +16,7 @@ export default function CalibrationPanel() {
   const [error, setError] = useState(null)
 
   const [connBusy, setConnBusy] = useState(null)
+  const [showComplete, setShowComplete] = useState(false)
   const connected = t.state === 'CONNECTED'   // calibration requires an active connection
   const motion = t.state === 'HOLDING' || t.state === 'RUNNING'
   const calCount = t.joints.filter((j) => j.calibrated).length
@@ -24,6 +25,11 @@ export default function CalibrationPanel() {
     setConnBusy(action); setError(null)
     try { await fn() } catch (e) { setError(e.message) } finally { setConnBusy(null) }
   }
+
+  const markComplete = () => conn('complete', async () => {
+    const d = await api.calComplete()
+    if (d.cal?.marked) setShowComplete(false)
+  })
 
   async function act(joint, action, fn) {
     setBusy(`${joint}:${action}`); setError(null)
@@ -87,6 +93,18 @@ export default function CalibrationPanel() {
         The joint is zero-torque (movable by hand) during calibration.
       </div>
 
+      {/* Override: already calibrated but the session/app restarted (robot stayed powered). */}
+      {connected && calCount < t.joints.length && (
+        <div className="flex items-center gap-2 flex-wrap">
+          <button className="btn-ghost text-xs" onClick={() => setShowComplete(true)}>
+            Mark calibration complete…
+          </button>
+          <span className="text-[11px] text-gray-500">
+            already calibrated this power cycle? (e.g. the app restarted)
+          </span>
+        </div>
+      )}
+
       <div className="space-y-1.5">
         {t.joints.map((j) => {
           const cap = j.cal_captured || {}
@@ -141,6 +159,62 @@ export default function CalibrationPanel() {
       {error && (
         <div className="text-xs text-danger bg-danger/10 border border-danger/30 rounded-lg px-3 py-2">{error}</div>
       )}
+
+      {showComplete && (
+        <CompleteModal busy={connBusy === 'complete'} onConfirm={markComplete}
+          onClose={() => setShowComplete(false)} />
+      )}
+    </div>
+  )
+}
+
+// Operator-override modal: mark all joints calibrated iff every joint is within its limits.
+// The Close button is always available; "Mark complete" is enabled only when all joints pass.
+const LIMIT_TOL = 0.05   // rad — matches the backend tolerance
+function CompleteModal({ busy, onConfirm, onClose }) {
+  const t = useTelemetry()
+  const bad = t.joints.filter((j) =>
+    !j.online || j.position == null || !j.limit ||
+    j.position < j.limit.min - LIMIT_TOL || j.position > j.limit.max + LIMIT_TOL)
+  const allGood = t.joints.length > 0 && bad.length === 0
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4" onClick={onClose}>
+      <div className="card p-5 max-w-md w-full space-y-4" onClick={(e) => e.stopPropagation()}>
+        <div className="text-warn font-semibold">⚠ Mark calibration complete</div>
+        <p className="text-xs text-gray-300">
+          This marks <b>all joints calibrated without re-running calibration</b>. Only do this if the
+          offsets are unchanged since your last calibration (e.g. the app/session restarted but the
+          robot stayed powered). If the robot was power-cycled, recalibrate instead.
+        </p>
+
+        {allGood ? (
+          <div className="text-xs text-online bg-online/10 border border-online/30 rounded-lg px-3 py-2">
+            All joints are within their configured limits — the offsets look valid. You may proceed
+            (this still bypasses a fresh calibration).
+          </div>
+        ) : (
+          <div className="text-xs text-danger bg-danger/10 border border-danger/30 rounded-lg px-3 py-2 space-y-1">
+            <div>These joints are <b>outside their limits</b> (or offline) and must be recalibrated —
+              recommend recalibrating <b>all</b> joints:</div>
+            <ul className="font-mono space-y-0.5">
+              {bad.map((j) => (
+                <li key={j.index}>
+                  • {j.name.replace(/_joint$/, '')}: {j.online && j.position != null ? `${deg(j.position, 1)}°` : 'offline'}
+                  {j.limit && <span className="text-gray-500"> (limits {deg(j.limit.min, 0)}…{deg(j.limit.max, 0)}°)</span>}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        <div className="flex flex-col gap-2">
+          <button className="btn-success" disabled={!allGood || busy} onClick={onConfirm}>
+            {busy ? 'Marking…' : 'Mark calibration complete'}
+          </button>
+          <button className="btn-ghost" onClick={onClose}>Close</button>
+        </div>
+      </div>
     </div>
   )
 }

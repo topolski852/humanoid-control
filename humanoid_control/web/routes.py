@@ -203,6 +203,16 @@ def cal_reset(request: Request, joint: str):
     return _cal_result(request, data)
 
 
+@router.post("/api/calibrate/complete", response_model=None)
+async def cal_complete(request: Request):
+    """Operator override: mark all joints calibrated if every one is within limits."""
+    try:
+        data = await _blocking(_service(request).cal_mark_complete)
+    except ControlError as exc:
+        return _err(str(exc), exc.status)
+    return _cal_result(request, data)
+
+
 # ── manual control: saved poses + capture-and-hold ────────────────────────────
 
 class PoseBody(BaseModel):
