@@ -1,4 +1,5 @@
 import { useTelemetry } from '../context/TelemetryContext'
+import { deg } from '../format'
 
 // Lightweight two-column leg view: each joint a pill colored by health, with its live angle.
 function jointTone(j) {
@@ -17,7 +18,7 @@ function Column({ title, joints }) {
           <div key={j.index} className={`flex items-center justify-between px-3 py-1.5 rounded-lg border text-xs ${jointTone(j)}`}>
             <span>{j.name.replace(/^(left|right)_/, '').replace(/_joint$/, '')}</span>
             <span className="font-mono tabular-nums">
-              {j.position == null ? '—' : Number(j.position).toFixed(2)}
+              {deg(j.position, 0)}°{!j.calibrated && <span className="text-warn"> ⚠</span>}
             </span>
           </div>
         ))}

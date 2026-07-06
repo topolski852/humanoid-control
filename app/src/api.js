@@ -65,4 +65,22 @@ export const api = {
     request('/api/run_policy', { method: 'POST', body: JSON.stringify({ checkpoint, command, ramp, seconds }) }),
   stop: () => request('/api/stop', { method: 'POST' }),
   estop: () => request('/api/estop', { method: 'POST' }),
+
+  // position_offset calibration (per joint)
+  calStart: (joint) => request(`/api/calibrate/${joint}/start`, { method: 'POST' }),
+  calCapture: (joint, which) =>
+    request(`/api/calibrate/${joint}/capture`, { method: 'POST', body: JSON.stringify({ which }) }),
+  calApply: (joint) => request(`/api/calibrate/${joint}/apply`, { method: 'POST' }),
+  calReset: (joint) => request(`/api/calibrate/${joint}/reset`, { method: 'POST' }),
+
+  // manual control + saved poses (values in degrees)
+  getPoses: () => request('/api/poses'),
+  savePose: (name, joints) =>
+    request(`/api/poses/${encodeURIComponent(name)}`, { method: 'PUT', body: JSON.stringify({ joints }) }),
+  deletePose: (name) => request(`/api/poses/${encodeURIComponent(name)}`, { method: 'DELETE' }),
+  getCurrentPose: () => request('/api/pose/current'),
+  captureHold: (ramp = 4.0) =>
+    request('/api/manual/capture_hold', { method: 'POST', body: JSON.stringify({ ramp }) }),
+  gotoPose: ({ pose = null, target = null, ramp = 4.0 }) =>
+    request('/api/manual/goto', { method: 'POST', body: JSON.stringify({ pose, target, ramp }) }),
 }

@@ -26,11 +26,12 @@ from enum import Enum
 
 import numpy as np
 
+from ..calibration import compute_offset
 from ..config import LegPolicyContract
 from ..interface import LegInterface
 from ..policy import ZeroPolicy, load_policy
 from ..runner import PolicyRunner
-from ..safety import EstopController
+from ..safety import EstopController, ramp_to_pose
 from ..base_state import UprightStubBaseState
 from ..daemon import DaemonClient
 
@@ -83,6 +84,12 @@ class ControlService:
         self._control_clients = 0
         self._last_heartbeat = 0.0
 
+        # Per-joint position_offset calibration. Reset to uncalibrated on every connect
+        # (a connect follows every power-up, and the encoder zero is lost on power-down).
+        self._joints = list(contract.joint_order)
+        self._calibrated: dict[str, bool] = {n: False for n in self._joints}
+        self._cal_captures: dict[str, dict] = {n: {"lower": None, "upper": None} for n in self._joints}
+
     # ── E-STOP controller lifecycle ──────────────────────────────────────────
     def _new_estop(self) -> EstopController:
         return EstopController(self.client, install_sigint=False, keyboard=False)
@@ -103,9 +110,12 @@ class ControlService:
         """Non-blocking snapshot from the telemetry cache (no UDP round-trip)."""
         joints = []
         for i, name in enumerate(self.contract.joint_order):
+            limit = {"min": float(self.contract.pos_limit_lower[i]),
+                     "max": float(self.contract.pos_limit_upper[i])}
             st = self.client.get_cached_joint_state(name)
             if st is None:
-                joints.append({"index": i, "name": name, "online": False})
+                joints.append({"index": i, "name": name, "online": False,
+                               "calibrated": self._calibrated.get(name, False), "limit": limit})
                 continue
             state = st.get("state") or st.get("joint_state")
             joints.append({
@@ -118,6 +128,9 @@ class ControlService:
                 "velocity": st.get("velocity"),
                 "torque": st.get("torque"),
                 "error": int(st.get("error", 0) or 0),
+                "calibrated": self._calibrated.get(name, False),
+                "cal_captured": dict(self._cal_captures.get(name, {})),
+                "limit": limit,
             })
         try:
             buses = self.client.get_interface_stats()
@@ -132,6 +145,7 @@ class ControlService:
             "deadman_ok": self.deadman_ok(),
             "control_clients": self._control_clients,
             "last_error": self._last_error,
+            "all_calibrated": self.all_calibrated(),
             "joints": joints,
             "buses": buses,
         }
@@ -166,6 +180,8 @@ class ControlService:
 
     # ── connection lifecycle (BLOCKING — call via executor) ──────────────────
     def connect(self) -> None:
+        """Connect = wake motors DISABLED→IDLE + apply config. Allowed from DISCONNECTED,
+        ESTOPPED, or ERROR (clears a latched E-STOP); refused only during active motion."""
         with self._lock:
             if self.is_motion_active():
                 raise ControlError("A motion session is active — stop it first.", 409)
@@ -181,14 +197,19 @@ class ControlService:
             self._armed = False
             self._last_error = None
             self._state = SessionState.CONNECTED
-        _log.info("connected: all %d leg joints online.", self.contract.num_joints)
+            # Fresh power-up ⇒ every joint's zero is stale ⇒ mark all uncalibrated.
+            self._calibrated = {n: False for n in self._joints}
+            self._cal_captures = {n: {"lower": None, "upper": None} for n in self._joints}
+        _log.info("connected: all %d leg joints online; calibration reset (uncalibrated).",
+                  self.contract.num_joints)
 
     def disconnect(self) -> None:
+        """Disconnect = motors → DISABLED (PWM off, silent)."""
         self.stop(wait=True)
         try:
-            self.legs.idle()
+            self.legs.disable()
         except Exception as exc:
-            _log.warning("idle on disconnect failed: %s", exc)
+            _log.warning("disable on disconnect failed: %s", exc)
         with self._lock:
             self._armed = False
             self._state = SessionState.DISCONNECTED
@@ -201,8 +222,86 @@ class ControlService:
                     f"Cannot arm from {self._state.value}; connect first.", 409)
             if self.estop.fired:
                 raise ControlError("E-STOP is latched — reconnect to clear.", 409)
+            uncal = [n for n in self._joints if not self._calibrated[n]]
+            if uncal:
+                raise ControlError(
+                    f"Calibrate all joints before arming — {len(uncal)} uncalibrated "
+                    f"(e.g. {uncal[0].replace('_joint','')}).", 409)
             self._armed = True
         _log.info("ARMED (operator present / robot supported).")
+
+    # ── position_offset calibration ──────────────────────────────────────────
+    def all_calibrated(self) -> bool:
+        return all(self._calibrated.values())
+
+    def _require_connected_idle(self, joint: str) -> None:
+        if joint not in self._calibrated:
+            raise ControlError(f"Unknown joint {joint!r}.", 404)
+        if self.is_motion_active():
+            raise ControlError("A motion session is active — stop it before calibrating.", 409)
+        if self._state not in (SessionState.CONNECTED,):
+            raise ControlError(f"Connect first (state={self._state.value}).", 409)
+        st = self.client.get_cached_joint_state(joint)
+        if st is None or (st.get("state") or st.get("joint_state")) in (None, "OFFLINE"):
+            raise ControlError(f"{joint.replace('_joint','')} is offline.", 409)
+
+    def cal_start(self, joint: str) -> dict:
+        """Begin calibrating one joint: IDLE it (hand-movable, zero torque) and zero its
+        position_offset so subsequent captures read RAW encoder position. No commanded motion."""
+        self._require_connected_idle(joint)
+        self.client.set_mode(joint, "IDLE")
+        self.client.apply_config(joint, {"position_offset": 0.0})
+        time.sleep(0.25)   # let the offset write + telemetry settle
+        with self._lock:
+            self._cal_captures[joint] = {"lower": None, "upper": None}
+            self._calibrated[joint] = False
+        _log.info("cal start %s (offset→0, IDLE).", joint)
+        return {"joint": joint, "captured": self._cal_captures[joint]}
+
+    def cal_capture(self, joint: str, which: str) -> dict:
+        """Capture the RAW position at the current hardstop (which='lower'|'upper')."""
+        if which not in ("lower", "upper"):
+            raise ControlError("which must be 'lower' or 'upper'.", 400)
+        self._require_connected_idle(joint)
+        pos = self.client.get_state(joint).get("position")
+        if pos is None:
+            raise ControlError(f"No position reading for {joint.replace('_joint','')}.", 409)
+        with self._lock:
+            self._cal_captures[joint][which] = float(pos)
+        _log.info("cal capture %s %s = %.5f rad", joint, which, pos)
+        return {"joint": joint, "which": which, "position": float(pos),
+                "captured": dict(self._cal_captures[joint])}
+
+    def cal_apply(self, joint: str) -> dict:
+        """Compute + write position_offset from the two captures; mark the joint calibrated."""
+        self._require_connected_idle(joint)
+        cap = self._cal_captures.get(joint, {})
+        lower, upper = cap.get("lower"), cap.get("upper")
+        if lower is None or upper is None:
+            raise ControlError("Capture both lower and upper hardstops first.", 409)
+        i = self.contract.index_of(joint)
+        min_rad = float(self.contract.pos_limit_lower[i])
+        max_rad = float(self.contract.pos_limit_upper[i])
+        res = compute_offset(lower, upper, min_rad, max_rad)
+        if res["flipped"]:
+            raise ControlError(
+                "Upper hardstop read below lower — captures swapped or gear sign wrong. "
+                "Re-capture (lower stop first); not applying.", 409)
+        self.client.apply_config(joint, {"position_offset": res["position_offset"]})
+        time.sleep(0.1)
+        with self._lock:
+            self._calibrated[joint] = True
+            self._cal_captures[joint] = {"lower": None, "upper": None}
+        _log.info("cal apply %s: offset=%.5f range_ok=%s (err=%.4f rad)",
+                  joint, res["position_offset"], res["range_ok"], res["range_error_rad"])
+        return {"joint": joint, "calibrated": True, **res}
+
+    def cal_reset(self, joint: str) -> dict:
+        """Discard captures for a joint (does not touch the ESC offset)."""
+        with self._lock:
+            if joint in self._cal_captures:
+                self._cal_captures[joint] = {"lower": None, "upper": None}
+        return {"joint": joint, "captured": self._cal_captures.get(joint, {})}
 
     def disarm(self) -> None:
         with self._lock:
@@ -220,23 +319,27 @@ class ControlService:
         self._start_session("policy", policy, command=cmd, ramp=ramp, seconds=seconds,
                             checkpoint=checkpoint)
 
+    def _preflight_motion(self) -> None:
+        """Common gate for any motion session (caller holds self._lock). By the time a joint
+        can be armed it is calibrated, so calibration is enforced at arm(), not re-checked here."""
+        if self._state != SessionState.CONNECTED:
+            raise ControlError(
+                f"Cannot start motion from {self._state.value}; connect + arm first.", 409)
+        if not self._armed:
+            raise ControlError("Not armed — set 'I am present' before any motion.", 409)
+        if self.estop.fired:
+            raise ControlError("E-STOP is latched — reconnect to clear.", 409)
+        if not self.client.is_running():
+            raise ControlError("Daemon not running — no telemetry.", 503)
+        if not self.deadman_ok():
+            raise ControlError(
+                "No live deadman connection — open the control page and keep it focused.", 409)
+        if self._session_thread and self._session_thread.is_alive():
+            raise ControlError("A motion session is already running.", 409)
+
     def _start_session(self, kind, policy, *, command, ramp, seconds, checkpoint=None) -> None:
         with self._lock:
-            if self._state != SessionState.CONNECTED:
-                raise ControlError(
-                    f"Cannot start motion from {self._state.value}; connect + arm first.", 409)
-            if not self._armed:
-                raise ControlError("Not armed — set 'I am present' before any motion.", 409)
-            if self.estop.fired:
-                raise ControlError("E-STOP is latched — reconnect to clear.", 409)
-            if not self.client.is_running():
-                raise ControlError("Daemon not running — no telemetry.", 503)
-            if not self.deadman_ok():
-                raise ControlError(
-                    "No live deadman connection — open the control page and keep it focused.", 409)
-            if self._session_thread and self._session_thread.is_alive():
-                raise ControlError("A motion session is already running.", 409)
-
+            self._preflight_motion()
             self._stop_evt.clear()
             new_state = SessionState.HOLDING if kind == "hold" else SessionState.RUNNING
             self._state = new_state
@@ -300,6 +403,94 @@ class ControlService:
                 self._state = SessionState.ESTOPPED
             elif self._state in _MOTION_STATES:
                 self._state = SessionState.CONNECTED
+
+    # ── manual control (capture-and-hold / go-to-pose) ───────────────────────
+    def current_pose_rad(self) -> dict[str, float]:
+        """Live position (rad) of every joint, canonical order. Raises if any is offline."""
+        out: dict[str, float] = {}
+        for name in self.contract.joint_order:
+            st = self.client.get_cached_joint_state(name)
+            state = (st or {}).get("state") or (st or {}).get("joint_state")
+            if st is None or state in (None, "OFFLINE") or st.get("position") is None:
+                raise ControlError(f"{name.replace('_joint','')} offline — cannot read pose.", 409)
+            out[name] = float(st["position"])
+        return out
+
+    def start_manual_hold(self, targets_rad: dict[str, float], *,
+                          ramp: float = 4.0, seconds: float | None = None) -> None:
+        """Ramp the named joints to target positions (rad) and hold. Non-named joints stay IDLE.
+        Motion — same gates as policy. Used by capture-and-hold (all 12 = current pose) and
+        go-to-pose (a saved pose, possibly a subset)."""
+        targets_rad = {n: float(v) for n, v in (targets_rad or {}).items()
+                       if n in self.contract.joint_order}
+        if not targets_rad:
+            raise ControlError("No valid target joints to hold.", 400)
+        with self._lock:
+            self._preflight_motion()
+            self._stop_evt.clear()
+            self._state = SessionState.HOLDING
+            t = threading.Thread(target=self._manual_worker, args=(targets_rad, ramp, seconds),
+                                 name="motion-manual", daemon=True)
+            self._session_thread = t
+            t.start()
+        _log.info("manual hold started: %d joints (ramp=%.1fs).", len(targets_rad), ramp)
+
+    def _manual_worker(self, targets: dict[str, float], ramp: float, seconds) -> None:
+        joints = [n for n in self.contract.joint_order if n in targets]   # canonical order
+        idx = [self.contract.index_of(n) for n in joints]
+        lo = self.contract.pos_limit_lower[idx]
+        hi = self.contract.pos_limit_upper[idx]
+        goal = np.clip(np.array([targets[n] for n in joints], dtype=np.float32), lo, hi)
+
+        def send(vec) -> None:
+            for n, v in zip(joints, vec):
+                self.client.set_position(n, float(v))
+
+        def read_current():
+            out = np.zeros(len(joints), dtype=np.float32)
+            for k, n in enumerate(joints):
+                st = self.client.get_cached_joint_state(n)
+                out[k] = st["position"] if st and st.get("position") is not None else np.nan
+            return out
+
+        def abort() -> bool:
+            return self.estop.fired or self._stop_evt.is_set()
+
+        moved = False
+        try:
+            self.legs.check_health()
+            start = read_current()
+            if np.any(np.isnan(start)):
+                raise RuntimeError("could not read all joint positions")
+            for n in joints:
+                self.client.set_mode(n, "POSITION")
+            send(start)                      # seed hold at current (no jerk)
+            time.sleep(0.05)
+            moved = True
+            ctrl_hz = 1.0 / self.contract.control_dt
+            if not ramp_to_pose(start=start, goal=goal, send=send, duration_s=ramp,
+                                rate_hz=min(ctrl_hz, 100.0), should_abort=abort):
+                return
+            t0 = time.monotonic()
+            while not abort():
+                if seconds is not None and (time.monotonic() - t0) >= seconds:
+                    break
+                self.legs.check_health()
+                send(goal)
+                time.sleep(0.1)
+        except Exception as exc:
+            _log.error("manual session error: %s", exc)
+            with self._lock:
+                self._last_error = f"manual: {exc}"
+            self.trigger_estop("manual-fault")
+        finally:
+            try:
+                for n in joints:
+                    self.client.set_mode(n, "IDLE")
+            except Exception as exc:
+                _log.warning("manual idle failed: %s", exc)
+            self._on_session_end()
+            _log.info("manual session ended (moved=%s).", moved)
 
     def stop(self, *, wait: bool = True) -> None:
         """Graceful stop: signal the session to exit its loop (legs → IDLE), not an E-STOP."""

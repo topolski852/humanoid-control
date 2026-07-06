@@ -17,6 +17,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from ..config import REPO_ROOT
+from ..poses import DEG, delete_pose, load_poses, pose_names, resolve_pose, save_pose
 from .service import ControlError, ControlService
 
 router = APIRouter(tags=["control"])
@@ -58,6 +59,10 @@ class RunBody(BaseModel):
     command: list[float] | None = None
     ramp: float = 5.0
     seconds: float | None = None
+
+
+class CaptureBody(BaseModel):
+    which: str   # "lower" | "upper"
 
 
 # ── read-only ────────────────────────────────────────────────────────────────
@@ -154,3 +159,139 @@ def estop(request: Request):
     # Must be instant and never blocked — fires the priority port (9002).
     _service(request).trigger_estop("web")
     return _ok(_service(request).telemetry_snapshot())
+
+
+# ── position_offset calibration ───────────────────────────────────────────────
+# Flow per joint: start (offset→0, IDLE) → move to lower stop → capture lower →
+# move to upper stop → capture upper → apply (compute + write offset). No commanded
+# motion — the user hand-moves the IDLE joint.
+
+def _cal_result(request: Request, data: dict):
+    return _ok({**_service(request).telemetry_snapshot(), "cal": data})
+
+
+@router.post("/api/calibrate/{joint}/start", response_model=None)
+async def cal_start(request: Request, joint: str):
+    try:
+        data = await _blocking(_service(request).cal_start, joint)
+    except ControlError as exc:
+        return _err(str(exc), exc.status)
+    return _cal_result(request, data)
+
+
+@router.post("/api/calibrate/{joint}/capture", response_model=None)
+async def cal_capture(request: Request, joint: str, body: CaptureBody):
+    try:
+        data = await _blocking(_service(request).cal_capture, joint, body.which)
+    except ControlError as exc:
+        return _err(str(exc), exc.status)
+    return _cal_result(request, data)
+
+
+@router.post("/api/calibrate/{joint}/apply", response_model=None)
+async def cal_apply(request: Request, joint: str):
+    try:
+        data = await _blocking(_service(request).cal_apply, joint)
+    except ControlError as exc:
+        return _err(str(exc), exc.status)
+    return _cal_result(request, data)
+
+
+@router.post("/api/calibrate/{joint}/reset", response_model=None)
+def cal_reset(request: Request, joint: str):
+    data = _service(request).cal_reset(joint)
+    return _cal_result(request, data)
+
+
+# ── manual control: saved poses + capture-and-hold ────────────────────────────
+
+class PoseBody(BaseModel):
+    joints: dict[str, float]                 # key (joint type or name) → degrees
+
+
+class ManualHoldBody(BaseModel):
+    ramp: float = 4.0
+    seconds: float | None = None
+
+
+class GotoBody(BaseModel):
+    pose: str | None = None                  # a saved pose name …
+    target: dict[str, float] | None = None   # … or an explicit {joint_name: degrees}
+    ramp: float = 4.0
+    seconds: float | None = None
+
+
+def _poses_payload() -> dict:
+    data = load_poses()
+    out = []
+    for name in pose_names(data):
+        targets, skipped = resolve_pose(data, name)                 # rad
+        out.append({
+            "name": name,
+            "joints": {k: v for k, v in data["poses"][name].items() if not k.startswith("_")},
+            "resolved_deg": {n: v / DEG for n, v in targets.items()},
+            "skipped": [s.replace("_joint", "") for s in skipped],
+        })
+    return {"poses": out, "always_skip": data.get("_meta", {}).get("always_skip", [])}
+
+
+@router.get("/api/poses", response_model=None)
+def get_poses(request: Request):
+    return _ok(_poses_payload())
+
+
+@router.put("/api/poses/{name}", response_model=None)
+def put_pose(request: Request, name: str, body: PoseBody):
+    try:
+        save_pose(name, body.joints)
+    except ValueError as exc:
+        return _err(str(exc), 400)
+    return _ok(_poses_payload())
+
+
+@router.delete("/api/poses/{name}", response_model=None)
+def del_pose(request: Request, name: str):
+    try:
+        delete_pose(name)
+    except KeyError as exc:
+        return _err(str(exc), 404)
+    return _ok(_poses_payload())
+
+
+@router.get("/api/pose/current", response_model=None)
+def current_pose(request: Request):
+    try:
+        rad = _service(request).current_pose_rad()
+    except ControlError as exc:
+        return _err(str(exc), exc.status)
+    return _ok({"joints_deg": {n: v / DEG for n, v in rad.items()}})
+
+
+@router.post("/api/manual/capture_hold", response_model=None)
+async def manual_capture_hold(request: Request, body: ManualHoldBody):
+    svc = _service(request)
+    try:
+        targets = await _blocking(svc.current_pose_rad)             # all 12, rad
+        await _blocking(lambda: svc.start_manual_hold(targets, ramp=body.ramp, seconds=body.seconds))
+    except ControlError as exc:
+        return _err(str(exc), exc.status)
+    return _ok(svc.telemetry_snapshot())
+
+
+@router.post("/api/manual/goto", response_model=None)
+async def manual_goto(request: Request, body: GotoBody):
+    svc = _service(request)
+    if body.pose:
+        try:
+            targets, _ = resolve_pose(load_poses(), body.pose)      # rad
+        except KeyError as exc:
+            return _err(str(exc), 404)
+    elif body.target:
+        targets = {n: float(v) * DEG for n, v in body.target.items()}
+    else:
+        return _err("provide 'pose' or 'target'", 400)
+    try:
+        await _blocking(lambda: svc.start_manual_hold(targets, ramp=body.ramp, seconds=body.seconds))
+    except ControlError as exc:
+        return _err(str(exc), exc.status)
+    return _ok(svc.telemetry_snapshot())

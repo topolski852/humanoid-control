@@ -12,7 +12,10 @@ export default function ControlPanel({ deadmanConnected }) {
   const [checkpoint, setCheckpoint] = useState('')
 
   const motion = t.state === 'HOLDING' || t.state === 'RUNNING'
-  const connected = t.state !== 'DISCONNECTED'
+  const isConnected = t.state === 'CONNECTED'
+  // Connect is available from DISCONNECTED / ESTOPPED / ERROR (it clears a latched E-STOP and
+  // wakes motors DISABLED→IDLE); only blocked while already connected or actively moving.
+  const canConnect = !motion && t.config_present && t.state !== 'CONNECTED'
 
   async function run(name, fn) {
     setBusy(name); setError(null)
@@ -35,20 +38,22 @@ export default function ControlPanel({ deadmanConnected }) {
         {!t.config_present && <span className="text-[10px] text-warn">no robot config loaded</span>}
       </div>
 
-      {/* 1 · Connection */}
+      {/* 1 · Connection — Connect: motors DISABLED→IDLE. Disconnect: motors → DISABLED. */}
       <Section step="1" title="Connection">
-        <button className="btn-primary" disabled={busy || motion || !t.config_present || connected}
-          onClick={() => run('connect', () => api.connect())}>
-          {busy === 'connect' ? 'Connecting…' : 'Connect'}
+        <button className="btn-primary" disabled={busy || !canConnect}
+          onClick={() => run('connect', () => api.connect())}
+          title="Wake motors DISABLED→IDLE (clears a latched E-STOP)">
+          {busy === 'connect' ? 'Connecting…' : (t.state === 'ESTOPPED' ? 'Connect (clear E-STOP)' : 'Connect')}
         </button>
-        <button className="btn-ghost" disabled={busy || !connected}
-          onClick={() => run('disconnect', () => api.disconnect())}>Disconnect</button>
+        <button className="btn-ghost" disabled={busy || motion || t.state === 'DISCONNECTED'}
+          onClick={() => run('disconnect', () => api.disconnect())}
+          title="Set motors to DISABLED">Disconnect</button>
       </Section>
 
       {/* 2 · Arm — the "I am present / robot supported" gate */}
       <Section step="2" title="Arm">
         {!t.armed ? (
-          <button className="btn-success" disabled={busy || t.state !== 'CONNECTED' || t.estop}
+          <button className="btn-success" disabled={busy || t.state !== 'CONNECTED' || t.estop || !t.all_calibrated}
             onClick={() => run('arm', () => api.arm())}
             title="Confirm a human is present and the robot is supported/gantried">
             I am present — Arm
@@ -61,6 +66,12 @@ export default function ControlPanel({ deadmanConnected }) {
           {t.armed ? 'ARMED' : 'not armed'}
         </span>
       </Section>
+      {isConnected && !t.all_calibrated && (
+        <div className="text-xs text-warn bg-warn/10 border border-warn/30 rounded-lg px-3 py-2">
+          ⚠ Joints must be calibrated after each power-up before arming. Go to the
+          <b> Calibration</b> tab and calibrate every joint.
+        </div>
+      )}
 
       {/* 3 · Motion */}
       <Section step="3" title="Motion">

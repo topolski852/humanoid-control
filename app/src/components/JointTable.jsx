@@ -1,6 +1,5 @@
 import { useTelemetry } from '../context/TelemetryContext'
-
-const fmt = (v, d = 3) => (v == null || Number.isNaN(v) ? '—' : Number(v).toFixed(d))
+import { deg } from '../format'
 
 function stateTone(j) {
   if (!j.online) return 'text-offline'
@@ -25,8 +24,9 @@ export default function JointTable() {
               <th className="px-4 py-2 font-medium">#</th>
               <th className="px-2 py-2 font-medium">joint</th>
               <th className="px-2 py-2 font-medium">state</th>
-              <th className="px-2 py-2 font-medium text-right">pos (rad)</th>
-              <th className="px-2 py-2 font-medium text-right">vel</th>
+              <th className="px-2 py-2 font-medium">cal</th>
+              <th className="px-2 py-2 font-medium text-right">pos (°)</th>
+              <th className="px-2 py-2 font-medium text-right">vel (°/s)</th>
               <th className="px-2 py-2 font-medium text-right">τ (Nm)</th>
               <th className="px-4 py-2 font-medium text-right">err</th>
             </tr>
@@ -37,16 +37,21 @@ export default function JointTable() {
                 <td className="px-4 py-1.5 font-mono text-gray-500">{j.index}</td>
                 <td className="px-2 py-1.5 text-gray-300">{j.name.replace(/_joint$/, '')}</td>
                 <td className={`px-2 py-1.5 font-mono ${stateTone(j)}`}>{j.online ? (j.state || 'ON') : 'OFFLINE'}</td>
-                <td className="px-2 py-1.5 text-right data-value">{fmt(j.position)}</td>
-                <td className="px-2 py-1.5 text-right data-value">{fmt(j.velocity, 2)}</td>
-                <td className="px-2 py-1.5 text-right data-value">{fmt(j.torque, 2)}</td>
+                <td className="px-2 py-1.5">
+                  {j.calibrated
+                    ? <span className="text-online" title="calibrated">✓</span>
+                    : <span className="text-warn" title="uncalibrated">⚠</span>}
+                </td>
+                <td className="px-2 py-1.5 text-right data-value">{deg(j.position)}</td>
+                <td className="px-2 py-1.5 text-right data-value">{deg(j.velocity)}</td>
+                <td className="px-2 py-1.5 text-right data-value">{j.torque == null ? '—' : Number(j.torque).toFixed(2)}</td>
                 <td className={`px-4 py-1.5 text-right font-mono ${j.error ? 'text-danger' : 'text-gray-600'}`}>
                   {j.error ? `0x${j.error.toString(16)}` : '—'}
                 </td>
               </tr>
             ))}
             {t.joints.length === 0 && (
-              <tr><td colSpan={7} className="px-4 py-8 text-center text-gray-600 text-xs">
+              <tr><td colSpan={8} className="px-4 py-8 text-center text-gray-600 text-xs">
                 No telemetry — is the daemon running?
               </td></tr>
             )}

@@ -34,6 +34,37 @@ def load_poses(path: str | Path = DEFAULT_POSES_PATH) -> dict:
     return json.loads(Path(path).read_text())
 
 
+def save_pose(name: str, joints_deg: dict[str, float], path: str | Path = DEFAULT_POSES_PATH) -> dict:
+    """Create/replace a pose (values in degrees). Keys may be joint types or full names.
+    Preserves _meta and other poses. Returns the updated file dict."""
+    name = str(name).strip()
+    if not name or name.startswith("_"):
+        raise ValueError("pose name must be non-empty and not start with '_'")
+    p = Path(path)
+    data = json.loads(p.read_text()) if p.exists() else {"poses": {}}
+    data.setdefault("poses", {})
+    clean = {k: float(v) for k, v in joints_deg.items() if not str(k).startswith("_")}
+    data["poses"][name] = clean
+    _atomic_write(p, data)
+    return data
+
+
+def delete_pose(name: str, path: str | Path = DEFAULT_POSES_PATH) -> dict:
+    p = Path(path)
+    data = json.loads(p.read_text())
+    if name not in data.get("poses", {}):
+        raise KeyError(f"pose {name!r} not found")
+    del data["poses"][name]
+    _atomic_write(p, data)
+    return data
+
+
+def _atomic_write(path: Path, data: dict) -> None:
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_text(json.dumps(data, indent=2) + "\n")
+    tmp.replace(path)
+
+
 def pose_names(data: dict) -> list[str]:
     return list(data.get("poses", {}).keys())
 

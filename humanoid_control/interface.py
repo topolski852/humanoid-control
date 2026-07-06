@@ -82,3 +82,8 @@ class LegInterface:
     def idle(self) -> None:
         for name in self.joints:
             self.client.set_mode(name, "IDLE")
+
+    def disable(self) -> None:
+        """Set the leg joints to DISABLED (PWM off, silent) — used on disconnect."""
+        for name in self.joints:
+            self.client.set_mode(name, "DISABLED")
