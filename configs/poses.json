@@ -1,0 +1,24 @@
+{
+  "_meta": {
+    "units": "degrees",
+    "note": "Named leg poses. Each key may be a joint TYPE (e.g. 'hip_pitch' -> both legs) or a full joint_name (e.g. 'left_hip_pitch' -> that joint only, overrides the type). Any leg joint NOT named in a pose is SKIPPED (left uncommanded/DISABLED). Joints/types in 'always_skip' are skipped in every pose. knee 0deg is a hardstop -- keep it a few degrees positive.",
+    "joint_types": ["hip_roll", "hip_yaw", "hip_pitch", "knee_pitch", "ankle_pitch", "ankle_roll"],
+    "always_skip": ["ankle_roll"]
+  },
+  "poses": {
+    "zero": {
+      "hip_roll": 0,
+      "hip_yaw": 0,
+      "hip_pitch": 0,
+      "knee_pitch": 10
+    },
+    "standing": {
+      "hip_roll": 10,
+      "hip_yaw":3,
+      "hip_pitch": -50,
+      "knee_pitch": 50,
+      "ankle_pitch": -35,
+      "_comment": "PLACEHOLDER standing pose (straight legs, feet planted). Tune these values for your robot; free-standing balance still needs the IMU/policy."
+    }
+  }
+}

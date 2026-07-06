@@ -25,7 +25,10 @@ import time
 
 import numpy as np
 
-from humanoid_control import LegPolicyContract, LIVE_ROBOT_CONFIG_PATH, EstopController, ramp_to_pose
+from humanoid_control import (
+    LegPolicyContract, LIVE_ROBOT_CONFIG_PATH, EstopController, ramp_to_pose,
+    reconcile_firmware_limits,
+)
 from humanoid_control.daemon import DaemonClient, RobotConfig
 
 DEG = math.pi / 180.0
@@ -40,40 +43,6 @@ SWEEP_SPEC = {
 }
 EXCLUDE = {"ankle_roll"}
 SIDES = ("left", "right")
-
-
-def _read_live_offset(client: DaemonClient, name: str, attempts: int = 6) -> float | None:
-    """READ_CONFIG is flaky (one param may drop); retry until position_offset is non-null."""
-    for _ in range(attempts):
-        cfg = client.read_device_config(name)
-        off = cfg.get("config", cfg).get("position_offset")
-        if off is not None:
-            return off
-        time.sleep(0.2)
-    return None
-
-
-def reconcile_limits(client: DaemonClient, robot_cfg: RobotConfig, joints: list[str]) -> bool:
-    """Re-write each joint's firmware position limits = URDF limits, offset-adjusted by the
-    LIVE device offset. Returns False if a live offset couldn't be read."""
-    ok = True
-    for name in joints:
-        jc = robot_cfg.joints[name]
-        lo, hi = jc.position_limits.lower_bound, jc.position_limits.upper_bound
-        off = _read_live_offset(client, name)
-        if off is None:
-            print(f"  [reconcile] {name}: could not read live offset — SKIPPING", file=sys.stderr)
-            ok = False
-            continue
-        json_off = jc.position_offset
-        warn = "" if abs(json_off - off) < 1e-4 else f"  ⚠️ config offset {json_off:+.4f} != device {off:+.4f}"
-        client.apply_config(name, {
-            "position_offset": off,           # keep device's live zero
-            "position_limit_min": lo,         # URDF limits (daemon adds offset internally)
-            "position_limit_max": hi,
-        })
-        print(f"  [reconcile] {name}: limits=[{lo:+.3f},{hi:+.3f}] @ offset {off:+.4f}{warn}", file=sys.stderr)
-    return ok
 
 
 async def main() -> int:
@@ -149,7 +118,7 @@ async def main() -> int:
         await asyncio.sleep(0.4)
         print(f"[bench] reconciling firmware limits for {len(controlled)} joints "
               f"(excluding {sorted(EXCLUDE)})...", file=sys.stderr)
-        reconcile_limits(client, robot_cfg, controlled)
+        reconcile_firmware_limits(client, robot_cfg, controlled)
 
         # Health: controlled joints must be online + fault-free.
         for name in controlled:
