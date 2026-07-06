@@ -1,0 +1,48 @@
+import { useState } from 'react'
+import { api } from '../api'
+import { useTelemetry } from '../context/TelemetryContext'
+import StatusDot from './StatusDot'
+
+// Persistent top bar: live status pills + the always-available big red E-STOP.
+export default function Header({ deadmanConnected }) {
+  const t = useTelemetry()
+  const [busy, setBusy] = useState(false)
+
+  async function estop() {
+    setBusy(true)
+    try { await api.estop() } catch (e) { console.warn('estop', e) } finally { setBusy(false) }
+  }
+
+  const daemonTone = t.daemon_alive ? 'online' : 'danger'
+  const wsTone = t.wsConnected ? 'online' : 'danger'
+  const deadmanTone = deadmanConnected && t.deadman_ok ? 'online' : (t.armed || t.state === 'HOLDING' || t.state === 'RUNNING' ? 'danger' : 'warn')
+
+  return (
+    <header className="flex items-center justify-between gap-4 px-5 py-3 border-b border-surface-3 bg-surface-1">
+      <div className="flex items-center gap-3">
+        <span className="text-lg">🤖</span>
+        <div>
+          <div className="font-semibold text-white leading-tight">Humanoid Control</div>
+          <div className="data-label">Berkeley Humanoid Lite · legs</div>
+        </div>
+      </div>
+
+      <div className="flex items-center gap-5">
+        <StatusDot tone={wsTone} label="server" />
+        <StatusDot tone={daemonTone} label="daemon" />
+        <StatusDot tone={deadmanTone} label="deadman" />
+        <StatusDot tone={t.estop ? 'danger' : 'offline'} label="state" value={t.state} />
+      </div>
+
+      <button
+        onClick={estop} disabled={busy}
+        className="px-6 py-3 rounded-xl font-bold text-white bg-danger hover:bg-red-600
+                   shadow-lg shadow-danger/30 active:scale-95 transition disabled:opacity-60
+                   text-base tracking-wide"
+        title="Emergency stop — set all joints to IDLE (priority port 9002)"
+      >
+        ⛔ E-STOP
+      </button>
+    </header>
+  )
+}
