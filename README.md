@@ -28,7 +28,6 @@ policy runner (Python)  ──UDP :9001/:9000──▶  daemon (C++, owns CAN @2
   `policy_starting_pose.json`, `leg_policy_params.json` (the trainer contract).
 - `POLICY_CONTRACT.md` — the sim↔real interface the trainer must match.
 - `docs/HANDOFF.md`, `docs/DAEMON_SPEC.md` — authoritative firmware/CAN/daemon reference.
-- `PROMPT.md` — the build plan / kickoff brief.
 
 ## Quick start
 ```bash
