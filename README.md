@@ -44,6 +44,31 @@ python scripts/hold_pose.py --i-am-present            # M3: ramp to default_pose
 python scripts/run_policy.py --policy legs.onnx --i-am-present   # M5: run a trained policy
 ```
 
+## Wireless web control
+Command the robot from any PC/phone on the same WiFi — no monitor, cables, or held-open SSH.
+A long-lived FastAPI server (`humanoid_control/web/`) wraps the same lifecycle the scripts
+drive (connect → arm → ramp/hold → run policy) and serves a React control page over the LAN.
+
+```bash
+pip install -r requirements.txt        # now includes fastapi + uvicorn
+cd app && npm install && npm run build && cd ..   # build the UI → app/dist (Node 18+)
+python -m humanoid_control.web          # binds 0.0.0.0:8000
+# open http://<robot-ip>:8000  in a browser on this PC
+```
+The page streams live joint telemetry (`/ws/telemetry`, ~20 Hz), has an always-visible **E-STOP**,
+an **Arm** toggle (the web equivalent of `--i-am-present`), and Ramp/Run/Stop controls. The
+robot's 200 Hz CAN loop and 25 Hz policy run entirely on the onboard PC — the browser is a
+supervisor, not in the control loop, so LAN latency doesn't affect control quality.
+
+**Deadman (wireless safety).** Motion requires a live heartbeat over `/ws/control`; if the
+browser tab closes or WiFi drops mid-motion, the server auto-fires E-STOP. A robot-local
+**gamepad deadman** (Bluetooth Xbox → auto-kill on battery-death / signal-loss) is prepared in
+`humanoid_control/web/gamepad.py` but **disabled by default** (enable with `HUMANOID_GAMEPAD_ENABLE=1`).
+
+Env: `HUMANOID_WEB_HOST`/`HUMANOID_WEB_PORT`, `HUMANOID_CONFIG` (robot config),
+`HUMANOID_WEB_PASSWORD` (optional login), `HUMANOID_POLICY_DIR` (checkpoint list). For
+auto-start on boot, see [`deploy/`](deploy/README.md).
+
 ## Safety (non-negotiable)
 Never drive the robot beyond a supported/gantry dry-run without a human present. Targets
 are always clamped to per-joint `position_limits`; the runner ramps to the default pose on

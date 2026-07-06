@@ -3,6 +3,13 @@
 numpy>=1.24
 pydantic>=2.0
 
+# Web control layer (humanoid_control.web — `python -m humanoid_control.web`):
+fastapi>=0.111
+uvicorn[standard]>=0.29
+
 # Optional — only needed to run a trained policy (scripts/run_policy.py):
 #   onnxruntime>=1.16      # for .onnx checkpoints
 #   torch>=2.0             # for .pt checkpoints
+
+# Optional — only for the robot-local gamepad deadman (web/gamepad.py, disabled by default):
+#   evdev>=1.6             # Bluetooth Xbox controller as a deadman / hardware E-STOP

@@ -1,0 +1,21 @@
+[Unit]
+Description=Humanoid Lite CAN daemon (owns CAN @ 200 Hz)
+Documentation=https://github.com/topolski852/humanoid-studio
+After=network-online.target
+Wants=network-online.target
+# NOTE: the leg CAN adapters (can_left_leg / can_right_leg) must be up before this starts.
+# If you bring them up with a systemd-networkd/udev unit, add it to After=/Requires= here.
+# Only ONE daemon may own the CAN bus — do not run this alongside the humanoid-studio app's daemon.
+
+[Service]
+Type=simple
+User=nse
+WorkingDirectory=/home/nse/humanoid-control/daemon
+ExecStart=/home/nse/humanoid-control/daemon/build/humanoid_daemon --config /home/nse/humanoid-studio/configs/humanoid_lite.json
+# The daemon's real-time loop uses SCHED_FIFO + CPU affinity and opens raw CAN sockets:
+AmbientCapabilities=CAP_SYS_NICE CAP_NET_ADMIN CAP_NET_RAW
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target
