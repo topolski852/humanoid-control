@@ -6,7 +6,7 @@
     "broken_encoder": {
       "right_ankle_roll_joint": "mirror left_ankle_roll for base/starting pose"
     },
-    "STATUS": "PROVISIONAL \u2014 joint order + obs layout pending new-trainer confirmation; starting_pose captured & clamped",
+    "STATUS": "joint_order + obs layout + action_scale + default_pose CONFIRMED 2026-07-01 against humanoid-policy trainer; per-joint gains/effort/limits = ESC device truth. starting_pose captured & clamped.",
     "default_pose_source": "starting pose 20260701T191719Z: per-pair avg(left,right) current position, clamped to URDF position_limits; ankle_roll=left copied to both (right encoder broken)",
     "position_limits_source": "URDF position_limits from humanoid_lite.json (ESC-read limits are offset-adjusted in firmware frame and drifted after recal \u2014 do NOT use for clamping)"
   },

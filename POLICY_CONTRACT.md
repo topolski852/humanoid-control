@@ -5,10 +5,13 @@ runtime must agree on **exactly**. The machine-readable version is
 [`configs/leg_policy_params.json`](configs/leg_policy_params.json) — import that on the
 trainer side; don't hand-copy numbers. This doc explains it.
 
-> Status: **PROVISIONAL.** Per-joint gains/effort/Kt/gear/limits are pulled from the ESCs
-> (device truth). `joint_order`, `obs` layout, `action_scale`, and `default_pose` are
-> policy choices seeded from Berkeley's legs policy — confirm/lock them when the trainer
-> repo is created, then regenerate the JSON.
+> Status: **`joint_order` / `obs` layout / `action_scale` / `default_pose` CONFIRMED**
+> (2026-07-01) against the `humanoid-policy` trainer repo, whose legs env implements exactly
+> this 45-dim obs, 12-dim action, `action_scale = 0.25`, canonical L→R joint order, and deep-squat
+> `default_pose`. Per-joint gains/effort/Kt/gear/limits remain **device truth** pulled from the
+> ESCs. The trainer can regenerate a matching machine-readable contract via
+> `scripts/rsl_rl/play.py` (writes `configs/leg_policy_contract.json`); diff it against
+> `configs/leg_policy_params.json` to keep sim and hardware in sync.
 
 ## 1. Scope
 - **Legs only, 12 joints.** Arms are parked/disabled (no CAN adapters connected).
@@ -93,8 +96,18 @@ No IMU yet. `base_ang_vel` and `projected_gravity` come from an upright **stub**
 changes. A stubbed base can hold/track a pose but **cannot close a real balance loop** —
 keep the robot supported until the IMU lands.
 
-## 9. Open decisions for the trainer
-- Confirm/lock `joint_order` and the obs field order (this doc = current proposal).
-- Confirm `command` is used (3-vec) and its meaning for stand-up.
-- Confirm `action_scale` and whether `default_pose` is also the action offset (it is here).
-- Keep sim PD gains = the per-joint firmware `kp/kd` above (that's why we pulled them).
+## 9. Trainer alignment (resolved 2026-07-01, `humanoid-policy`)
+- ✅ `joint_order` and obs field order — locked; trainer's legs obs group matches exactly.
+- ✅ `command` is the 3-vec velocity command, **zeroed for stand-up** (kept in the obs to preserve
+  the 45-dim layout; the trainer's stand-up task uses a zero-range velocity command).
+- ✅ `action_scale = 0.25`; `default_pose` **is** the action offset (Isaac `use_default_offset=True`),
+  and the trainer's stand-up `init_state` = this deep-squat `default_pose`.
+- ✅ Sim PD gains = the per-joint firmware `kp/kd` above — implemented in the trainer's
+  `HUMANOID_LITE_BIPED_SQUAT_CFG` (per-joint dicts; note the left/right asymmetry is device truth).
+- ⚠️ **IMU prerequisite for hardware stand-up:** the trainer policy observes real
+  `base_ang_vel` / `projected_gravity`, but this runtime still feeds the upright **stub** (§8).
+  A stubbed base cannot close a balance loop — wire live base telemetry (`docs/DAEMON_SPEC.md §9`)
+  before running a stand-up policy unsupported. Training can proceed in parallel.
+- ℹ️ Joint names differ by a `leg_` prefix only (trainer `leg_left_hip_roll_joint` vs runtime
+  `left_hip_roll_joint`); the mapping is **positional** and the trainer export strips the prefix,
+  so no runtime change is required.
