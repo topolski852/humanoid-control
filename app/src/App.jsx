@@ -4,6 +4,7 @@ import Header from './components/Header'
 import ControlPanel from './components/ControlPanel'
 import JointTable from './components/JointTable'
 import LegDiagram from './components/LegDiagram'
+import ImuPanel from './components/ImuPanel'
 import CalibrationPanel from './components/CalibrationPanel'
 import ManualPanel from './components/ManualPanel'
 import { TelemetryProvider } from './context/TelemetryContext'
@@ -15,6 +16,7 @@ function ControlView({ deadmanConnected }) {
     <div className="max-w-6xl mx-auto grid grid-cols-1 lg:grid-cols-3 gap-5">
       <div className="lg:col-span-1 space-y-5">
         <ControlPanel deadmanConnected={deadmanConnected} />
+        <ImuPanel />
         <LegDiagram />
       </div>
       <div className="lg:col-span-2">

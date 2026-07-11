@@ -1,0 +1,14 @@
+# Humanoid — access to the gamepad deadman's input device for the web service (User=nse).
+#
+# Joystick/gamepad event nodes are group `input`, mode 0660 by default; the robot PC's `nse`
+# user is added to the `input` group (`sudo usermod -aG input nse`) so the service can read
+# them. This rule makes that explicit and future-proofs any controller: it tags every gamepad
+# event node group input / 0660 regardless of distro defaults.
+#
+# Install:
+#   sudo cp /home/nse/humanoid-control/deploy/99-humanoid-input.rules /etc/udev/rules.d/
+#   sudo udevadm control --reload-rules && sudo udevadm trigger --subsystem-match=input
+# Then reconnect the controller. Verify the service can see it:
+#   HUMANOID_GAMEPAD_ENABLE=1 python -m humanoid_control.web   # log: "gamepad: connected to ..."
+
+SUBSYSTEM=="input", ENV{ID_INPUT_JOYSTICK}=="1", GROUP="input", MODE="0660"

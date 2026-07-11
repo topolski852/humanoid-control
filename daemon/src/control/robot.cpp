@@ -76,6 +76,19 @@ bool Robot::start() {
 
     running_ = true;
 
+    // Start the external IMU reader if configured. Non-fatal on failure: the daemon
+    // runs fine without it and emits `base: null`, so the policy falls back to the
+    // upright stub rather than the daemon refusing to start.
+    if (cfg_.imu.enabled && !cfg_.imu.device.empty()) {
+        imu_ = std::make_unique<WitMotionReader>(cfg_.imu);
+        if (!imu_->start()) {
+            fprintf(stderr, "[Robot] IMU reader failed to start — continuing without base state\n");
+            imu_.reset();
+        }
+    } else {
+        fprintf(stderr, "[Robot] IMU disabled (no imu block or enabled=false) — base:null\n");
+    }
+
     // Start telemetry thread.
     telemetry_thread_ = std::thread(&Robot::telemetry_loop, this);
 
@@ -128,6 +141,8 @@ void Robot::stop() {
         bus_mgr_->send(a->can_channel(), nmt);
     }
     std::this_thread::sleep_for(ms(200));
+
+    if (imu_) { imu_->stop(); imu_.reset(); }
 
     udp_server_.stop();
     priority_server_.stop();
@@ -242,6 +257,26 @@ std::string Robot::build_telemetry_json(uint64_t seq) {
     }
     j["bus_health"] = std::move(buses_obj);
 
+    // Base state from the external IMU (docs/DAEMON_SPEC.md §9). Contract decisions:
+    //   - quaternion order is [w, x, y, z]
+    //   - projected_gravity is computed on the daemon (quat_rotate_inverse(q,[0,0,-1]))
+    //     so the Python side can consume it directly without re-deriving conventions
+    //   - a missing/disabled/stale IMU is signaled as `base: null` (never a stale object)
+    if (imu_) {
+        ImuSample s = imu_->snapshot();
+        if (s.valid) {
+            json b;
+            b["quaternion"]        = {s.quaternion[0], s.quaternion[1], s.quaternion[2], s.quaternion[3]};
+            b["angular_velocity"]  = {s.angular_velocity[0], s.angular_velocity[1], s.angular_velocity[2]};
+            b["projected_gravity"] = {s.projected_gravity[0], s.projected_gravity[1], s.projected_gravity[2]};
+            j["base"] = std::move(b);
+        } else {
+            j["base"] = nullptr;   // IMU present but stale/no quaternion yet
+        }
+    } else {
+        j["base"] = nullptr;       // IMU disabled or failed to open
+    }
+
     return j.dump();
 }
 
@@ -320,6 +355,8 @@ std::string Robot::handle_command(const std::string& request) {
             it->second->request_state(JointState::ENABLED);
         } else if (mode == "IDLE") {
             it->second->request_state(JointState::IDLE);
+        } else if (mode == "DAMPING") {
+            it->second->request_state(JointState::DAMPING);
         } else if (mode == "DISABLED") {
             it->second->request_state(JointState::DISABLED);
         } else {
@@ -335,6 +372,8 @@ std::string Robot::handle_command(const std::string& request) {
             target = JointState::ENABLED;
         } else if (mode == "IDLE") {
             target = JointState::IDLE;
+        } else if (mode == "DAMPING") {
+            target = JointState::DAMPING;
         } else if (mode == "DISABLED") {
             target = JointState::DISABLED;
         } else {

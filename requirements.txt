@@ -11,5 +11,5 @@ uvicorn[standard]>=0.29
 #   onnxruntime>=1.16      # for .onnx checkpoints
 #   torch>=2.0             # for .pt checkpoints
 
-# Optional — only for the robot-local gamepad deadman (web/gamepad.py, disabled by default):
-#   evdev>=1.6             # Bluetooth Xbox controller as a deadman / hardware E-STOP
+# Robot-local gamepad hold-to-run deadman (web/gamepad.py; active when HUMANOID_GAMEPAD_ENABLE=1):
+evdev>=1.6                 # USB Xbox/8BitDo controller — trigger deadman + walk command + E-STOP

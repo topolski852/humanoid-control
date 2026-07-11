@@ -1,16 +1,17 @@
 """
 Pluggable base-state source (orientation + angular velocity).
 
-The robot has **no IMU yet**. The policy needs ``projected_gravity`` (gravity unit
-vector in the base frame; ≈[0,0,-1] upright) and ``base_ang_vel``. We express those
-behind a swappable interface so the policy code doesn't change when the IMU lands:
+The policy needs ``projected_gravity`` (gravity unit vector in the base frame; ≈[0,0,-1]
+upright) and ``base_ang_vel``. We express those behind a swappable interface so the policy
+code doesn't change with the base-state source:
 
-- ``UprightStubBaseState`` (now): always upright, zero angular velocity.
-- ``TelemetryBaseState`` (later): reads the daemon telemetry ``base`` block once the
-  daemon publishes it (planned contract — see docs/DAEMON_SPEC.md §9 / HANDOFF §7).
+- ``TelemetryBaseState`` (default with the IMU): reads the daemon telemetry ``base`` block
+  (an external WitMotion USB IMU, read by the daemon — see docs/DAEMON_SPEC.md §9). Yields
+  ``valid=False`` whenever the daemon reports no fresh IMU data (``base: null``).
+- ``UprightStubBaseState``: always upright, zero angular velocity — the no-IMU fallback.
 
-⚠️ A stubbed-upright base state can *hold* a pose but cannot close a real balance loop.
-Keep the robot supported until the IMU is integrated.
+⚠️ A stubbed-upright base state can *hold* a pose but cannot close a real balance loop, and
+even with the IMU the balance loop is unproven — keep the robot supported until validated.
 """
 from __future__ import annotations
 
@@ -67,10 +68,10 @@ class UprightStubBaseState(BaseStateSource):
 class TelemetryBaseState(BaseStateSource):
     """Reads the planned daemon telemetry ``base`` block.
 
-    ``telemetry_getter`` returns the latest telemetry frame dict (or None). This targets
-    the forward contract in docs/DAEMON_SPEC.md §9 — NOT yet emitted by the daemon, so
-    this class is inert until the IMU lands. It accepts either a precomputed
-    ``projected_gravity`` or a ``quaternion`` (converted here), whichever the daemon ships.
+    ``telemetry_getter`` returns the latest telemetry frame dict (or None); the daemon emits
+    the ``base`` block from the external IMU (docs/DAEMON_SPEC.md §9). It accepts either a
+    precomputed ``projected_gravity`` (what the daemon ships — same convention as
+    ``quat_rotate_inverse`` here) or a bare ``quaternion``, converting the latter if needed.
     """
 
     _GRAVITY_WORLD = np.array([0.0, 0.0, -1.0], dtype=np.float32)

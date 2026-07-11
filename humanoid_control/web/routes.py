@@ -65,6 +65,16 @@ class CaptureBody(BaseModel):
     which: str   # "lower" | "upper"
 
 
+class SelectBody(BaseModel):
+    kind: str                          # "hold" | "policy"
+    checkpoint: str | None = None
+
+
+class DeadmanArmBody(BaseModel):
+    kind: str | None = None            # None → use the previously selected session
+    checkpoint: str | None = None
+
+
 # ── read-only ────────────────────────────────────────────────────────────────
 
 @router.get("/api/status", response_model=None)
@@ -116,6 +126,37 @@ def arm(request: Request):
 @router.post("/api/disarm", response_model=None)
 def disarm(request: Request):
     _service(request).disarm()
+    return _ok(_service(request).telemetry_snapshot())
+
+
+# ── gamepad deadman session (hold-to-run) ─────────────────────────────────────
+# The gamepad drives these live (A=arm, triggers=run-gate, sticks=command); these routes let
+# the web UI pick the session (e.g. the walk checkpoint) and arm/disarm without the controller.
+
+@router.post("/api/deadman/select", response_model=None)
+def deadman_select(request: Request, body: SelectBody):
+    try:
+        _service(request).select_session(body.kind, body.checkpoint)
+    except ControlError as exc:
+        return _err(str(exc), exc.status)
+    return _ok(_service(request).telemetry_snapshot())
+
+
+@router.post("/api/deadman/arm", response_model=None)
+async def deadman_arm(request: Request, body: DeadmanArmBody):
+    svc = _service(request)
+    try:
+        await _blocking(lambda: svc.arm_deadman(kind=body.kind, checkpoint=body.checkpoint))
+    except ControlError as exc:
+        return _err(str(exc), exc.status)
+    except Exception as exc:
+        return _err(f"arm failed: {exc}", 502)
+    return _ok(svc.telemetry_snapshot())
+
+
+@router.post("/api/deadman/disarm", response_model=None)
+async def deadman_disarm(request: Request):
+    await _blocking(_service(request).disarm_deadman)
     return _ok(_service(request).telemetry_snapshot())
 
 

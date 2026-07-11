@@ -11,7 +11,10 @@ Wants=network-online.target
 Type=simple
 User=nse
 WorkingDirectory=/home/nse/humanoid-control/daemon
-ExecStart=/home/nse/humanoid-control/daemon/build/humanoid_daemon --config /home/nse/humanoid-studio/configs/humanoid_lite.json
+# --imu-device enables the external WitMotion IMU and makes the daemon emit the `base`
+# telemetry block (see deploy/99-humanoid-imu.rules for the stable /dev/humanoid_imu name).
+# Baud defaults to 921600. Remove the flag to run without the IMU (base:null → upright stub).
+ExecStart=/home/nse/humanoid-control/daemon/build/humanoid_daemon --config /home/nse/humanoid-studio/configs/humanoid_lite.json --imu-device /dev/humanoid_imu
 # The daemon's real-time loop uses SCHED_FIFO + CPU affinity and opens raw CAN sockets:
 AmbientCapabilities=CAP_SYS_NICE CAP_NET_ADMIN CAP_NET_RAW
 Restart=on-failure

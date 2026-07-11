@@ -83,6 +83,14 @@ class LegInterface:
         for name in self.joints:
             self.client.set_mode(name, "IDLE")
 
+    def damp(self) -> None:
+        """Set the leg joints to DAMPING: powered viscous resistance — the motor fights
+        motion (hard to back-drive) but holds no position target. This is the 'armed but
+        deadman-released' rest state: safer than IDLE (which is free-to-move / zero torque),
+        without the active position hold of POSITION mode."""
+        for name in self.joints:
+            self.client.set_mode(name, "DAMPING")
+
     def disable(self) -> None:
         """Set the leg joints to DISABLED (PWM off, silent) — used on disconnect."""
         for name in self.joints:

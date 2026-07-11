@@ -18,6 +18,7 @@
 #include "control/control_loop.hpp"
 #include "ipc/udp_broadcaster.hpp"
 #include "ipc/udp_server.hpp"
+#include "imu/witmotion_reader.hpp"
 
 #include <atomic>
 #include <memory>
@@ -74,6 +75,7 @@ private:
     UdpServer    udp_server_;
     UdpServer    priority_server_;   // port 9002 — ESTOP only
     UdpBroadcaster broadcaster_;
+    std::unique_ptr<WitMotionReader> imu_;   // null unless cfg_.imu.enabled
 
     std::atomic<bool> running_       = false;
     std::atomic<bool> estop_pending_ = false;

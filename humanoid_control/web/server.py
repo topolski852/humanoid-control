@@ -67,8 +67,8 @@ async def lifespan(app: FastAPI):
     # Deadman watchdog: trip E-STOP if a motion session loses its heartbeat.
     watchdog = asyncio.create_task(_watchdog_loop(service))
 
-    # Optional robot-local gamepad deadman (Bluetooth Xbox). OFF unless HUMANOID_GAMEPAD_ENABLE
-    # is set — prepared but not enabled (see web/gamepad.py).
+    # Robot-local gamepad hold-to-run deadman (USB Xbox/8BitDo). OFF unless HUMANOID_GAMEPAD_ENABLE
+    # is set. When on, the controller drives arm → trigger-to-run → damp; see web/gamepad.py.
     gamepad = None
     if os.environ.get("HUMANOID_GAMEPAD_ENABLE"):
         try:

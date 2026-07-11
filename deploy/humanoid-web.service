@@ -12,9 +12,14 @@ Environment=HUMANOID_WEB_PORT=8000
 Environment=HUMANOID_CONFIG=/home/nse/humanoid-studio/configs/humanoid_lite.json
 # Uncomment to require a login before exposing beyond a trusted LAN (use a strong, >=12 char value):
 # Environment=HUMANOID_WEB_PASSWORD=change-me-to-something-strong
-# Optional: robot-local gamepad deadman (Bluetooth Xbox). Off unless set. Needs `pip install evdev`.
-# Environment=HUMANOID_GAMEPAD_ENABLE=1
-# Environment=HUMANOID_GAMEPAD_MODE=monitor
+# Robot-local gamepad hold-to-run deadman (USB Xbox/8BitDo). Needs evdev (in requirements.txt)
+# and `nse` in the `input` group (see deploy/99-humanoid-input.rules). Drives arm → trigger-run → damp.
+Environment=HUMANOID_GAMEPAD_ENABLE=1
+# Optional tuning (defaults shown): stick deadband, trigger threshold, walk-command scales.
+# Environment=HUMANOID_GAMEPAD_DEADBAND=0.15
+# Environment=HUMANOID_GAMEPAD_VX_MAX=0.6
+# Environment=HUMANOID_GAMEPAD_VY_MAX=0.4
+# Environment=HUMANOID_GAMEPAD_WZ_MAX=0.6
 ExecStart=/home/nse/humanoid-control/.venv/bin/python -m humanoid_control.web
 Restart=on-failure
 RestartSec=2

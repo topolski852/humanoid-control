@@ -7,6 +7,8 @@
 #include <vector>
 #include <unordered_map>
 
+#include "imu/witmotion_reader.hpp"   // ImuConfig
+
 static constexpr float NO_LIMIT_RAD = 100.0f;
 
 struct JointConfig {
@@ -62,6 +64,7 @@ struct RobotConfig {
     int                                           telemetry_hz;
     std::vector<JointConfig>                      joints;
     std::unordered_map<std::string, std::string>  can_assignments; // serial → bus label
+    ImuConfig                                     imu;              // optional external IMU (§9)
 };
 
 // Throws std::runtime_error on missing required fields or file not found.

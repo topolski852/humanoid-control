@@ -39,6 +39,23 @@ RobotConfig load_config(const std::string& path) {
             cfg.can_assignments[serial] = label.get<std::string>();
     }
 
+    // imu block is optional (external serial/USB IMU — see docs/DAEMON_SPEC.md §9).
+    // Absent or {"enabled": false} → daemon emits `base: null` (upright stub on the
+    // Python side). mounting_rotation is a quaternion [w,x,y,z] rotating the IMU
+    // frame into the robot base frame (default identity).
+    if (root.contains("imu") && root["imu"].is_object()) {
+        const json& im = root["imu"];
+        cfg.imu.enabled      = im.value("enabled", false);
+        cfg.imu.device       = im.value("device", std::string{});
+        cfg.imu.baud         = im.value("baud", 921600);
+        cfg.imu.staleness_ms = im.value("staleness_ms", 100);
+        if (im.contains("mounting_rotation") && im["mounting_rotation"].is_array()
+            && im["mounting_rotation"].size() == 4) {
+            for (int i = 0; i < 4; ++i)
+                cfg.imu.mounting_quat[i] = im["mounting_rotation"][i].get<double>();
+        }
+    }
+
     const json& joints_obj = root.at("joints");
     cfg.joints.reserve(joints_obj.size());
 

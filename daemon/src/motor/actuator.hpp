@@ -24,6 +24,7 @@ enum class JointState {
     OFFLINE,
     DISABLED,    // intentionally silenced via NMT MODE_DISABLED; OFFLINE timer suppressed
     IDLE,
+    DAMPING,     // firmware MODE_DAMPING: powered, viscous/back-drivable, holds no position
     ENABLED,
     CALIBRATING,
     FAULT,

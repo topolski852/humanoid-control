@@ -33,6 +33,8 @@ static void print_usage(const char* argv0) {
         "  --tel-hz HZ        Telemetry rate 1-100 Hz (default: 10)\n"
         "  --rt-prio PRIO     SCHED_FIFO priority 0-99 (default: 80; 0=SCHED_OTHER)\n"
         "  --cpu CPU          CPU affinity for control loop (default: 0)\n"
+        "  --imu-device PATH  External IMU serial device (overrides config, enables IMU)\n"
+        "  --imu-baud BAUD    External IMU baud rate (default from config, else 921600)\n"
         "  --help             Show this message\n",
         argv0);
 }
@@ -42,6 +44,8 @@ static void print_usage(const char* argv0) {
 int main(int argc, char* argv[]) {
     const char* config_path = "../configs/humanoid_lite.json";
     RobotOptions opts;
+    const char* imu_device_override = nullptr;
+    int         imu_baud_override   = -1;
 
     for (int i = 1; i < argc; ++i) {
         if (strcmp(argv[i], "--help") == 0 || strcmp(argv[i], "-h") == 0) {
@@ -60,6 +64,10 @@ int main(int argc, char* argv[]) {
             opts.control_prio = atoi(argv[++i]);
         } else if (strcmp(argv[i], "--cpu") == 0 && i + 1 < argc) {
             opts.control_cpu = atoi(argv[++i]);
+        } else if (strcmp(argv[i], "--imu-device") == 0 && i + 1 < argc) {
+            imu_device_override = argv[++i];
+        } else if (strcmp(argv[i], "--imu-baud") == 0 && i + 1 < argc) {
+            imu_baud_override = atoi(argv[++i]);
         } else {
             fprintf(stderr, "[daemon] unknown argument: %s\n", argv[i]);
             print_usage(argv[0]);
@@ -88,6 +96,18 @@ int main(int argc, char* argv[]) {
     // Override telemetry_hz from config if not overridden on CLI.
     if (opts.telemetry_hz == 10 && cfg.telemetry_hz > 0)
         opts.telemetry_hz = cfg.telemetry_hz;
+
+    // IMU CLI overrides. Passing --imu-device implies enabling the IMU.
+    if (imu_device_override) {
+        cfg.imu.enabled = true;
+        cfg.imu.device  = imu_device_override;
+    }
+    if (imu_baud_override > 0)
+        cfg.imu.baud = imu_baud_override;
+    fprintf(stderr, "[daemon] imu:         %s\n",
+            (cfg.imu.enabled && !cfg.imu.device.empty())
+                ? (cfg.imu.device + " @ " + std::to_string(cfg.imu.baud)).c_str()
+                : "disabled");
 
     // Install signal handlers.
     struct sigaction sa{};

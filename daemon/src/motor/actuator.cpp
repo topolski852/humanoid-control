@@ -15,6 +15,7 @@ const char* joint_state_name(JointState s) {
         case JointState::OFFLINE:     return "OFFLINE";
         case JointState::DISABLED:    return "DISABLED";
         case JointState::IDLE:        return "IDLE";
+        case JointState::DAMPING:     return "DAMPING";
         case JointState::ENABLED:     return "ENABLED";
         case JointState::CALIBRATING: return "CALIBRATING";
         case JointState::FAULT:       return "FAULT";
@@ -252,10 +253,12 @@ void Actuator::tick(CanBusManager& bus) {
             nmt.can_dlc = 2;
 
             bool send_nmt = false;
-            if (target == JointState::ENABLED && current_state == JointState::IDLE) {
+            if (target == JointState::ENABLED &&
+                (current_state == JointState::IDLE || current_state == JointState::DAMPING)) {
                 // Pre-send NMT IDLE — firmware may still be in DISABLED at this point
-                // (e.g. needs_idle_wakeup_ fired but heartbeat hasn't confirmed IDLE yet).
-                // Firmware rejects DISABLED→POSITION; IDLE→POSITION always succeeds.
+                // (e.g. needs_idle_wakeup_ fired but heartbeat hasn't confirmed IDLE yet),
+                // or in MODE_DAMPING (deadman re-engage). Firmware rejects DISABLED/DAMPING→
+                // POSITION directly; IDLE→POSITION always succeeds, so route through IDLE.
                 can_frame pre_idle{};
                 pre_idle.can_id  = make_arb_id(
                     static_cast<uint8_t>(FuncCode::FUNC_NMT),
@@ -287,6 +290,13 @@ void Actuator::tick(CanBusManager& bus) {
                 return;
             } else if (target == JointState::IDLE) {
                 nmt.data[0] = static_cast<uint8_t>(MotorMode::MODE_IDLE);
+                nmt.data[1] = static_cast<uint8_t>(cfg_.device_id);
+                send_nmt = true;
+            } else if (target == JointState::DAMPING) {
+                // Powered viscous damping. Firmware holds MODE_DAMPING autonomously until the
+                // next NMT, so (like IDLE) no per-tick frame is needed after this transition.
+                // Reachable from ENABLED (deadman released) or IDLE (arm).
+                nmt.data[0] = static_cast<uint8_t>(MotorMode::MODE_DAMPING);
                 nmt.data[1] = static_cast<uint8_t>(cfg_.device_id);
                 send_nmt = true;
             } else if (target == JointState::DISABLED) {
@@ -336,7 +346,8 @@ void Actuator::tick(CanBusManager& bus) {
     // Skipped when slow_poll_enabled_ is false (e.g. during Flash Wizard commissioning)
     // to prevent SDO read responses from consuming generic_listener_ futures.
     if (slow_poll_enabled_.load(std::memory_order_relaxed) &&
-        (current_state == JointState::ENABLED || current_state == JointState::IDLE)) {
+        (current_state == JointState::ENABLED || current_state == JointState::IDLE ||
+         current_state == JointState::DAMPING)) {
         using P = ParamId;
         slow_poll_counter_++;
         switch (slow_poll_counter_ % 60) {

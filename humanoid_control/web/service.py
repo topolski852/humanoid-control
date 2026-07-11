@@ -32,7 +32,7 @@ from ..interface import LegInterface
 from ..policy import ZeroPolicy, load_policy
 from ..runner import PolicyRunner
 from ..safety import EstopController, ramp_to_pose
-from ..base_state import UprightStubBaseState
+from ..base_state import TelemetryBaseState
 from ..daemon import DaemonClient
 
 _log = logging.getLogger(__name__)
@@ -44,13 +44,18 @@ _DEADMAN_TIMEOUT_S = 1.0
 class SessionState(str, Enum):
     DISCONNECTED = "DISCONNECTED"   # sockets up, joints not configured/awake
     CONNECTED = "CONNECTED"         # joints configured + online, idle
+    ARMED = "ARMED"                 # deadman session live, legs DAMPING, waiting for trigger
     HOLDING = "HOLDING"             # ramping/holding default_pose (ZeroPolicy)
     RUNNING = "RUNNING"             # running a learned policy
     ESTOPPED = "ESTOPPED"           # E-STOP latched; reconnect to clear
     ERROR = "ERROR"                 # a session failed (fault/offline)
 
 
+# Engaged/moving states (legs in POSITION, sending targets).
 _MOTION_STATES = {SessionState.HOLDING, SessionState.RUNNING}
+# A deadman session is live (worker thread running) — includes the damped-but-ready ARMED
+# rest state. Used to gate connect/calibrate and to scope the controller-loss watchdog.
+_ACTIVE_STATES = {SessionState.ARMED, SessionState.HOLDING, SessionState.RUNNING}
 
 
 class ControlError(Exception):
@@ -83,6 +88,15 @@ class ControlService:
         # Deadman: how many /ws/control clients are attached and the last heartbeat time.
         self._control_clients = 0
         self._last_heartbeat = 0.0
+
+        # Gamepad deadman session: the run-gate (set while a trigger is held), the live walk
+        # command (vx, vy, wz) written by the gamepad sticks, and the selected session to run
+        # when the trigger engages. The run-gate is distinct from the heartbeat: heartbeat =
+        # "controller alive" (loss → E-STOP); run-gate = "trigger held" (release → DAMP).
+        self._run_gate = threading.Event()
+        self._command_lock = threading.Lock()
+        self._command = np.zeros(3, dtype=np.float32)
+        self._selected = {"kind": "hold", "checkpoint": None}
 
         # Per-joint position_offset calibration. Reset to uncalibrated on every connect
         # (a connect follows every power-up, and the encoder zero is lost on power-down).
@@ -148,6 +162,9 @@ class ControlService:
             "all_calibrated": self.all_calibrated(),
             "joints": joints,
             "buses": buses,
+            # IMU base block the policy actually consumes (quaternion / angular_velocity /
+            # projected_gravity), or None when the daemon reports no fresh IMU (base: null).
+            "base": self.client.latest_base(),
         }
 
     # ── deadman ──────────────────────────────────────────────────────────────
@@ -159,8 +176,9 @@ class ControlService:
     def control_client_disconnected(self) -> None:
         with self._lock:
             self._control_clients = max(0, self._control_clients - 1)
-        # Losing the deadman while moving is an immediate E-STOP.
-        if self._control_clients == 0 and self.is_motion_active():
+        # Losing the controller (deadman) while a deadman session is live — even damped-and-
+        # armed — is an immediate E-STOP: we can no longer trust a release vs a dropout.
+        if self._control_clients == 0 and self._state in _ACTIVE_STATES:
             self.trigger_estop("deadman-disconnect")
 
     def mark_heartbeat(self) -> None:
@@ -175,33 +193,65 @@ class ControlService:
     def check_deadman_watchdog(self) -> None:
         """Called periodically by the event-loop watchdog: trip E-STOP if a motion
         session has lost its heartbeat (WiFi stall where the socket hasn't closed yet)."""
-        if self.is_motion_active() and not self.deadman_ok():
+        if self._state in _ACTIVE_STATES and not self.deadman_ok():
             self.trigger_estop("deadman-timeout")
 
     # ── connection lifecycle (BLOCKING — call via executor) ──────────────────
     def connect(self) -> None:
-        """Connect = wake motors DISABLED→IDLE + apply config. Allowed from DISCONNECTED,
-        ESTOPPED, or ERROR (clears a latched E-STOP); refused only during active motion."""
+        """Connect = wake motors DISABLED→IDLE and READ their live config — it NEVER writes.
+        The ESCs are assumed already configured (gains/limits/offsets live on the devices),
+        so connect only brings them online and verifies them; it cannot clobber tuned or
+        policy gains. Allowed from DISCONNECTED, ESTOPPED, or ERROR (clears a latched E-STOP);
+        refused only during active motion."""
         with self._lock:
-            if self.is_motion_active():
-                raise ControlError("A motion session is active — stop it first.", 409)
+            if self._state in _ACTIVE_STATES:
+                raise ControlError("A session is active — stop/disarm it first.", 409)
             if not self.config_present:
                 raise ControlError(
                     "No robot config loaded (HUMANOID_CONFIG missing) — cannot connect.", 503)
-        # apply_all_configs: wake joints DISABLED→IDLE + delta-write config (seconds).
-        self.client.apply_all_configs()
-        time.sleep(0.3)
+        # Wake only (DISABLED→IDLE via NMT); NO SDO config writes, so live ESC gains survive.
+        self.client.wake_all()
+        time.sleep(0.5)
         self.legs.check_health()   # raises if any leg offline/faulted
+        # Read-only sanity net: since connect no longer configures the ESCs, confirm each is
+        # actually configured (a blank/unconfigured motor reads kp or torque_limit == 0).
+        unconfigured = self._verify_configured()
         with self._lock:
             self.estop = self._new_estop()   # clear any prior latched E-STOP
             self._armed = False
-            self._last_error = None
+            self._last_error = (
+                "unconfigured joints (kp/torque=0): "
+                + ", ".join(n.replace("_joint", "") for n in unconfigured)
+            ) if unconfigured else None
             self._state = SessionState.CONNECTED
             # Fresh power-up ⇒ every joint's zero is stale ⇒ mark all uncalibrated.
             self._calibrated = {n: False for n in self._joints}
             self._cal_captures = {n: {"lower": None, "upper": None} for n in self._joints}
-        _log.info("connected: all %d leg joints online; calibration reset (uncalibrated).",
-                  self.contract.num_joints)
+        if unconfigured:
+            _log.warning("connected (read-only): joints look unconfigured: %s", unconfigured)
+        _log.info("connected (read-only: woke + read config, no writes); "
+                  "calibration reset (uncalibrated).")
+
+    def _verify_configured(self) -> list[str]:
+        """Read each joint's live config (no writes) and return those that look unconfigured
+        (kp==0 or torque_limit==0, or unreadable). Best-effort: retries the occasional dropped
+        SDO and never raises — connect uses it purely as a read-only warning."""
+        suspect: list[str] = []
+        for name in self._joints:
+            cfg = None
+            for _ in range(3):
+                try:
+                    c = self.client.read_device_config(name)
+                except Exception:
+                    continue
+                if c.get("position_kp") is not None:
+                    cfg = c
+                    break
+            if cfg is None:
+                suspect.append(name)
+            elif float(cfg.get("position_kp") or 0.0) == 0.0 or float(cfg.get("torque_limit") or 0.0) == 0.0:
+                suspect.append(name)
+        return suspect
 
     def disconnect(self) -> None:
         """Disconnect = motors → DISABLED (PWM off, silent)."""
@@ -377,9 +427,15 @@ class ControlService:
             self._stop_evt.clear()
             new_state = SessionState.HOLDING if kind == "hold" else SessionState.RUNNING
             self._state = new_state
+            # Real base state from the daemon's IMU `base` block. When the daemon
+            # reports no fresh IMU data, TelemetryBaseState yields valid=False and the
+            # runner falls back to the upright stub with a warning (require_valid_base
+            # left False so an IMU hiccup can't hard-crash a live motion session — the
+            # human + deadman remain the safety of record). Flip to True once the
+            # balance loop is trusted unsupported.
             runner = PolicyRunner(
                 self.client, self.contract, policy,
-                base_source=UprightStubBaseState(),
+                base_source=TelemetryBaseState(lambda: {"base": self.client.latest_base()}),
                 command=command, estop=self.estop, ramp_seconds=ramp,
             )
             t = threading.Thread(
@@ -433,10 +489,153 @@ class ControlService:
     def _on_session_end(self) -> None:
         with self._lock:
             self._armed = False    # require an explicit re-arm before the next motion
+            self._run_gate.clear()
             if self.estop.fired:
                 self._state = SessionState.ESTOPPED
-            elif self._state in _MOTION_STATES:
+            elif self._state in _ACTIVE_STATES:
                 self._state = SessionState.CONNECTED
+
+    # ── gamepad deadman session (hold-to-run) ────────────────────────────────
+    #
+    # The operational flow: connect → calibrate → arm_deadman() (legs DAMPING, ARMED) →
+    # hold a trigger to engage (ramp to default_pose, then run the selected session with the
+    # live walk command) → release to DAMP → repeat. The gamepad is the deadman: losing the
+    # controller (not merely releasing the trigger) E-STOPs via the presence watchdog.
+
+    def select_session(self, kind: str, checkpoint: str | None = None) -> None:
+        """Pick what a trigger-engage runs: 'hold' (ZeroPolicy → default_pose) or 'policy'
+        (a learned checkpoint). Only settable while not in a live session."""
+        if kind not in ("hold", "policy"):
+            raise ControlError("kind must be 'hold' or 'policy'.", 400)
+        if kind == "policy" and not checkpoint:
+            raise ControlError("policy session needs a checkpoint.", 400)
+        with self._lock:
+            if self._state in _ACTIVE_STATES:
+                raise ControlError("Disarm before changing the selected session.", 409)
+            self._selected = {"kind": kind, "checkpoint": checkpoint}
+
+    def set_run_gate(self, active: bool) -> None:
+        """Deadman trigger state from the gamepad: True = held (engage/run), False = released
+        (damp). Distinct from the heartbeat — a release damps; a controller loss E-STOPs."""
+        if active:
+            self._run_gate.set()
+        else:
+            self._run_gate.clear()
+
+    def set_walk_command(self, vx: float, vy: float, wz: float) -> None:
+        """Live locomotion command (forward, lateral, yaw) from the gamepad sticks; consumed
+        by the running policy each tick. Ignored (harmless) for a 'hold' session."""
+        with self._command_lock:
+            self._command = np.array([vx, vy, wz], dtype=np.float32)
+
+    def arm_deadman(self, kind: str | None = None, checkpoint: str | None = None,
+                    *, ramp: float = 1.5) -> None:
+        """Enter the ARMED deadman session: legs → DAMPING, spawn the trigger-driven worker.
+        Requires CONNECTED + all joints calibrated + a live controller (deadman)."""
+        with self._lock:
+            if self._state != SessionState.CONNECTED:
+                raise ControlError(f"Cannot arm from {self._state.value}; connect first.", 409)
+            if self.estop.fired:
+                raise ControlError("E-STOP is latched — reconnect to clear.", 409)
+            uncal = [n for n in self._joints if not self._calibrated[n]]
+            if uncal:
+                raise ControlError(
+                    f"Calibrate all joints before arming — {len(uncal)} uncalibrated.", 409)
+            if not self.client.is_running():
+                raise ControlError("Daemon not running — no telemetry.", 503)
+            if not self.deadman_ok():
+                raise ControlError("No live controller — connect the gamepad deadman first.", 409)
+            if self._session_thread and self._session_thread.is_alive():
+                raise ControlError("A session is already active.", 409)
+
+            sel_kind = kind or self._selected["kind"]
+            sel_ckpt = checkpoint if kind else self._selected["checkpoint"]
+            if kind:
+                self._selected = {"kind": sel_kind, "checkpoint": sel_ckpt}
+            if sel_kind == "policy":
+                if not sel_ckpt:
+                    raise ControlError("policy session needs a checkpoint.", 400)
+                policy = load_policy(sel_ckpt, num_actions=self.contract.num_joints)
+            else:
+                policy = ZeroPolicy(self.contract.num_joints)
+
+            runner = PolicyRunner(
+                self.client, self.contract, policy,
+                base_source=TelemetryBaseState(lambda: {"base": self.client.latest_base()}),
+                command=self._command.copy(), estop=self.estop, ramp_seconds=ramp,
+            )
+            self._armed = True
+            self._stop_evt.clear()
+            self._run_gate.clear()
+            self._state = SessionState.ARMED
+            t = threading.Thread(target=self._deadman_worker, args=(runner, sel_kind),
+                                 name=f"deadman-{sel_kind}", daemon=True)
+            self._session_thread = t
+            t.start()
+        _log.info("ARMED deadman session (kind=%s, ramp=%.1fs) — legs DAMPING, hold a trigger to run.",
+                  sel_kind, ramp)
+
+    def disarm_deadman(self) -> None:
+        """Leave the deadman session: stop the worker (legs → IDLE), back to CONNECTED."""
+        self.stop(wait=True)
+
+    def _deadman_worker(self, runner: PolicyRunner, kind: str) -> None:
+        """Persistent trigger-driven loop. Released trigger → DAMPING (rest); held trigger →
+        engage (ramp to default_pose, abortable on release) then step the policy with the live
+        command. Survives release/re-press; exits only on stop or E-STOP."""
+        engaged = False
+        dt = self.contract.policy_dt
+        engaged_state = SessionState.RUNNING if kind == "policy" else SessionState.HOLDING
+        try:
+            self.legs.damp()   # ARMED rest state
+            next_tick = time.monotonic()
+            while not self.estop.fired and not self._stop_evt.is_set():
+                if self._run_gate.is_set():
+                    if not engaged:
+                        with self._lock:
+                            self._state = engaged_state
+                        # Engage: seed@current (jerk-free from DAMPING) + ramp to default_pose,
+                        # bailing the instant the trigger is released or E-STOP fires.
+                        ok = runner.prepare(
+                            should_abort=lambda: self._stop_evt.is_set() or not self._run_gate.is_set())
+                        if not ok:
+                            if not (self.estop.fired or self._stop_evt.is_set()):
+                                self.legs.damp()          # released mid-ramp → rest
+                                with self._lock:
+                                    self._state = SessionState.ARMED
+                            continue
+                        engaged = True
+                        next_tick = time.monotonic()
+                    self.legs.check_health()              # raises on fault → finally IDLEs
+                    with self._command_lock:
+                        runner.command = self._command.copy()
+                    runner.step()
+                    next_tick += dt
+                    sleep = next_tick - time.monotonic()
+                    if sleep > 0:
+                        time.sleep(sleep)
+                    else:
+                        next_tick = time.monotonic()
+                else:
+                    if engaged:
+                        self.legs.damp()                  # trigger released → rest
+                        engaged = False
+                        with self._lock:
+                            self._state = SessionState.ARMED
+                    else:
+                        time.sleep(0.02)                  # idle damped, waiting for trigger
+        except Exception as exc:
+            _log.error("deadman session error: %s", exc)
+            with self._lock:
+                self._last_error = f"deadman: {exc}"
+            self.trigger_estop("deadman-fault")
+        finally:
+            try:
+                self.legs.idle()   # leaving the session → free (IDLE), disarmed
+            except Exception as exc:
+                _log.warning("idle after deadman session failed: %s", exc)
+            self._on_session_end()
+            _log.info("deadman session ended.")
 
     # ── manual control (capture-and-hold / go-to-pose) ───────────────────────
     def current_pose_rad(self) -> dict[str, float]:

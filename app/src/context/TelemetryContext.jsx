@@ -15,6 +15,7 @@ const EMPTY = {
   last_error: null,
   joints: [],
   buses: [],
+  base: null,
 }
 
 const TelemetryContext = createContext(EMPTY)

@@ -382,6 +382,7 @@ class DaemonClient:
         self._tel_lock      = threading.Lock()
         self._joint_states: dict[str, dict] = {}   # name → daemon joint dict
         self._bus_health:   dict[str, dict] = {}   # ifname → {open, tx_dropped, rx_frames}
+        self._base:         dict | None = None      # latest IMU base block (None if no IMU/stale)
         self._last_tel_time: float = 0.0           # monotonic time of last good frame
 
         # Drop-event queue (daemon doesn't push these; kept for API compat)
@@ -466,8 +467,18 @@ class DaemonClient:
         return (time.monotonic() - self._last_tel_time) < _RUNNING_MAX_AGE
 
     def is_connected(self) -> bool:
-        """True after apply_all_configs OR connect_single(); False after disconnect()."""
+        """True after wake_all/apply_all_configs OR connect_single(); False after disconnect()."""
         return (self._connected or bool(self._directly_connected)) and self.is_running()
+
+    def latest_base(self) -> dict | None:
+        """Latest IMU `base` block from telemetry (quaternion / angular_velocity /
+        projected_gravity), or None when the daemon reports no fresh IMU data or no
+        telemetry has arrived. Consumed by base_state.TelemetryBaseState."""
+        with self._tel_lock:
+            # Guard on telemetry liveness too: a stale cache must not look fresh.
+            if (time.monotonic() - self._last_tel_time) >= _RUNNING_MAX_AGE:
+                return None
+            return self._base
 
     # ------------------------------------------------------------------ #
     # Telemetry receive thread                                             #
@@ -495,6 +506,7 @@ class DaemonClient:
             with self._tel_lock:
                 self._joint_states  = msg.get("joints", {})
                 self._bus_health    = msg.get("bus_health", {})
+                self._base          = msg.get("base")   # None when IMU absent/stale
                 self._last_tel_time = time.monotonic()
 
     # ------------------------------------------------------------------ #
@@ -582,6 +594,15 @@ class DaemonClient:
 
     def set_all_mode(self, mode: str) -> None:
         self._send_command({"type": "SET_ALL_MODE", "mode": mode})
+
+    def wake_all(self, mode: str = "IDLE") -> None:
+        """Bring every motor DISABLED→<mode> (default IDLE) via NMT — a mode transition,
+        NOT an SDO config write. Marks the client connected. Use instead of
+        apply_all_configs when connect must be read-only (preserve the ESCs' live
+        gains/limits/offsets)."""
+        self.set_all_mode(mode)
+        self._connected = True
+        self._directly_connected.clear()
 
     def set_position(self, joint_name: str, position_rad: float) -> None:
         self._send_command({

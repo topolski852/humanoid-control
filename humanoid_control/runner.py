@@ -60,11 +60,14 @@ class PolicyRunner:
         self.legs.check_health()             # raises if any leg offline/faulted
         print("[runner] connected; all 12 leg joints online and healthy.", file=sys.stderr)
 
-    def prepare(self) -> bool:
+    def prepare(self, should_abort=None) -> bool:
         """MOTION: enable POSITION and ramp from current pose to default_pose.
 
-        Returns False if aborted by E-stop. Seeds prev_action=0 so the first policy obs is
-        consistent with holding default_pose.
+        Returns False if aborted. Seeds prev_action=0 so the first policy obs is consistent
+        with holding default_pose. ``should_abort`` (optional) is OR'd with the E-stop so a
+        caller can bail the ramp on another condition (e.g. a released deadman trigger); it
+        must return True to abort. Enabling POSITION from DAMPING is jerk-free because the
+        daemon seeds the firmware position target at the current pose on the mode change.
         """
         pos, _ = self.legs.read_states()
         goal = self.contract.clamp_targets(self.contract.default_pose)
@@ -73,10 +76,11 @@ class PolicyRunner:
         self.legs.send_targets(pos)
         time.sleep(0.05)
         ctrl_hz = 1.0 / self.contract.control_dt
+        abort = (lambda: self.estop.fired or bool(should_abort and should_abort()))
         ok = ramp_to_pose(
             start=pos, goal=goal, send=self.legs.send_targets,
             duration_s=self.ramp_seconds, rate_hz=min(ctrl_hz, 100.0),
-            should_abort=lambda: self.estop.fired,
+            should_abort=abort,
         )
         self.action_mapper.reset()
         if ok:
