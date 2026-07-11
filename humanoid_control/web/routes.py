@@ -43,8 +43,15 @@ async def _blocking(fn, *args):
     return await loop.run_in_executor(None, lambda: fn(*args))
 
 
+# Trained-policy bundles live in the sibling humanoid-policy repo's deploy/ by default: each
+# bundle is a folder with policy.onnx (+ leg_policy_contract.json). Override with the env var.
 def _policy_dir() -> Path:
-    return Path(os.environ.get("HUMANOID_POLICY_DIR", str(REPO_ROOT / "checkpoints")))
+    return Path(os.environ.get(
+        "HUMANOID_POLICY_DIR", str(REPO_ROOT.parent / "humanoid-policy" / "deploy")))
+
+
+# The policy that runs by default (pre-selected in the UI). Others are listed too.
+_DEFAULT_POLICY = "walk"
 
 
 # ── request bodies ───────────────────────────────────────────────────────────
@@ -84,13 +91,24 @@ def status(request: Request):
 
 @router.get("/api/policies", response_model=None)
 def policies(request: Request):
+    """Detect available trained policies. Prefers the deploy-bundle layout
+    (<dir>/<name>/policy.onnx + leg_policy_contract.json); also lists loose weight
+    files as a fallback. Marks the default policy (walk) so the UI pre-selects it."""
     d = _policy_dir()
     found = []
     if d.is_dir():
-        for p in sorted(d.iterdir()):
+        for sub in sorted(p for p in d.iterdir() if p.is_dir()):
+            onnx = sub / "policy.onnx"
+            if onnx.is_file():
+                contract = sub / "leg_policy_contract.json"
+                found.append({"name": sub.name, "path": str(onnx),
+                              "contract": str(contract) if contract.is_file() else None})
+        for p in sorted(d.iterdir()):   # fallback: loose weight files in the dir
             if p.is_file() and p.suffix.lower() in _POLICY_EXTS:
-                found.append({"name": p.name, "path": str(p)})
-    return _ok({"dir": str(d), "policies": found})
+                found.append({"name": p.name, "path": str(p), "contract": None})
+    names = {f["name"] for f in found}
+    default = _DEFAULT_POLICY if _DEFAULT_POLICY in names else (found[0]["name"] if found else None)
+    return _ok({"dir": str(d), "default": default, "policies": found})
 
 
 # ── connection lifecycle ─────────────────────────────────────────────────────

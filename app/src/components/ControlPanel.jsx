@@ -9,6 +9,7 @@ export default function ControlPanel({ deadmanConnected }) {
   const [busy, setBusy] = useState(null)      // name of the in-flight action
   const [error, setError] = useState(null)
   const [policies, setPolicies] = useState([])
+  const [defaultPolicy, setDefaultPolicy] = useState(null)
   const [checkpoint, setCheckpoint] = useState('')
 
   const motion = t.state === 'HOLDING' || t.state === 'RUNNING'
@@ -23,11 +24,19 @@ export default function ControlPanel({ deadmanConnected }) {
   }
 
   async function loadPolicies() {
-    try { const d = await api.getPolicies(); setPolicies(d.policies || []) }
-    catch { /* ignore — daemon/dir may be absent */ }
+    try {
+      const d = await api.getPolicies()
+      setPolicies(d.policies || [])
+      setDefaultPolicy(d.default || null)
+    } catch { /* ignore — daemon/dir may be absent */ }
   }
   useEffect(() => { loadPolicies() }, [])
-  useEffect(() => { if (policies.length && !checkpoint) setCheckpoint(policies[0].path) }, [policies])
+  useEffect(() => {
+    if (policies.length && !checkpoint) {
+      const def = policies.find((p) => p.name === defaultPolicy) || policies[0]
+      setCheckpoint(def.path)
+    }
+  }, [policies, defaultPolicy])
 
   const deadmanWarn = (t.armed || motion) && !(deadmanConnected && t.deadman_ok)
 
