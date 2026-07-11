@@ -40,6 +40,8 @@ class ObservationBuilder:
             )
         self._default_pose = contract.default_pose.astype(np.float32)
         self._n = contract.num_joints
+        # device -> policy(URDF) frame per-joint sign flip (mirrored right-leg roll/yaw joints).
+        self._sign = contract.policy_frame_sign.astype(np.float32)
 
     def build(
         self,
@@ -58,13 +60,17 @@ class ObservationBuilder:
         assert command.shape == (3,), command.shape
         assert prev_action.shape == (self._n,), prev_action.shape
 
+        # joint_pos/joint_vel arrive in the DEVICE frame; convert the per-joint quantities to the
+        # POLICY(URDF) frame the network was trained in by multiplying by the sign map. The subtraction
+        # of default_pose (also device frame) is done first, then flipped: s*(pos-default) == P_pos -
+        # P_default. prev_action is already the network's own output (policy frame) -> no flip.
         obs = np.concatenate([
-            command,                              # 3
-            base_state.base_ang_vel,              # 3
-            base_state.projected_gravity,         # 3
-            joint_pos - self._default_pose,       # 12
-            joint_vel,                            # 12
-            prev_action,                          # 12
+            command,                                          # 3
+            base_state.base_ang_vel,                          # 3
+            base_state.projected_gravity,                     # 3
+            self._sign * (joint_pos - self._default_pose),    # 12
+            self._sign * joint_vel,                           # 12
+            prev_action,                                      # 12
         ]).astype(np.float32)
         assert obs.shape == (self.contract.num_observations,), (
             f"obs dim {obs.shape} != contract {self.contract.num_observations}"

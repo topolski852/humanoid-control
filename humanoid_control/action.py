@@ -20,6 +20,8 @@ class ActionMapper:
         self.contract = contract
         self._scale = contract.action_scale
         self._default = contract.default_pose.astype(np.float32)
+        # policy(URDF) -> device frame per-joint sign flip (mirrored right-leg roll/yaw joints).
+        self._sign = contract.policy_frame_sign.astype(np.float32)
         self._lo = contract.pos_limit_lower.astype(np.float32)
         self._hi = contract.pos_limit_upper.astype(np.float32)
         self._n = contract.num_joints
@@ -38,6 +40,8 @@ class ActionMapper:
         # Guard against NaN/inf before anything downstream sees it.
         action = np.nan_to_num(action, nan=0.0, posinf=self._action_clip, neginf=-self._action_clip)
         clipped = np.clip(action, -self._action_clip, self._action_clip)
-        self.prev_action = clipped
-        target = clipped * self._scale + self._default
+        self.prev_action = clipped  # stored in POLICY frame (fed back into the obs unchanged)
+        # The policy outputs a delta in the POLICY(URDF) frame; flip it to the DEVICE frame before
+        # adding the device-frame default_pose, so mirrored right-leg joints drive the correct way.
+        target = self._sign * (clipped * self._scale) + self._default
         return np.clip(target, self._lo, self._hi)

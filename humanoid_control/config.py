@@ -28,6 +28,19 @@ DEFAULT_CONTRACT_PATH = REPO_ROOT / "configs" / "leg_policy_params.json"
 # Live robot config (studio source of truth). Point the daemon --config at the same file.
 LIVE_ROBOT_CONFIG_PATH = Path("/home/nse/humanoid-studio/configs/humanoid_lite.json")
 
+# --- policy vs device frame -------------------------------------------------
+# The policy is trained in the URDF frame, which is left<->right MIRROR-symmetric (a symmetric
+# stance uses OPPOSITE signs on left/right). The robot's device/ESC frame is UN-mirrored (both legs
+# use the SAME sign for a symmetric stance). So exactly these right-leg roll/yaw joints have opposite
+# sign between the two frames and must be sign-flipped at the policy<->device boundary. Left joints
+# and all pitch joints already match. See humanoid-policy README "Joint SIGN / frame convention" and
+# POLICY_CONTRACT.md.
+POLICY_FRAME_MIRRORED_JOINTS = (
+    "right_hip_roll_joint",
+    "right_hip_yaw_joint",
+    "right_ankle_roll_joint",
+)
+
 
 @dataclass(frozen=True)
 class LegPolicyContract:
@@ -56,6 +69,17 @@ class LegPolicyContract:
     @property
     def num_joints(self) -> int:
         return len(self.joint_order)
+
+    @property
+    def policy_frame_sign(self) -> np.ndarray:
+        """(12,) of ±1: multiply a *device-frame* per-joint quantity by this to get the *policy*
+        (URDF) frame, and vice-versa (the map is its own inverse). ``-1`` on the URDF-mirrored
+        right-leg joints (see ``POLICY_FRAME_MIRRORED_JOINTS``), ``+1`` elsewhere.
+        """
+        return np.array(
+            [-1.0 if n in POLICY_FRAME_MIRRORED_JOINTS else 1.0 for n in self.joint_order],
+            dtype=np.float32,
+        )
 
     def index_of(self, joint_name: str) -> int:
         return self.joint_order.index(joint_name)
