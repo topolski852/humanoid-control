@@ -7,7 +7,7 @@
       "right_ankle_roll_joint": "mirror left_ankle_roll for base/starting pose"
     },
     "STATUS": "joint_order + obs layout + action_scale + default_pose CONFIRMED 2026-07-01 against humanoid-policy trainer; per-joint gains/effort/limits = ESC device truth. starting_pose captured & clamped.",
-    "default_pose_source": "starting pose 20260701T191719Z: per-pair avg(left,right) current position, clamped to URDF position_limits; ankle_roll=left copied to both (right encoder broken)",
+    "default_pose_source": "WALK policy stand pose (humanoid-policy/deploy/walk/policy_latest.yaml default_joint_positions), device frame: right hip_roll/hip_yaw/ankle_roll negated from the URDF-mirrored export so both legs share sign. This is the pose the runner ramps to and uses as the walk action offset. See NEXT_STEPS.md step 1.",
     "position_limits_source": "URDF position_limits from humanoid_lite.json (ESC-read limits are offset-adjusted in firmware frame and drifted after recal \u2014 do NOT use for clamping)"
   },
   "canonical_joint_order": [
@@ -57,7 +57,7 @@
       "position_offset": -1.3300976753234863,
       "position_limit_lower": -0.17453292519943295,
       "position_limit_upper": 1.5707963267948966,
-      "default_pose": 0.029593753814697265
+      "default_pose": 0.11
     },
     {
       "index": 1,
@@ -70,7 +70,7 @@
       "position_offset": -0.781866729259491,
       "position_limit_lower": -0.9826203688728075,
       "position_limit_upper": 0.5899212871740833,
-      "default_pose": 0.0038009449839591977
+      "default_pose": 0.0
     },
     {
       "index": 2,
@@ -83,7 +83,7 @@
       "position_offset": 1.5023807287216187,
       "position_limit_lower": -1.8980455615438334,
       "position_limit_upper": 0.9817477042468103,
-      "default_pose": 0.9817477042468103
+      "default_pose": -0.24
     },
     {
       "index": 3,
@@ -96,7 +96,7 @@
       "position_offset": -0.03180453181266785,
       "position_limit_lower": 0.0,
       "position_limit_upper": 2.443460952792061,
-      "default_pose": 2.443460952792061
+      "default_pose": 0.83
     },
     {
       "index": 4,
@@ -109,7 +109,7 @@
       "position_offset": -0.3135456144809723,
       "position_limit_lower": -0.7853981633974483,
       "position_limit_upper": 0.7853981633974483,
-      "default_pose": -0.7853981633974483
+      "default_pose": -0.56
     },
     {
       "index": 5,
@@ -122,7 +122,7 @@
       "position_offset": 0.3422822654247284,
       "position_limit_lower": -0.2617993877991494,
       "position_limit_upper": 0.2617993877991494,
-      "default_pose": 0.013601303100585938
+      "default_pose": -0.07
     },
     {
       "index": 6,
@@ -135,7 +135,7 @@
       "position_offset": -1.735170841217041,
       "position_limit_lower": -0.17453292519943295,
       "position_limit_upper": 1.5707963267948966,
-      "default_pose": 0.029593753814697265
+      "default_pose": 0.11
     },
     {
       "index": 7,
@@ -148,7 +148,7 @@
       "position_offset": -0.11581218987703323,
       "position_limit_lower": -0.9826203688728075,
       "position_limit_upper": 0.5899212871740833,
-      "default_pose": 0.0038009449839591977
+      "default_pose": 0.0
     },
     {
       "index": 8,
@@ -161,7 +161,7 @@
       "position_offset": 1.68273,
       "position_limit_lower": -1.8989182261698305,
       "position_limit_upper": 0.9826203688728075,
-      "default_pose": 0.9817477042468103
+      "default_pose": -0.24
     },
     {
       "index": 9,
@@ -174,7 +174,7 @@
       "position_offset": -0.5353593230247498,
       "position_limit_lower": 0.0,
       "position_limit_upper": 2.443460952792061,
-      "default_pose": 2.443460952792061
+      "default_pose": 0.83
     },
     {
       "index": 10,
@@ -187,7 +187,7 @@
       "position_offset": -0.2321424037218094,
       "position_limit_lower": -0.7853981633974483,
       "position_limit_upper": 0.7853981633974483,
-      "default_pose": -0.7853981633974483
+      "default_pose": -0.56
     },
     {
       "index": 11,
@@ -200,7 +200,7 @@
       "position_offset": 0.33144211769104004,
       "position_limit_lower": -0.2617993877991494,
       "position_limit_upper": 0.2617993877991494,
-      "default_pose": 0.013601303100585938,
+      "default_pose": -0.07,
       "encoder_broken": true,
       "notes": "Encoder broken: position_offset + live position unreliable. Mirror left_ankle_roll for base/starting pose."
     }
