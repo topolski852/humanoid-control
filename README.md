@@ -8,6 +8,10 @@ the robot's PC**: it loads a learned policy and drives the leg joints to stand
 policy runner (Python)  ──UDP :9001/:9000──▶  daemon (C++, owns CAN @200 Hz)  ──CAN──▶  ESCs (22 joints)
 ```
 
+> **▶ Deploying a trained policy? Start with [`NEXT_STEPS.md`](NEXT_STEPS.md)** — the step-by-step for
+> the first supported "stand in place" test with the walk policy (contract `default_pose`, gains, IMU,
+> and the policy↔device joint-sign fix that's already landed).
+
 ## Layout
 - `daemon/` — the real-time CAN daemon (C++). **Copied verbatim from
   [`humanoid-studio`](https://github.com/topolski852/humanoid-studio); keep the two
