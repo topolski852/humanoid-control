@@ -1,0 +1,23 @@
+[Unit]
+Description=Humanoid WitMotion IMU init (assert 921600 baud before the daemon opens it)
+Documentation=https://github.com/topolski852/humanoid-control
+# The WitMotion IMU reverts to 9600 baud on power loss unless its flash config holds. This
+# oneshot re-asserts the target baud/rate for the session so the daemon always finds it
+# streaming quaternion at 921600. Runs BEFORE the daemon so the serial port is free.
+# (Primary persistence is the sensor's own flash — see scripts/imu_setup.py; this is a
+# belt-and-suspenders recovery in case the flash config is ever lost.)
+Before=humanoid-daemon.service
+
+[Service]
+Type=oneshot
+User=nse
+WorkingDirectory=/home/nse/humanoid-control
+# Wait up to ~10 s for udev to create the symlink, then configure (no flash write per boot).
+ExecStartPre=/bin/sh -c 'for i in $(seq 1 20); do [ -e /dev/humanoid_imu ] && exit 0; sleep 0.5; done; exit 0'
+ExecStart=/home/nse/humanoid-control/.venv/bin/python scripts/imu_setup.py --no-save
+# Absent/faulty IMU must not wedge boot — the daemon falls back to base:null (upright stub).
+TimeoutStartSec=45
+SuccessExitStatus=0 1
+
+[Install]
+WantedBy=multi-user.target
