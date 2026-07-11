@@ -43,16 +43,29 @@ gains). The ESCs must match. Confirm the studio `humanoid_lite.json` / ESC `posi
 are set to 20/2 for the legs before running walk. (The per-joint device gains in `POLICY_CONTRACT.md`
 are for the *standup* policy, a later run.)
 
-## 3. IMU / base state  ⚠️ IMPORTANT
-The control code still feeds `UprightStubBaseState` (constant `projected_gravity=[0,0,-1]`,
-`base_ang_vel=0`) in `runner.py`, `scripts/run_policy.py`, and `web/service.py`. The walk policy is a
-**balance** policy — it needs **live** IMU `base_ang_vel` + `projected_gravity` to hold itself up.
-- Now that the IMU is installed, wire `TelemetryBaseState` (see `base_state.py` + `POLICY_CONTRACT.md`
-  §8 / `docs/DAEMON_SPEC.md §9`) and **validate the IMU signs by physically tilting the robot** before
-  trusting it.
-- With the **stub** and the robot **supported + upright**, the walk policy will hold a rough stance
-  (it thinks it's perfectly balanced), which is an acceptable *plumbing* test — but it is NOT real
-  balance and must not be trusted unsupported.
+## 3. IMU / base state  ⚠️ WIRE IT IN
+The **daemon now publishes IMU** (installed + programmed). The Python side is **not yet consuming it** —
+`runner.py`, `scripts/run_policy.py`, and `web/service.py` still construct `UprightStubBaseState`
+(constant `projected_gravity=[0,0,-1]`, `base_ang_vel=0`). The walk policy is a **balance** policy that
+needs the **live** IMU, so wire it:
+
+1. **Confirm `daemon_client` surfaces the base block.** `TelemetryBaseState` expects the telemetry
+   frame to contain `base: { angular_velocity:[x,y,z], projected_gravity:[gx,gy,gz] | quaternion:[w,x,y,z] }`
+   (`base_state.py`). Make sure the client's latest-telemetry dict actually includes what the daemon
+   emits (may need a `daemon_client` update if the base block is new).
+2. **Match conventions to the daemon's actual output** (the §9 spec left these open): quaternion order
+   (wxyz vs xyzw), world→base vs base→world, and whether the daemon sends `projected_gravity` directly
+   or a `quaternion` (TelemetryBaseState handles either). Fix `TelemetryBaseState`/`quat_rotate_inverse`
+   if the daemon's convention differs.
+3. **Swap the source:** pass `base_source=TelemetryBaseState(<latest-telemetry getter>)` in
+   `run_policy.py` (and `runner.py` default / `web/service.py`) instead of `UprightStubBaseState()`.
+4. **Validate signs by physically tilting the robot** (supported): pitch/roll the base and confirm
+   `projected_gravity` moves the correct way and `base_ang_vel` sign matches. A wrong IMU sign will
+   make the balance loop drive the *wrong* way — check this before any unsupported run.
+
+Fallback: with the **stub** and the robot **supported + upright**, the walk policy will hold a rough
+stance (it believes it's perfectly balanced) — acceptable as a *plumbing/sign* test of the legs, but
+NOT real balance. Prefer the live IMU (above) for the actual standing test.
 
 ## 4. Deploy the walk ONNX + run
 ```bash
