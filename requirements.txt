@@ -7,9 +7,9 @@ pydantic>=2.0
 fastapi>=0.111
 uvicorn[standard]>=0.29
 
-# Optional — only needed to run a trained policy (scripts/run_policy.py):
-#   onnxruntime>=1.16      # for .onnx checkpoints
-#   torch>=2.0             # for .pt checkpoints
+# Policy inference — the deploy-bundle policies are ONNX (humanoid_control.web / scripts/run_policy.py):
+onnxruntime>=1.16          # for .onnx checkpoints
+#   torch>=2.0             # only if you run .pt checkpoints instead
 
 # Robot-local gamepad hold-to-run deadman (web/gamepad.py; active when HUMANOID_GAMEPAD_ENABLE=1):
 evdev>=1.6                 # USB Xbox/8BitDo controller — trigger deadman + walk command + E-STOP
