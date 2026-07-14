@@ -234,22 +234,31 @@ class ControlService:
 
     def _verify_configured(self) -> list[str]:
         """Read each joint's live config (no writes) and return those that look unconfigured
-        (kp==0 or torque_limit==0, or unreadable). Best-effort: retries the occasional dropped
-        SDO and never raises — connect uses it purely as a read-only warning."""
+        (kp==0 or torque_limit==0, or unreadable). Best-effort, never raises — used only as a
+        read-only warning on connect.
+
+        READ_CONFIG occasionally drops ONE SDO param per read, so we MERGE across retries: keep
+        the first non-None position_kp AND the first non-None torque_limit, and only flag a joint
+        once we actually have both (or exhausted retries). Retrying until just position_kp is
+        present is a false-positive trap — a read with valid kp but a dropped torque_limit would
+        read as torque==0 and wrongly flag a correctly-configured joint."""
         suspect: list[str] = []
         for name in self._joints:
-            cfg = None
-            for _ in range(3):
+            kp = tl = None
+            for _ in range(6):
                 try:
                     c = self.client.read_device_config(name)
                 except Exception:
                     continue
-                if c.get("position_kp") is not None:
-                    cfg = c
+                if kp is None and c.get("position_kp") is not None:
+                    kp = c["position_kp"]
+                if tl is None and c.get("torque_limit") is not None:
+                    tl = c["torque_limit"]
+                if kp is not None and tl is not None:
                     break
-            if cfg is None:
+            if kp is None or tl is None:          # genuinely couldn't read after retries
                 suspect.append(name)
-            elif float(cfg.get("position_kp") or 0.0) == 0.0 or float(cfg.get("torque_limit") or 0.0) == 0.0:
+            elif float(kp) == 0.0 or float(tl) == 0.0:
                 suspect.append(name)
         return suspect
 
