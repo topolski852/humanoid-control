@@ -16,7 +16,10 @@ export default function ControlPanel({ deadmanConnected }) {
   const isConnected = t.state === 'CONNECTED'
   // Connect is available from DISCONNECTED / ESTOPPED / ERROR (it clears a latched E-STOP and
   // wakes motors DISABLED→IDLE); only blocked while already connected or actively moving.
-  const canConnect = !motion && t.config_present && t.state !== 'CONNECTED'
+  // Allow (re)connect whenever not in a motion session — including from CONNECTED when joints
+  // have dropped OFFLINE (an ESC brownout/reset), which is exactly when you must re-wake them.
+  const jointsOffline = (t.joints || []).some((j) => j.online === false)
+  const canConnect = !motion && t.config_present && (t.state !== 'CONNECTED' || jointsOffline)
 
   async function run(name, fn) {
     setBusy(name); setError(null)

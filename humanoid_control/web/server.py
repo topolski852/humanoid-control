@@ -96,6 +96,7 @@ async def _watchdog_loop(service: ControlService) -> None:
     try:
         while True:
             service.check_deadman_watchdog()
+            service.check_offline_recovery()   # auto re-wake ESCs after a brownout/reset (idle only)
             await asyncio.sleep(interval)
     except asyncio.CancelledError:
         pass

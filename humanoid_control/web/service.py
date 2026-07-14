@@ -106,6 +106,7 @@ class ControlService:
             "connected": False,
             "name": None,
         }
+        self._last_autowake = 0.0   # rate-limits ESC-reset auto-recovery
 
         # Per-joint position_offset calibration. Reset to uncalibrated on every connect
         # (a connect follows every power-up, and the encoder zero is lost on power-down).
@@ -207,6 +208,33 @@ class ControlService:
             self._control_clients > 0
             and (time.monotonic() - self._last_heartbeat) < _DEADMAN_TIMEOUT_S
         )
+
+    def check_offline_recovery(self) -> None:
+        """Auto-recover an ESC brownout/reset: firmware v3.2.0 boots DISABLED-silent, so a reset
+        drops ALL joints OFFLINE and they need re-waking. When we're CONNECTED-idle (NOT armed/
+        moving) and every joint has gone OFFLINE while the daemon is alive, re-wake them (NMT IDLE)
+        and mark uncalibrated (the reset reverted the offsets to flash). Never touches an active
+        motion session — a reset there is a fault the deadman must E-STOP, not silently paper over."""
+        if self._state != SessionState.CONNECTED or not self.client.is_running():
+            return
+        all_offline = all(
+            (st := self.client.get_cached_joint_state(n)) is None
+            or (st.get("state") or st.get("joint_state")) == "OFFLINE"
+            for n in self._joints
+        )
+        if not all_offline:
+            return
+        now = time.monotonic()
+        if now - self._last_autowake < 3.0:
+            return
+        self._last_autowake = now
+        _log.warning("all joints OFFLINE while CONNECTED (ESC reset?) — auto-waking (NMT IDLE).")
+        try:
+            self.client.wake_all()
+        except Exception as exc:
+            _log.warning("auto-wake failed: %s", exc)
+        with self._lock:
+            self._calibrated = {n: False for n in self._joints}   # reset ⇒ offsets stale
 
     def check_deadman_watchdog(self) -> None:
         """Called periodically by the event-loop watchdog: trip E-STOP if a motion

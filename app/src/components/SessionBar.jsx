@@ -11,7 +11,9 @@ export default function SessionBar({ deadmanConnected }) {
 
   const motion = t.state === 'HOLDING' || t.state === 'RUNNING'
   const isConnected = t.state === 'CONNECTED'
-  const canConnect = !motion && t.config_present && t.state !== 'CONNECTED'
+  // Allow (re)connect from CONNECTED too when joints have dropped OFFLINE (ESC reset → re-wake).
+  const jointsOffline = (t.joints || []).some((j) => j.online === false)
+  const canConnect = !motion && t.config_present && (t.state !== 'CONNECTED' || jointsOffline)
   const deadmanWarn = (t.armed || motion) && !(deadmanConnected && t.deadman_ok)
 
   async function run(name, fn) {
