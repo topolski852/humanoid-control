@@ -258,7 +258,18 @@ class ControlService:
         # Wake only (DISABLED→IDLE via NMT); NO SDO config writes, so live ESC gains survive.
         self.client.wake_all()
         time.sleep(0.5)
-        self.legs.check_health()   # raises if any leg offline/faulted
+        # Clear any latched firmware faults (e.g. a prior watchdog / deadman E-STOP) so a fault
+        # doesn't block reconnect — Connect is the operator's recovery path. CLEAR_ERROR only
+        # zeroes the error reg + IDLEs; it never touches tuned gains (consistent with read-only connect).
+        for n in self._joints:
+            st = self.client.get_cached_joint_state(n)
+            if st and int(st.get("error", 0) or 0):
+                try:
+                    self.client.clear_error(n)
+                except Exception as exc:
+                    _log.warning("clear_error %s on connect failed: %s", n, exc)
+        time.sleep(0.3)
+        self.legs.check_health()   # raises if any leg offline/faulted (errors now cleared)
         # Read-only sanity net: since connect no longer configures the ESCs, confirm each is
         # actually configured (a blank/unconfigured motor reads kp or torque_limit == 0).
         unconfigured = self._verify_configured()
@@ -667,7 +678,8 @@ class ControlService:
         dt = self.contract.policy_dt
         engaged_state = SessionState.RUNNING if kind == "policy" else SessionState.HOLDING
         try:
-            self.legs.damp()   # ARMED rest state
+            self.legs.idle()   # ARMED rest = IDLE (zero-torque). DAMPING faults the firmware
+            # watchdog in ~1s (not daemon-fed) — see notes; IDLE is dormant + safe.
             next_tick = time.monotonic()
             while not self.estop.fired and not self._stop_evt.is_set():
                 if self._run_gate.is_set():
@@ -680,7 +692,7 @@ class ControlService:
                             should_abort=lambda: self._stop_evt.is_set() or not self._run_gate.is_set())
                         if not ok:
                             if not (self.estop.fired or self._stop_evt.is_set()):
-                                self.legs.damp()          # released mid-ramp → rest
+                                self.legs.idle()          # released mid-ramp → rest (IDLE, not DAMPING: watchdog)
                                 with self._lock:
                                     self._state = SessionState.ARMED
                             continue
@@ -698,7 +710,7 @@ class ControlService:
                         next_tick = time.monotonic()
                 else:
                     if engaged:
-                        self.legs.damp()                  # trigger released → rest
+                        self.legs.idle()                  # trigger released → rest (IDLE, not DAMPING: watchdog)
                         engaged = False
                         with self._lock:
                             self._state = SessionState.ARMED
