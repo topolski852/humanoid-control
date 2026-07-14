@@ -132,6 +132,7 @@ class GamepadDeadman:
                 continue
             _log.info("gamepad: connected to %s", dev.name)
             self.service.control_client_connected()   # presence → deadman heartbeat source
+            self.service.set_gamepad_connected(dev.name)   # surface to the UI
             try:
                 self._device_loop(dev, ecodes)
             except OSError as exc:
@@ -139,6 +140,7 @@ class GamepadDeadman:
             finally:
                 # Controller lost (unplug / receiver drop) → deadman lost → E-STOP if live.
                 self.service.control_client_disconnected()
+                self.service.set_gamepad_disconnected()
                 try:
                     dev.close()
                 except Exception:

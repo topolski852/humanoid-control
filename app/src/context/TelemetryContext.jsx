@@ -13,6 +13,7 @@ const EMPTY = {
   deadman_ok: false,
   control_clients: 0,
   last_error: null,
+  gamepad: { enabled: false, connected: false, name: null, run_gate: false },
   joints: [],
   buses: [],
   base: null,

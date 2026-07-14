@@ -31,6 +31,13 @@ export default function Header({ deadmanConnected }) {
         <StatusDot tone={wsTone} label="server" />
         <StatusDot tone={daemonTone} label="daemon" />
         <StatusDot tone={deadmanTone} label="deadman" />
+        {t.gamepad?.enabled && (
+          <StatusDot
+            tone={t.gamepad.connected ? 'online' : 'danger'}
+            label="🎮 gamepad"
+            value={t.gamepad.connected ? (t.gamepad.run_gate ? 'RUN' : 'ready') : 'none'}
+          />
+        )}
         <StatusDot tone={t.estop ? 'danger' : 'offline'} label="state" value={t.state} />
       </div>
 

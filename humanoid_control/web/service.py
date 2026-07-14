@@ -20,6 +20,7 @@ Threading model:
 from __future__ import annotations
 
 import logging
+import os
 import threading
 import time
 from enum import Enum
@@ -98,6 +99,14 @@ class ControlService:
         self._command = np.zeros(3, dtype=np.float32)
         self._selected = {"kind": "hold", "checkpoint": None}
 
+        # Gamepad presence for the UI (updated by GamepadDeadman). "enabled" reflects whether the
+        # gamepad deadman thread is running at all (HUMANOID_GAMEPAD_ENABLE).
+        self._gamepad = {
+            "enabled": bool(os.environ.get("HUMANOID_GAMEPAD_ENABLE")),
+            "connected": False,
+            "name": None,
+        }
+
         # Per-joint position_offset calibration. Reset to uncalibrated on every connect
         # (a connect follows every power-up, and the encoder zero is lost on power-down).
         self._joints = list(contract.joint_order)
@@ -160,6 +169,7 @@ class ControlService:
             "control_clients": self._control_clients,
             "last_error": self._last_error,
             "all_calibrated": self.all_calibrated(),
+            "gamepad": {**self._gamepad, "run_gate": self._run_gate.is_set()},
             "joints": joints,
             "buses": buses,
             # IMU base block the policy actually consumes (quaternion / angular_velocity /
@@ -180,6 +190,14 @@ class ControlService:
         # armed — is an immediate E-STOP: we can no longer trust a release vs a dropout.
         if self._control_clients == 0 and self._state in _ACTIVE_STATES:
             self.trigger_estop("deadman-disconnect")
+
+    def set_gamepad_connected(self, name: str) -> None:
+        with self._lock:
+            self._gamepad = {"enabled": True, "connected": True, "name": name}
+
+    def set_gamepad_disconnected(self) -> None:
+        with self._lock:
+            self._gamepad = {**self._gamepad, "connected": False, "name": None}
 
     def mark_heartbeat(self) -> None:
         self._last_heartbeat = time.monotonic()
