@@ -414,6 +414,31 @@ class ControlService:
         _log.info("calibration marked complete by operator override (all joints within limits).")
         return {"marked": True, "out_of_limits": []}
 
+    def clear_faults(self) -> dict:
+        """Clear firmware errors on every joint (CLEAR_ERROR → error reg 0 + IDLE) and release a
+        latched E-STOP, so the operator recovers WITHOUT a full reconnect. Preserves calibration
+        (no power cycle ⇒ offsets are still valid). This is the app's fault-recovery path."""
+        if not self.client.is_running():
+            raise ControlError("Daemon not running.", 503)
+        if self.is_motion_active():
+            raise ControlError("Stop the active session before clearing faults.", 409)
+        cleared = 0
+        for n in self._joints:
+            try:
+                self.client.clear_error(n)
+                cleared += 1
+            except Exception as exc:
+                _log.warning("clear_error %s failed: %s", n, exc)
+        time.sleep(0.3)
+        with self._lock:
+            self.estop = self._new_estop()     # release the latched E-STOP
+            self._armed = False
+            self._last_error = None
+            self._state = SessionState.CONNECTED
+        _log.info("faults cleared on %d/%d joints; E-STOP released; state → CONNECTED.",
+                  cleared, len(self._joints))
+        return {"cleared": cleared}
+
     def disarm(self) -> None:
         with self._lock:
             self._armed = False

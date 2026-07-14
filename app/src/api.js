@@ -65,6 +65,7 @@ export const api = {
     request('/api/run_policy', { method: 'POST', body: JSON.stringify({ checkpoint, command, ramp, seconds }) }),
   stop: () => request('/api/stop', { method: 'POST' }),
   estop: () => request('/api/estop', { method: 'POST' }),
+  clearFaults: () => request('/api/clear_faults', { method: 'POST' }),
 
   // position_offset calibration (per joint)
   calStart: (joint) => request(`/api/calibrate/${joint}/start`, { method: 'POST' }),

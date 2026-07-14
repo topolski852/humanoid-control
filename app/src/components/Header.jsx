@@ -8,10 +8,19 @@ export default function Header({ deadmanConnected }) {
   const t = useTelemetry()
   const [busy, setBusy] = useState(false)
 
+  const [clearing, setClearing] = useState(false)
+
   async function estop() {
     setBusy(true)
     try { await api.estop() } catch (e) { console.warn('estop', e) } finally { setBusy(false) }
   }
+
+  async function clearFaults() {
+    setClearing(true)
+    try { await api.clearFaults() } catch (e) { console.warn('clearFaults', e) } finally { setClearing(false) }
+  }
+
+  const faulted = t.estop || (t.joints || []).some((j) => j.error)
 
   const daemonTone = t.daemon_alive ? 'online' : 'danger'
   const wsTone = t.wsConnected ? 'online' : 'danger'
@@ -41,15 +50,27 @@ export default function Header({ deadmanConnected }) {
         <StatusDot tone={t.estop ? 'danger' : 'offline'} label="state" value={t.state} />
       </div>
 
-      <button
-        onClick={estop} disabled={busy}
-        className="px-6 py-3 rounded-xl font-bold text-white bg-danger hover:bg-red-600
-                   shadow-lg shadow-danger/30 active:scale-95 transition disabled:opacity-60
-                   text-base tracking-wide"
-        title="Emergency stop — set all joints to IDLE (priority port 9002)"
-      >
-        ⛔ E-STOP
-      </button>
+      <div className="flex items-center gap-2">
+        {faulted && (
+          <button
+            onClick={clearFaults} disabled={clearing}
+            className="px-4 py-3 rounded-xl font-semibold text-white bg-warn/90 hover:bg-warn
+                       active:scale-95 transition disabled:opacity-60 text-sm"
+            title="Clear firmware errors on all joints and release a latched E-STOP (recover without reconnect)"
+          >
+            {clearing ? 'Clearing…' : '⟳ Clear faults'}
+          </button>
+        )}
+        <button
+          onClick={estop} disabled={busy}
+          className="px-6 py-3 rounded-xl font-bold text-white bg-danger hover:bg-red-600
+                     shadow-lg shadow-danger/30 active:scale-95 transition disabled:opacity-60
+                     text-base tracking-wide"
+          title="Emergency stop — set all joints to IDLE (priority port 9002)"
+        >
+          ⛔ E-STOP
+        </button>
+      </div>
     </header>
   )
 }

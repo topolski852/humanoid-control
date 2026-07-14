@@ -220,6 +220,16 @@ def estop(request: Request):
     return _ok(_service(request).telemetry_snapshot())
 
 
+@router.post("/api/clear_faults", response_model=None)
+async def clear_faults(request: Request):
+    """Clear firmware errors on all joints + release a latched E-STOP (recover without reconnect)."""
+    try:
+        await _blocking(_service(request).clear_faults)
+    except ControlError as exc:
+        return _err(str(exc), exc.status)
+    return _ok(_service(request).telemetry_snapshot())
+
+
 # ── position_offset calibration ───────────────────────────────────────────────
 # Flow per joint: start (offset→0, IDLE) → move to lower stop → capture lower →
 # move to upper stop → capture upper → apply (compute + write offset). No commanded
