@@ -7,7 +7,7 @@ off the device (READ_CONFIG via the daemon) and diffs them against a policy bund
 gains, so you can confirm "the gains on the robot are what the taught policy was trained with"
 at any point — including mid-tuning, without clobbering the values you're tuning.
 
-A policy bundle is a folder from humanoid-policy/deploy/<name>/ containing
+A policy bundle is a folder in this repo's ``policies/<name>/`` containing
 ``leg_policy_contract.json`` (canonical joint order + per-joint kp/kd). The robot's daemon
 must be running; boot-silent motors may need waking first (``--wake`` sets mode IDLE, which
 does NOT change gains).
@@ -28,9 +28,10 @@ from pathlib import Path
 from humanoid_control import LegPolicyContract, LIVE_ROBOT_CONFIG_PATH
 from humanoid_control.daemon import DaemonClient, DaemonError, RobotConfig
 
-# Default location of the trained-policy bundles (sibling repo). Override with the env var.
+# Default location of the trained-policy bundles: this repo's self-hosted policies/ dir (NOT the
+# sibling humanoid-policy checkout, which can sit on any branch). Override with the env var.
 _DEFAULT_DEPLOY = Path(os.environ.get(
-    "HUMANOID_POLICY_DEPLOY", str(Path(__file__).resolve().parent.parent.parent / "humanoid-policy" / "deploy")))
+    "HUMANOID_POLICY_DEPLOY", str(Path(__file__).resolve().parent.parent / "policies")))
 
 
 def _resolve_contract(policy: str) -> Path:

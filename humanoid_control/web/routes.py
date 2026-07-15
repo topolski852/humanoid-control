@@ -43,11 +43,13 @@ async def _blocking(fn, *args):
     return await loop.run_in_executor(None, lambda: fn(*args))
 
 
-# Trained-policy bundles live in the sibling humanoid-policy repo's deploy/ by default: each
-# bundle is a folder with policy.onnx (+ leg_policy_contract.json). Override with the env var.
+# Trained-policy bundles are SELF-HOSTED in this repo's policies/ dir: each bundle is a folder
+# with policy.onnx (+ leg_policy_contract.json), copied in from a humanoid-policy export once
+# that policy is finalized. Deliberately NOT read from the sibling humanoid-policy working tree —
+# that checkout can sit on any branch, so pulling from it makes the robot's behaviour depend on
+# someone else's git state. Override with the env var.
 def _policy_dir() -> Path:
-    return Path(os.environ.get(
-        "HUMANOID_POLICY_DIR", str(REPO_ROOT.parent / "humanoid-policy" / "deploy")))
+    return Path(os.environ.get("HUMANOID_POLICY_DIR", str(REPO_ROOT / "policies")))
 
 
 # The policy that runs by default (pre-selected in the UI). Others are listed too.

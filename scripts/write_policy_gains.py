@@ -27,8 +27,10 @@ from pathlib import Path
 from humanoid_control import LIVE_ROBOT_CONFIG_PATH
 from humanoid_control.daemon import DaemonClient, DaemonError, RobotConfig
 
+# Trained-policy bundles: this repo's self-hosted policies/ dir (NOT the sibling humanoid-policy
+# checkout, which can sit on any branch). Override with the env var.
 _DEFAULT_DEPLOY = Path(os.environ.get(
-    "HUMANOID_POLICY_DEPLOY", str(Path(__file__).resolve().parent.parent.parent / "humanoid-policy" / "deploy")))
+    "HUMANOID_POLICY_DEPLOY", str(Path(__file__).resolve().parent.parent / "policies")))
 
 
 def _resolve_contract(policy: str) -> Path:
