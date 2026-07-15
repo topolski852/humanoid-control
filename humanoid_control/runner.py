@@ -10,6 +10,7 @@ user present and the robot supported/gantried. Scripts gate this behind an expli
 """
 from __future__ import annotations
 
+import os
 import sys
 import time
 
@@ -50,6 +51,13 @@ class PolicyRunner:
         self.ramp_seconds = ramp_seconds
         self.require_valid_base = require_valid_base
         self._warned_invalid_base = False
+        # Opt-in per-tick recorder (env HUMANOID_RECORD_DIR); None => zero overhead.
+        self._recorder = None
+        _rec_dir = os.environ.get("HUMANOID_RECORD_DIR")
+        if _rec_dir:
+            from .recorder import StepRecorder
+            self._recorder = StepRecorder(_rec_dir, contract.joint_order)
+            print(f"[runner] recording policy ticks -> {self._recorder.path}", file=sys.stderr)
 
     # --- lifecycle -------------------------------------------------------
     async def connect(self) -> None:
@@ -105,6 +113,11 @@ class PolicyRunner:
         action = self.policy.forward(obs)
         targets = self.action_mapper.map(action)   # clipped, scaled, clamped to limits
         self.legs.send_targets(targets)
+        if self._recorder is not None:
+            self._recorder.record(
+                base=base, joint_pos=joint_pos, joint_vel=joint_vel,
+                obs=obs, action=action, targets=targets, command=self.command,
+            )
 
     async def run(self, max_seconds: float | None = None) -> None:
         """MOTION: run the policy loop at policy_dt until E-stop / duration / fault."""
@@ -131,6 +144,8 @@ class PolicyRunner:
 
     def shutdown(self) -> None:
         """Clean stop: legs → IDLE (zero torque). E-stop path is separate (estop_all)."""
+        if self._recorder is not None:
+            self._recorder.close()
         try:
             self.legs.idle()
             print("[runner] legs set to IDLE.", file=sys.stderr)

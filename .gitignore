@@ -17,5 +17,8 @@ venv/
 # *.onnx
 # *.pt
 
+# Per-tick policy recordings (StepRecorder / HUMANOID_RECORD_DIR) — run data, grows per session
+recordings/
+
 # misc
 .DS_Store
