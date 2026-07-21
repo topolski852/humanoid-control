@@ -1,4 +1,4 @@
-policy_checkpoint_path: /home/nse/humanoid/humanoid-policy/logs/rsl_rl/biped/2026-07-14_23-24-49_full-default/exported/policy.onnx
+policy_checkpoint_path: deploy/walk/policy.onnx
 ip_robot_addr: 127.0.0.1
 ip_policy_obs_port: 10000
 ip_host_addr: 127.0.0.1
@@ -80,9 +80,9 @@ default_joint_positions:
 num_observations: 45
 history_length: 0
 command_velocity:
-- -0.09162592887878418
-- -0.16840024292469025
-- -0.33602648973464966
+- -0.12032213807106018
+- -0.2397182136774063
+- 0.8531296253204346
 num_actions: 12
 action_scale: 0.25
 action_indices:
