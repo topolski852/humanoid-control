@@ -706,6 +706,10 @@ class ControlService:
         try:
             self.legs.idle()   # ARMED rest = IDLE (zero-torque). DAMPING faults the firmware
             # watchdog in ~1s (not daemon-fed) — see notes; IDLE is dormant + safe.
+            if manual:
+                # Disable the firmware position clamp for the whole armed session so a trigger-
+                # engage holds any hand-set pose (even outside soft limits). Restored in finally.
+                self._widen_position_limits()
             next_tick = time.monotonic()
             while not self.estop.fired and not self._stop_evt.is_set():
                 if self._run_gate.is_set():
@@ -761,8 +765,40 @@ class ControlService:
                 self.legs.idle()   # leaving the session → free (IDLE), disarmed
             except Exception as exc:
                 _log.warning("idle after deadman session failed: %s", exc)
+            if manual:
+                self._restore_position_limits()   # re-arm the firmware clamp
             self._on_session_end()
             _log.info("deadman session ended.")
+
+    # ── ESC soft position limits (widen for manual hold) ─────────────────────
+    # The firmware clamps every position target to each joint's configured position_limits
+    # (below our Python layer — see daemon actuator.cpp). Manual hold widens them so a
+    # hand-set pose OUTSIDE the normal range is held as-is instead of being yanked to the
+    # limit; they are restored when the manual session ends. ±this is far beyond any leg
+    # joint's mechanical range, so the clamp never bites while we hold the live pose.
+    _MANUAL_WIDE_LIMIT_RAD = 12.0
+
+    def _write_position_limits(self, bounds: dict[str, tuple[float, float]]) -> None:
+        """Best-effort per-joint ESC soft position-limit write (display-frame rad)."""
+        for name, (lo, hi) in bounds.items():
+            try:
+                self.client.apply_config(name, {"position_limit_min": float(lo),
+                                                "position_limit_max": float(hi)}, timeout=5.0)
+            except Exception as exc:
+                _log.warning("position_limits write %s failed: %s", name, exc)
+
+    def _widen_position_limits(self) -> None:
+        w = self._MANUAL_WIDE_LIMIT_RAD
+        self._write_position_limits({n: (-w, w) for n in self._joints})
+        _log.warning("MANUAL hold: ESC soft position limits widened to ±%.1f rad "
+                     "(firmware clamp disabled — holds any hand-set pose).", w)
+
+    def _restore_position_limits(self) -> None:
+        bounds = {n: (float(self.contract.pos_limit_lower[i]),
+                      float(self.contract.pos_limit_upper[i]))
+                  for i, n in enumerate(self.contract.joint_order)}
+        self._write_position_limits(bounds)
+        _log.info("MANUAL hold: ESC soft position limits restored to configured range.")
 
     # ── manual control (capture-and-hold / go-to-pose) ───────────────────────
     def current_pose_rad(self) -> dict[str, float]:
@@ -837,6 +873,11 @@ class ControlService:
             start = read_current()
             if np.any(np.isnan(start)):
                 raise RuntimeError("could not read all joint positions")
+            if not clamp:
+                # Capture-hold: disable the firmware clamp BEFORE POSITION so an out-of-range
+                # pose isn't yanked to the limit. Restored in finally.
+                self._widen_position_limits()
+                time.sleep(0.05)             # let the limit writes land first
             for n in joints:
                 self.client.set_mode(n, "POSITION")
             send(start)                      # seed hold at current (no jerk)
@@ -864,6 +905,8 @@ class ControlService:
                     self.client.set_mode(n, "IDLE")
             except Exception as exc:
                 _log.warning("manual idle failed: %s", exc)
+            if not clamp:
+                self._restore_position_limits()   # re-arm the firmware clamp
             self._on_session_end()
             _log.info("manual session ended (moved=%s).", moved)
 
