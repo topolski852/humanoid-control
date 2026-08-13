@@ -34,7 +34,7 @@ export default function SessionBar({ deadmanConnected }) {
         </button>
         {!t.armed ? (
           <button className="btn-success text-xs"
-            disabled={!!busy || t.state !== 'CONNECTED' || t.estop || !t.all_calibrated}
+            disabled={!!busy || t.state !== 'CONNECTED' || t.estop}
             onClick={() => run('arm', () => api.arm())}>I am present — Arm</button>
         ) : (
           <button className="btn-danger text-xs" disabled={!!busy || motion}
@@ -45,8 +45,9 @@ export default function SessionBar({ deadmanConnected }) {
       </div>
 
       {isConnected && !t.all_calibrated && (
-        <div className="text-xs text-warn bg-warn/10 border border-warn/30 rounded-lg px-3 py-2">
-          ⚠ Calibrate all joints (Calibration tab) before arming.
+        <div className="text-xs text-gray-400 bg-surface-2/40 border border-surface-3 rounded-lg px-3 py-2">
+          Uncalibrated — <b>Capture &amp; hold</b> works (holds the live pose). Moving to a saved pose
+          or running a policy needs calibration (Calibration tab).
         </div>
       )}
       {deadmanWarn && (

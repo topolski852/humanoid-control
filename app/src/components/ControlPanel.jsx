@@ -77,7 +77,7 @@ export default function ControlPanel({ deadmanConnected }) {
       {/* 2 · Arm — the "I am present / robot supported" gate */}
       <Section step="2" title="Arm">
         {!t.armed ? (
-          <button className="btn-success" disabled={busy || t.state !== 'CONNECTED' || t.estop}
+          <button className="btn-success" disabled={busy || t.state !== 'CONNECTED' || t.estop || !t.all_calibrated}
             onClick={() => run('arm', () => api.arm())}
             title="Confirm a human is present and the robot is supported/gantried">
             I am present — Arm
@@ -92,9 +92,9 @@ export default function ControlPanel({ deadmanConnected }) {
       </Section>
       {isConnected && !t.all_calibrated && (
         <div className="text-xs text-warn bg-warn/10 border border-warn/30 rounded-lg px-3 py-2">
-          ⚠ Joints not calibrated. You can still arm and use <b>Manual → Capture &amp; hold</b>
-          (holds the live pose). Ramp-to-pose Hold and Run policy need calibration — do it on the
-          <b> Calibration</b> tab.
+          ⚠ Joints not calibrated — calibrate every joint (<b>Calibration</b> tab) to arm here and
+          run policy / ramp-to-pose Hold. To just hold the current pose without calibrating, use the
+          <b> Manual</b> tab (Capture &amp; hold).
         </div>
       )}
 
