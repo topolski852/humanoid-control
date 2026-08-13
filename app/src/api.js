@@ -58,6 +58,10 @@ export const api = {
   arm: () => request('/api/arm', { method: 'POST' }),
   disarm: () => request('/api/disarm', { method: 'POST' }),
 
+  // gamepad deadman: pick what the controller's A-button arms (policy checkpoint vs. stand hold)
+  deadmanSelect: (kind, checkpoint = null) =>
+    request('/api/deadman/select', { method: 'POST', body: JSON.stringify({ kind, checkpoint }) }),
+
   // motion
   hold: (ramp = 5.0, seconds = null) =>
     request('/api/hold', { method: 'POST', body: JSON.stringify({ ramp, seconds }) }),

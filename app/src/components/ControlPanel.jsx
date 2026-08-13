@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { api } from '../api'
 import { useTelemetry } from '../context/TelemetryContext'
 
@@ -40,6 +40,18 @@ export default function ControlPanel({ deadmanConnected }) {
       setCheckpoint(def.path)
     }
   }, [policies, defaultPolicy])
+
+  // Wire the dropdown to the gamepad deadman: the controller's A-button arms whatever policy is
+  // selected here (without this, arm_deadman() falls back to a ZeroPolicy "hold" and the sticks do
+  // nothing). Re-assert on every entry to CONNECTED so a fresh/restarted service picks it up.
+  // select_session is rejected while a session is live, so only sync from CONNECTED.
+  const syncedRef = useRef(null)
+  useEffect(() => {
+    if (t.state !== 'CONNECTED') { syncedRef.current = null; return }
+    if (!checkpoint || syncedRef.current === checkpoint) return
+    syncedRef.current = checkpoint
+    api.deadmanSelect('policy', checkpoint).catch(() => { syncedRef.current = null })
+  }, [checkpoint, t.state])
 
   const deadmanWarn = (t.armed || motion) && !(deadmanConnected && t.deadman_ok)
 
@@ -102,6 +114,9 @@ export default function ControlPanel({ deadmanConnected }) {
             {busy === 'run' ? 'Starting…' : 'Run policy'}
           </button>
         </div>
+        <span className="text-[10px] text-gray-500">
+          Gamepad <b>A</b> arms this policy · hold a trigger to run · sticks drive it
+        </span>
         <button className="btn-ghost" disabled={busy || !motion}
           onClick={() => run('stop', () => api.stop())}>Stop</button>
       </Section>
