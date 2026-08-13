@@ -4,7 +4,8 @@ import { useTelemetry } from '../context/TelemetryContext'
 import SessionBar from './SessionBar'
 
 // Manual control (not policy): capture-and-hold the current pose, and move to saved poses.
-// Same safety gates as policy motion (Arm + live deadman + all joints calibrated).
+// Gated by Arm + a live deadman, but NOT by calibration — capture-hold holds the live measured
+// pose, which is valid in whatever frame the encoders currently report (works uncalibrated).
 export default function ManualPanel({ deadmanConnected }) {
   const t = useTelemetry()
   const [poses, setPoses] = useState([])

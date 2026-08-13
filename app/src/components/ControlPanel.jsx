@@ -77,7 +77,7 @@ export default function ControlPanel({ deadmanConnected }) {
       {/* 2 · Arm — the "I am present / robot supported" gate */}
       <Section step="2" title="Arm">
         {!t.armed ? (
-          <button className="btn-success" disabled={busy || t.state !== 'CONNECTED' || t.estop || !t.all_calibrated}
+          <button className="btn-success" disabled={busy || t.state !== 'CONNECTED' || t.estop}
             onClick={() => run('arm', () => api.arm())}
             title="Confirm a human is present and the robot is supported/gantried">
             I am present — Arm
@@ -92,14 +92,16 @@ export default function ControlPanel({ deadmanConnected }) {
       </Section>
       {isConnected && !t.all_calibrated && (
         <div className="text-xs text-warn bg-warn/10 border border-warn/30 rounded-lg px-3 py-2">
-          ⚠ Joints must be calibrated after each power-up before arming. Go to the
-          <b> Calibration</b> tab and calibrate every joint.
+          ⚠ Joints not calibrated. You can still arm and use <b>Manual → Capture &amp; hold</b>
+          (holds the live pose). Ramp-to-pose Hold and Run policy need calibration — do it on the
+          <b> Calibration</b> tab.
         </div>
       )}
 
-      {/* 3 · Motion */}
+      {/* 3 · Motion — Ramp-to-pose Hold and Run policy command the calibrated default_pose
+          frame, so both require calibration (manual capture-hold does not; see Manual tab). */}
       <Section step="3" title="Motion">
-        <button className="btn-primary" disabled={busy || t.state !== 'CONNECTED' || !t.armed}
+        <button className="btn-primary" disabled={busy || t.state !== 'CONNECTED' || !t.armed || !t.all_calibrated}
           onClick={() => run('hold', () => api.hold())}>
           {busy === 'hold' ? 'Ramping…' : 'Ramp to pose / Hold'}
         </button>
@@ -109,7 +111,7 @@ export default function ControlPanel({ deadmanConnected }) {
             {policies.length === 0 && <option value="">no checkpoints</option>}
             {policies.map((p) => <option key={p.path} value={p.path}>{p.name}</option>)}
           </select>
-          <button className="btn-primary" disabled={busy || t.state !== 'CONNECTED' || !t.armed || !checkpoint}
+          <button className="btn-primary" disabled={busy || t.state !== 'CONNECTED' || !t.armed || !checkpoint || !t.all_calibrated}
             onClick={() => run('run', () => api.runPolicy(checkpoint))}>
             {busy === 'run' ? 'Starting…' : 'Run policy'}
           </button>

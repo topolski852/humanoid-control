@@ -331,18 +331,28 @@ class ControlService:
             self._state = SessionState.DISCONNECTED
 
     # ── arming ("I am present / robot is supported") ─────────────────────────
+    def _require_calibrated(self) -> None:
+        """Raise unless every joint is calibrated. Enforced only for motion that commands a
+        CALIBRATED-frame target — the learned policy and the default_pose hold. Manual
+        capture-and-hold does NOT require it: it holds the live measured pose, which is valid
+        in whatever frame the encoders currently report."""
+        uncal = [n for n in self._joints if not self._calibrated[n]]
+        if uncal:
+            raise ControlError(
+                f"Calibrate all joints first — {len(uncal)} uncalibrated "
+                f"(e.g. {uncal[0].replace('_joint','')}).", 409)
+
     def arm(self) -> None:
+        # NOTE: arm() does NOT require calibration. It only affirms "operator present / robot
+        # supported" so manual capture-and-hold can run uncalibrated (e.g. a standing demo).
+        # Calibration is still enforced at the point of motion that needs it (start_hold /
+        # start_policy), so an uncalibrated arm cannot ramp to default_pose or run the policy.
         with self._lock:
             if self._state != SessionState.CONNECTED:
                 raise ControlError(
                     f"Cannot arm from {self._state.value}; connect first.", 409)
             if self.estop.fired:
                 raise ControlError("E-STOP is latched — reconnect to clear.", 409)
-            uncal = [n for n in self._joints if not self._calibrated[n]]
-            if uncal:
-                raise ControlError(
-                    f"Calibrate all joints before arming — {len(uncal)} uncalibrated "
-                    f"(e.g. {uncal[0].replace('_joint','')}).", 409)
             self._armed = True
         _log.info("ARMED (operator present / robot supported).")
 
@@ -484,19 +494,24 @@ class ControlService:
 
     # ── motion sessions ──────────────────────────────────────────────────────
     def start_hold(self, *, ramp: float = 5.0, seconds: float | None = None) -> None:
+        # ZeroPolicy ramps to the CALIBRATED-frame default_pose — requires calibration.
+        self._require_calibrated()
         self._start_session("hold", ZeroPolicy(self.contract.num_joints),
                             command=None, ramp=ramp, seconds=seconds)
 
     def start_policy(self, *, checkpoint: str, command=None,
                      ramp: float = 5.0, seconds: float | None = None) -> None:
+        # The learned policy commands CALIBRATED-frame targets — requires calibration.
+        self._require_calibrated()
         policy = load_policy(checkpoint, num_actions=self.contract.num_joints)
         cmd = np.array(command if command is not None else [0.0, 0.0, 0.0], dtype=np.float32)
         self._start_session("policy", policy, command=cmd, ramp=ramp, seconds=seconds,
                             checkpoint=checkpoint)
 
     def _preflight_motion(self) -> None:
-        """Common gate for any motion session (caller holds self._lock). By the time a joint
-        can be armed it is calibrated, so calibration is enforced at arm(), not re-checked here."""
+        """Common gate for any motion session (caller holds self._lock). Calibration is NOT
+        checked here — it is enforced only by the motions that command a calibrated-frame target
+        (start_hold / start_policy); manual capture-and-hold intentionally runs uncalibrated."""
         if self._state != SessionState.CONNECTED:
             raise ControlError(
                 f"Cannot start motion from {self._state.value}; connect + arm first.", 409)
