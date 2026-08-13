@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { api } from '../api'
 import { useTelemetry } from '../context/TelemetryContext'
 import SessionBar from './SessionBar'
@@ -16,6 +16,18 @@ export default function ManualPanel({ deadmanConnected }) {
   const motion = t.state === 'HOLDING' || t.state === 'RUNNING'
   const canMove = t.state === 'CONNECTED' && t.armed
   const jointNames = t.joints.map((j) => j.name)
+
+  // Point the gamepad deadman at MANUAL capture-hold while this tab is open: the controller's
+  // A-button then arms manual (no calibration), and holding a trigger locks the live pose.
+  // Re-assert on each entry to CONNECTED; select_session is rejected mid-session, so guard on it.
+  const gp = t.gamepad || {}
+  const syncedRef = useRef(false)
+  useEffect(() => {
+    if (t.state !== 'CONNECTED') { syncedRef.current = false; return }
+    if (syncedRef.current) return
+    syncedRef.current = true
+    api.deadmanSelect('manual').catch(() => { syncedRef.current = false })
+  }, [t.state])
 
   async function refresh() {
     try { const d = await api.getPoses(); setPoses(d.poses || []) } catch (e) { setError(e.message) }
@@ -46,6 +58,27 @@ export default function ManualPanel({ deadmanConnected }) {
     <div className="card p-4 space-y-4">
       <span className="data-label">Manual control</span>
       <SessionBar deadmanConnected={deadmanConnected} />
+
+      {/* Gamepad — drive manual hold from the controller (arms + holds without calibration) */}
+      <div className="border-t border-surface-3 pt-3 space-y-1">
+        <div className="flex items-center justify-between">
+          <span className="data-label">Gamepad</span>
+          <span className={`text-xs ${gp.connected ? 'text-online' : 'text-gray-500'}`}>
+            {gp.connected ? (gp.name || 'connected') : 'not connected'}
+            {t.selected === 'manual' && gp.run_gate && <span className="text-online"> · holding</span>}
+          </span>
+        </div>
+        <div className="text-[11px] text-gray-500 leading-relaxed">
+          <b>A</b> arms manual hold (no calibration) · hold <b>LT/RT</b> to lock the current pose ·
+          release → limp · <b>B</b> = E-STOP.
+          {t.selected && t.selected !== 'manual' && (
+            <span className="text-warn"> Gamepad currently set to “{t.selected}” — reconnect/return to this tab to re-select manual.</span>
+          )}
+        </div>
+        {gp.enabled === false && (
+          <div className="text-[11px] text-warn">Gamepad deadman is disabled on the server (HUMANOID_GAMEPAD_ENABLE unset).</div>
+        )}
+      </div>
 
       {/* Capture & hold */}
       <div className="border-t border-surface-3 pt-3 space-y-2">

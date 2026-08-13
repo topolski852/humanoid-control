@@ -75,7 +75,7 @@ class CaptureBody(BaseModel):
 
 
 class SelectBody(BaseModel):
-    kind: str                          # "hold" | "policy"
+    kind: str                          # "hold" | "policy" | "manual"
     checkpoint: str | None = None
 
 
@@ -353,7 +353,10 @@ async def manual_capture_hold(request: Request, body: ManualHoldBody):
     svc = _service(request)
     try:
         targets = await _blocking(svc.current_pose_rad)             # all 12, rad
-        await _blocking(lambda: svc.start_manual_hold(targets, ramp=body.ramp, seconds=body.seconds))
+        # capture-and-hold holds the RAW live pose (clamp=False): never force a joint into its
+        # limits — hold exactly where it is, even if an uncalibrated reading is out of range.
+        await _blocking(lambda: svc.start_manual_hold(targets, ramp=body.ramp,
+                                                      seconds=body.seconds, clamp=False))
     except ControlError as exc:
         return _err(str(exc), exc.status)
     return _ok(svc.telemetry_snapshot())

@@ -165,6 +165,7 @@ class ControlService:
             "config_present": self.config_present,
             "state": self._state.value,
             "armed": self._armed,
+            "selected": self._selected.get("kind"),   # gamepad deadman kind: hold|policy|manual
             "estop": self.estop.fired,
             "deadman_ok": self.deadman_ok(),
             "control_clients": self._control_clients,
@@ -609,10 +610,11 @@ class ControlService:
     # controller (not merely releasing the trigger) E-STOPs via the presence watchdog.
 
     def select_session(self, kind: str, checkpoint: str | None = None) -> None:
-        """Pick what a trigger-engage runs: 'hold' (ZeroPolicy → default_pose) or 'policy'
-        (a learned checkpoint). Only settable while not in a live session."""
-        if kind not in ("hold", "policy"):
-            raise ControlError("kind must be 'hold' or 'policy'.", 400)
+        """Pick what a trigger-engage runs: 'hold' (ZeroPolicy → default_pose), 'policy'
+        (a learned checkpoint), or 'manual' (capture-and-hold the live pose — no calibration,
+        no ramp to default_pose, no limit clamp). Only settable while not in a live session."""
+        if kind not in ("hold", "policy", "manual"):
+            raise ControlError("kind must be 'hold', 'policy', or 'manual'.", 400)
         if kind == "policy" and not checkpoint:
             raise ControlError("policy session needs a checkpoint.", 400)
         with self._lock:
@@ -637,16 +639,25 @@ class ControlService:
     def arm_deadman(self, kind: str | None = None, checkpoint: str | None = None,
                     *, ramp: float = 1.5) -> None:
         """Enter the ARMED deadman session: legs → DAMPING, spawn the trigger-driven worker.
-        Requires CONNECTED + all joints calibrated + a live controller (deadman)."""
+        Requires CONNECTED + a live controller (deadman); all joints calibrated UNLESS the
+        selected session is 'manual' (capture-and-hold the live pose — no calibration needed)."""
         with self._lock:
             if self._state != SessionState.CONNECTED:
                 raise ControlError(f"Cannot arm from {self._state.value}; connect first.", 409)
             if self.estop.fired:
                 raise ControlError("E-STOP is latched — reconnect to clear.", 409)
-            uncal = [n for n in self._joints if not self._calibrated[n]]
-            if uncal:
-                raise ControlError(
-                    f"Calibrate all joints before arming — {len(uncal)} uncalibrated.", 409)
+
+            # Resolve the session kind first — the calibration gate depends on it.
+            sel_kind = kind or self._selected["kind"]
+            sel_ckpt = checkpoint if kind else self._selected["checkpoint"]
+            if kind:
+                self._selected = {"kind": sel_kind, "checkpoint": sel_ckpt}
+
+            if sel_kind != "manual":
+                uncal = [n for n in self._joints if not self._calibrated[n]]
+                if uncal:
+                    raise ControlError(
+                        f"Calibrate all joints before arming — {len(uncal)} uncalibrated.", 409)
             if not self.client.is_running():
                 raise ControlError("Daemon not running — no telemetry.", 503)
             if not self.deadman_ok():
@@ -654,16 +665,12 @@ class ControlService:
             if self._session_thread and self._session_thread.is_alive():
                 raise ControlError("A session is already active.", 409)
 
-            sel_kind = kind or self._selected["kind"]
-            sel_ckpt = checkpoint if kind else self._selected["checkpoint"]
-            if kind:
-                self._selected = {"kind": sel_kind, "checkpoint": sel_ckpt}
             if sel_kind == "policy":
                 if not sel_ckpt:
                     raise ControlError("policy session needs a checkpoint.", 400)
                 policy = load_policy(sel_ckpt, num_actions=self.contract.num_joints)
             else:
-                policy = ZeroPolicy(self.contract.num_joints)
+                policy = ZeroPolicy(self.contract.num_joints)   # unused for 'manual'
 
             runner = PolicyRunner(
                 self.client, self.contract, policy,
@@ -686,10 +693,14 @@ class ControlService:
         self.stop(wait=True)
 
     def _deadman_worker(self, runner: PolicyRunner, kind: str) -> None:
-        """Persistent trigger-driven loop. Released trigger → DAMPING (rest); held trigger →
-        engage (ramp to default_pose, abortable on release) then step the policy with the live
-        command. Survives release/re-press; exits only on stop or E-STOP."""
+        """Persistent trigger-driven loop. Released trigger → IDLE (rest); held trigger → engage
+        then hold. 'hold'/'policy' engage by ramping to default_pose then stepping the policy with
+        the live command. 'manual' instead enables POSITION and holds the LIVE pose exactly — the
+        daemon seeds the firmware target from the current measured position and streams it, so no
+        target is sent (no ramp, no clamp, no calibration). Survives release/re-press; exits only
+        on stop or E-STOP."""
         engaged = False
+        manual = (kind == "manual")
         dt = self.contract.policy_dt
         engaged_state = SessionState.RUNNING if kind == "policy" else SessionState.HOLDING
         try:
@@ -701,22 +712,31 @@ class ControlService:
                     if not engaged:
                         with self._lock:
                             self._state = engaged_state
-                        # Engage: seed@current (jerk-free from DAMPING) + ramp to default_pose,
-                        # bailing the instant the trigger is released or E-STOP fires.
-                        ok = runner.prepare(
-                            should_abort=lambda: self._stop_evt.is_set() or not self._run_gate.is_set())
-                        if not ok:
-                            if not (self.estop.fired or self._stop_evt.is_set()):
-                                self.legs.idle()          # released mid-ramp → rest (IDLE, not DAMPING: watchdog)
-                                with self._lock:
-                                    self._state = SessionState.ARMED
-                            continue
+                        if manual:
+                            # MANUAL ENGAGE: enable POSITION and hold where the robot is. The
+                            # daemon seeds the firmware target from the live measured position on
+                            # the IDLE→POSITION change and streams it every tick, so we send NO
+                            # target — holds the pose as-read, in range or not. Jerk-free.
+                            self.legs.enable_position()
+                        else:
+                            # Engage: seed@current (jerk-free from DAMPING) + ramp to default_pose,
+                            # bailing the instant the trigger is released or E-STOP fires.
+                            ok = runner.prepare(
+                                should_abort=lambda: self._stop_evt.is_set() or not self._run_gate.is_set())
+                            if not ok:
+                                if not (self.estop.fired or self._stop_evt.is_set()):
+                                    self.legs.idle()          # released mid-ramp → rest (IDLE, not DAMPING: watchdog)
+                                    with self._lock:
+                                        self._state = SessionState.ARMED
+                                continue
                         engaged = True
                         next_tick = time.monotonic()
                     self.legs.check_health()              # raises on fault → finally IDLEs
-                    with self._command_lock:
-                        runner.command = self._command.copy()
-                    runner.step()
+                    if not manual:
+                        with self._command_lock:
+                            runner.command = self._command.copy()
+                        runner.step()
+                    # manual: daemon streams the seeded live pose; nothing to send.
                     next_tick += dt
                     sleep = next_tick - time.monotonic()
                     if sleep > 0:
@@ -757,10 +777,17 @@ class ControlService:
         return out
 
     def start_manual_hold(self, targets_rad: dict[str, float], *,
-                          ramp: float = 4.0, seconds: float | None = None) -> None:
+                          ramp: float = 4.0, seconds: float | None = None,
+                          clamp: bool = True) -> None:
         """Ramp the named joints to target positions (rad) and hold. Non-named joints stay IDLE.
         Motion — same gates as policy. Used by capture-and-hold (all 12 = current pose) and
-        go-to-pose (a saved pose, possibly a subset)."""
+        go-to-pose (a saved pose, possibly a subset).
+
+        ``clamp=True`` (default, go-to-pose) clips each target to the joint's configured position
+        limits — a saved target must not command past range. ``clamp=False`` (capture-and-hold)
+        holds the RAW reading, even if a (possibly uncalibrated) encoder value is outside its
+        limits: the robot stays exactly where it is instead of being forced into range. Out-of-
+        limit joints are logged as a warning, not corrected."""
         targets_rad = {n: float(v) for n, v in (targets_rad or {}).items()
                        if n in self.contract.joint_order}
         if not targets_rad:
@@ -769,18 +796,26 @@ class ControlService:
             self._preflight_motion()
             self._stop_evt.clear()
             self._state = SessionState.HOLDING
-            t = threading.Thread(target=self._manual_worker, args=(targets_rad, ramp, seconds),
+            t = threading.Thread(target=self._manual_worker, args=(targets_rad, ramp, seconds, clamp),
                                  name="motion-manual", daemon=True)
             self._session_thread = t
             t.start()
-        _log.info("manual hold started: %d joints (ramp=%.1fs).", len(targets_rad), ramp)
+        _log.info("manual hold started: %d joints (ramp=%.1fs, clamp=%s).", len(targets_rad), ramp, clamp)
 
-    def _manual_worker(self, targets: dict[str, float], ramp: float, seconds) -> None:
+    def _manual_worker(self, targets: dict[str, float], ramp: float, seconds, clamp: bool = True) -> None:
         joints = [n for n in self.contract.joint_order if n in targets]   # canonical order
         idx = [self.contract.index_of(n) for n in joints]
         lo = self.contract.pos_limit_lower[idx]
         hi = self.contract.pos_limit_upper[idx]
-        goal = np.clip(np.array([targets[n] for n in joints], dtype=np.float32), lo, hi)
+        raw = np.array([targets[n] for n in joints], dtype=np.float32)
+        # capture-and-hold (clamp=False) holds the raw reading; go-to-pose clamps to limits.
+        goal = np.clip(raw, lo, hi) if clamp else raw
+        if not clamp:
+            out = [f"{joints[k].replace('_joint','')}={raw[k]:+.3f}"
+                   for k in range(len(joints)) if raw[k] < lo[k] or raw[k] > hi[k]]
+            if out:
+                _log.warning("manual capture-hold: %d joint(s) OUTSIDE limits, holding raw: %s",
+                             len(out), ", ".join(out))
 
         def send(vec) -> None:
             for n, v in zip(joints, vec):

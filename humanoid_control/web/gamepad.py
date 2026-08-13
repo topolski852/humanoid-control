@@ -4,11 +4,13 @@ Robot-local gamepad — the primary hold-to-run deadman for the leg controller.
 Flow (see ControlService gamepad section): connect + calibrate in the web UI, then drive the
 robot entirely from the controller:
 
-  A  (BTN_SOUTH)      arm the deadman session (legs → DAMPING, ARMED). Requires calibrated.
+  A  (BTN_SOUTH)      arm the deadman session (legs → DAMPING, ARMED). Requires calibrated,
+                      UNLESS the selected session is 'manual' (capture-and-hold, no calibration).
   Y  (BTN_NORTH)      disarm (legs → IDLE, back to CONNECTED).
   B  (BTN_EAST)       hard E-STOP (latched; reconnect in the web UI to clear).
-  LT or RT            deadman trigger — HOLD (either one) to engage: ramp to default_pose and
-                      run the selected session. RELEASE → DAMPING (rest). Re-press → re-engage.
+  LT or RT            deadman trigger — HOLD (either one) to engage: ramp to default_pose and run
+                      the selected session ('manual' instead holds the live pose as-read).
+                      RELEASE → DAMPING (rest). Re-press → re-engage.
   Left stick          walk command: up = forward (vx), left = left (vy).   [0.15 deadband]
   Right stick X       walk command: yaw (wz).                              [0.15 deadband]
 
