@@ -1,4 +1,4 @@
-policy_checkpoint_path: deploy/walk/policy.onnx
+policy_checkpoint_path: policies/walk/policy.onnx
 ip_robot_addr: 127.0.0.1
 ip_policy_obs_port: 10000
 ip_host_addr: 127.0.0.1
@@ -22,31 +22,31 @@ joints:
 - leg_right_hip_yaw_joint
 - leg_right_knee_pitch_joint
 joint_kp:
-- 18.0
-- 23.299999237060547
-- 68.4000015258789
-- 20.0
-- 10.5
-- 27.0
-- 20.0
-- 20.0
-- 68.4000015258789
-- 20.0
-- 20.0
-- 30.0
+- 45.0
+- 45.0
+- 45.0
+- 45.0
+- 45.0
+- 45.0
+- 45.0
+- 45.0
+- 45.0
+- 45.0
+- 45.0
+- 45.0
 joint_kd:
-- 2.0
-- 4.0
-- 9.800000190734863
-- 4.0
-- 0.5
-- 2.450000047683716
-- 0.5
-- 2.0
-- 9.800000190734863
-- 4.0
-- 1.0
-- 1.2200000286102295
+- 1.5
+- 1.5
+- 1.5
+- 1.5
+- 1.5
+- 1.5
+- 1.5
+- 1.5
+- 1.5
+- 1.5
+- 1.5
+- 1.5
 effort_limits:
 - 6.0
 - 7.0
@@ -80,9 +80,9 @@ default_joint_positions:
 num_observations: 45
 history_length: 0
 command_velocity:
-- -0.12032213807106018
-- -0.2397182136774063
-- 0.8531296253204346
+- -0.5456772446632385
+- 0.30767616629600525
+- -1.0350888967514038
 num_actions: 12
 action_scale: 0.25
 action_indices:
