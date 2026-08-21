@@ -1,14 +1,15 @@
 {
   "_meta": {
-    "description": "Legs-only (12-joint) policy contract. kp/kd/effort/Kt/gear/offset/limits PULLED FROM ESCs (device truth); default_pose/action_scale/obs are policy choices pending trainer confirmation.",
+    "description": "Legs-only (12-joint) policy contract. kp/kd are the bench-tuned uniform sim<->real gains (see gains_source) written TO the ESCs; effort/Kt/gear/offset/limits are PULLED FROM the ESCs (device truth); default_pose/action_scale/obs match the deployed walk policy.",
     "source_esc_pull": "20260701T185139Z",
     "position_offsets_note": "Re-pulled after power-up recalibration. position_offset resets each power cycle and must be recaptured per session.",
     "broken_encoder": {
       "right_ankle_roll_joint": "mirror left_ankle_roll for base/starting pose"
     },
-    "STATUS": "joint_order + obs layout + action_scale + default_pose CONFIRMED 2026-07-01 against humanoid-policy trainer; per-joint gains/effort/limits = ESC device truth. starting_pose captured & clamped.",
+    "STATUS": "joint_order + obs layout + action_scale + default_pose CONFIRMED against humanoid-policy trainer; gains = uniform kp=45/kd=1.5 contract (2026-08-21); effort/limits = ESC device truth. starting_pose captured & clamped.",
     "default_pose_source": "WALK policy stand pose (humanoid-policy/deploy/walk/policy_latest.yaml default_joint_positions), device frame: right hip_roll/hip_yaw/ankle_roll negated from the URDF-mirrored export so both legs share sign. This is the pose the runner ramps to and uses as the walk action offset. See NEXT_STEPS.md step 1.",
-    "position_limits_source": "URDF position_limits from humanoid_lite.json (ESC-read limits are offset-adjusted in firmware frame and drifted after recal \u2014 do NOT use for clamping)"
+    "position_limits_source": "URDF position_limits from humanoid_lite.json (ESC-read limits are offset-adjusted in firmware frame and drifted after recal \u2014 do NOT use for clamping)",
+    "gains_source": "bench-tuned uniform kp=45 / kd=1.5 (humanoid-tuner); adopted as the sim<->real contract by humanoid-policy master 1fb90de and trained into the walk policy deployed at 6a6f171 (run 2026-08-18_20-45-17, model_5999). Supersedes the per-joint asymmetric ESC gains (kp 10.5-68.4 / kd 0.5-9.8) pulled 20260701T185139Z."
   },
   "canonical_joint_order": [
     "left_hip_roll_joint",
@@ -49,8 +50,8 @@
     {
       "index": 0,
       "joint_name": "left_hip_roll_joint",
-      "kp": 20.0,
-      "kd": 4.0,
+      "kp": 45.0,
+      "kd": 1.5,
       "effort_limit": 6.0,
       "torque_constant": 0.0895799994468689,
       "gear_ratio": 15.0,
@@ -62,8 +63,8 @@
     {
       "index": 1,
       "joint_name": "left_hip_yaw_joint",
-      "kp": 10.5,
-      "kd": 0.5,
+      "kp": 45.0,
+      "kd": 1.5,
       "effort_limit": 12.0,
       "torque_constant": 0.0895799994468689,
       "gear_ratio": -15.0,
@@ -75,8 +76,8 @@
     {
       "index": 2,
       "joint_name": "left_hip_pitch_joint",
-      "kp": 68.4000015258789,
-      "kd": 9.800000190734863,
+      "kp": 45.0,
+      "kd": 1.5,
       "effort_limit": 9.5,
       "torque_constant": 0.0895799994468689,
       "gear_ratio": -15.0,
@@ -88,8 +89,8 @@
     {
       "index": 3,
       "joint_name": "left_knee_pitch_joint",
-      "kp": 27.0,
-      "kd": 2.450000047683716,
+      "kp": 45.0,
+      "kd": 1.5,
       "effort_limit": 6.0,
       "torque_constant": 0.0895799994468689,
       "gear_ratio": 15.0,
@@ -101,8 +102,8 @@
     {
       "index": 4,
       "joint_name": "left_ankle_pitch_joint",
-      "kp": 18.0,
-      "kd": 2.0,
+      "kp": 45.0,
+      "kd": 1.5,
       "effort_limit": 6.0,
       "torque_constant": 0.06588000059127808,
       "gear_ratio": 15.0,
@@ -114,8 +115,8 @@
     {
       "index": 5,
       "joint_name": "left_ankle_roll_joint",
-      "kp": 23.299999237060547,
-      "kd": 4.0,
+      "kp": 45.0,
+      "kd": 1.5,
       "effort_limit": 7.0,
       "torque_constant": 0.06588000059127808,
       "gear_ratio": 15.0,
@@ -127,8 +128,8 @@
     {
       "index": 6,
       "joint_name": "right_hip_roll_joint",
-      "kp": 20.0,
-      "kd": 4.0,
+      "kp": 45.0,
+      "kd": 1.5,
       "effort_limit": 6.0,
       "torque_constant": 0.0895799994468689,
       "gear_ratio": -15.0,
@@ -140,8 +141,8 @@
     {
       "index": 7,
       "joint_name": "right_hip_yaw_joint",
-      "kp": 20.0,
-      "kd": 1.0,
+      "kp": 45.0,
+      "kd": 1.5,
       "effort_limit": 6.0,
       "torque_constant": 0.0895799994468689,
       "gear_ratio": 15.0,
@@ -153,8 +154,8 @@
     {
       "index": 8,
       "joint_name": "right_hip_pitch_joint",
-      "kp": 68.4000015258789,
-      "kd": 9.800000190734863,
+      "kp": 45.0,
+      "kd": 1.5,
       "effort_limit": 9.5,
       "torque_constant": 0.0895799994468689,
       "gear_ratio": 15.0,
@@ -166,8 +167,8 @@
     {
       "index": 9,
       "joint_name": "right_knee_pitch_joint",
-      "kp": 30.0,
-      "kd": 1.2200000286102295,
+      "kp": 45.0,
+      "kd": 1.5,
       "effort_limit": 6.0,
       "torque_constant": 0.0895799994468689,
       "gear_ratio": -15.0,
@@ -179,8 +180,8 @@
     {
       "index": 10,
       "joint_name": "right_ankle_pitch_joint",
-      "kp": 20.0,
-      "kd": 0.5,
+      "kp": 45.0,
+      "kd": 1.5,
       "effort_limit": 6.0,
       "torque_constant": 0.06588000059127808,
       "gear_ratio": -15.0,
@@ -192,8 +193,8 @@
     {
       "index": 11,
       "joint_name": "right_ankle_roll_joint",
-      "kp": 20.0,
-      "kd": 2.0,
+      "kp": 45.0,
+      "kd": 1.5,
       "effort_limit": 6.0,
       "torque_constant": 0.06588000059127808,
       "gear_ratio": 15.0,
