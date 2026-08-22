@@ -49,6 +49,9 @@ export const api = {
   // read-only
   getStatus: () => request('/api/status'),
   getPolicies: () => request('/api/policies'),
+  // Frame-critical contract constants for the robot visualizer (sign map, default_pose,
+  // device-frame limits). Fetched live rather than bundled — see app/src/viz/useContract.js.
+  getContract: () => request('/api/contract'),
 
   // connection lifecycle
   connect: () => request('/api/connect', { method: 'POST' }),

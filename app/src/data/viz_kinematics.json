@@ -1,0 +1,854 @@
+{
+  "_meta": {
+    "schema_version": 1,
+    "generated_by": "scripts/gen_viz_kinematics.py",
+    "source_urdf": "/home/nse/humanoid-policy/source/humanoid_policy_assets/data/robots/humanoid/urdf/humanoid_biped.urdf",
+    "source_repo_sha": "6a6f171a7009a0b8c81bf3b8a10a878da75a3ba7",
+    "frame": "URDF frame. Feed q_urdf[i] = joint_sign[i] * telemetry_position[i]; telemetry from the daemon is DEVICE frame.",
+    "conventions": "URDF fixed-axis rpy (R = Rz*Ry*Rx); child = T(xyz)*R(rpy)*R_axis(q); +X forward, +Y left, +Z up; metres and radians.",
+    "note": "Derived artifact - do not hand-edit. Regenerate with `python scripts/gen_viz_kinematics.py` if the URDF changes."
+  },
+  "joint_order": [
+    "left_hip_roll_joint",
+    "left_hip_yaw_joint",
+    "left_hip_pitch_joint",
+    "left_knee_pitch_joint",
+    "left_ankle_pitch_joint",
+    "left_ankle_roll_joint",
+    "right_hip_roll_joint",
+    "right_hip_yaw_joint",
+    "right_hip_pitch_joint",
+    "right_knee_pitch_joint",
+    "right_ankle_pitch_joint",
+    "right_ankle_roll_joint"
+  ],
+  "joint_sign": [
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    -1,
+    -1,
+    1,
+    1,
+    1,
+    -1
+  ],
+  "root_link": "base",
+  "imu": {
+    "parent": "base",
+    "xyz": [
+      0.061722,
+      0.0,
+      0.685
+    ],
+    "R": [
+      1.0,
+      0.0,
+      0.0,
+      0.0,
+      1.0,
+      0.0,
+      0.0,
+      0.0,
+      1.0
+    ]
+  },
+  "joints": [
+    {
+      "name": "left_hip_roll_joint",
+      "index": 0,
+      "urdf_name": "leg_left_hip_roll_joint",
+      "parent": "base",
+      "child": "leg_left_hip_roll",
+      "xyz": [
+        -0.0290919,
+        0.08,
+        0.542631
+      ],
+      "rpy": [
+        0.0,
+        0.785398,
+        0.0
+      ],
+      "axis": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "R": [
+        0.707106897,
+        0.0,
+        0.707106666,
+        0.0,
+        1.0,
+        0.0,
+        -0.707106666,
+        0.0,
+        0.707106897
+      ],
+      "limit": {
+        "lower": -0.174533,
+        "upper": 1.570796327
+      }
+    },
+    {
+      "name": "left_hip_yaw_joint",
+      "index": 1,
+      "urdf_name": "leg_left_hip_yaw_joint",
+      "parent": "leg_left_hip_roll",
+      "child": "leg_left_hip_yaw",
+      "xyz": [
+        0.027,
+        0.0,
+        -0.052
+      ],
+      "rpy": [
+        -1.570796327,
+        0.0,
+        -1.570796327
+      ],
+      "axis": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "R": [
+        0.0,
+        0.0,
+        1.0,
+        -1.0,
+        0.0,
+        0.0,
+        0.0,
+        -1.0,
+        0.0
+      ],
+      "limit": {
+        "lower": -0.981748,
+        "upper": 0.589049
+      }
+    },
+    {
+      "name": "left_hip_pitch_joint",
+      "index": 2,
+      "urdf_name": "leg_left_hip_pitch_joint",
+      "parent": "leg_left_hip_yaw",
+      "child": "leg_left_hip_pitch",
+      "xyz": [
+        0.027,
+        0.0,
+        0.052
+      ],
+      "rpy": [
+        1.570796327,
+        -0.785398,
+        -1.570796327
+      ],
+      "axis": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "R": [
+        0.0,
+        0.0,
+        -1.0,
+        -0.707106897,
+        0.707106666,
+        0.0,
+        0.707106666,
+        0.707106897,
+        0.0
+      ],
+      "limit": {
+        "lower": -1.89805,
+        "upper": 0.981748
+      }
+    },
+    {
+      "name": "left_knee_pitch_joint",
+      "index": 3,
+      "urdf_name": "leg_left_knee_pitch_joint",
+      "parent": "leg_left_hip_pitch",
+      "child": "leg_left_knee_pitch",
+      "xyz": [
+        0.0,
+        0.15,
+        -0.018
+      ],
+      "rpy": [
+        0.0,
+        0.0,
+        -3.141592654
+      ],
+      "axis": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "R": [
+        -1.0,
+        0.0,
+        0.0,
+        0.0,
+        -1.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ],
+      "limit": {
+        "lower": 0.0,
+        "upper": 2.44346
+      }
+    },
+    {
+      "name": "left_ankle_pitch_joint",
+      "index": 4,
+      "urdf_name": "leg_left_ankle_pitch_joint",
+      "parent": "leg_left_knee_pitch",
+      "child": "leg_left_ankle_pitch",
+      "xyz": [
+        0.0,
+        -0.16,
+        -0.003
+      ],
+      "rpy": [
+        0.0,
+        0.0,
+        -3.141592654
+      ],
+      "axis": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "R": [
+        -1.0,
+        0.0,
+        0.0,
+        0.0,
+        -1.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ],
+      "limit": {
+        "lower": -0.785398,
+        "upper": 0.785398
+      }
+    },
+    {
+      "name": "left_ankle_roll_joint",
+      "index": 5,
+      "urdf_name": "leg_left_ankle_roll_joint",
+      "parent": "leg_left_ankle_pitch",
+      "child": "leg_left_ankle_roll",
+      "xyz": [
+        0.03,
+        0.05,
+        0.025
+      ],
+      "rpy": [
+        0.0,
+        1.570796327,
+        0.0
+      ],
+      "axis": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "R": [
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        1.0,
+        0.0,
+        -1.0,
+        0.0,
+        0.0
+      ],
+      "limit": {
+        "lower": -0.261799,
+        "upper": 0.261799
+      }
+    },
+    {
+      "name": "right_hip_roll_joint",
+      "index": 6,
+      "urdf_name": "leg_right_hip_roll_joint",
+      "parent": "base",
+      "child": "leg_right_hip_roll",
+      "xyz": [
+        -0.0290919,
+        -0.08,
+        0.542631
+      ],
+      "rpy": [
+        0.0,
+        -0.785398,
+        3.141592654
+      ],
+      "axis": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "R": [
+        -0.707106897,
+        0.0,
+        0.707106666,
+        0.0,
+        -1.0,
+        0.0,
+        0.707106666,
+        0.0,
+        0.707106897
+      ],
+      "limit": {
+        "lower": -1.570796327,
+        "upper": 0.174533
+      }
+    },
+    {
+      "name": "right_hip_yaw_joint",
+      "index": 7,
+      "urdf_name": "leg_right_hip_yaw_joint",
+      "parent": "leg_right_hip_roll",
+      "child": "leg_right_hip_yaw",
+      "xyz": [
+        -0.027,
+        0.0,
+        -0.052
+      ],
+      "rpy": [
+        -1.570796327,
+        0.0,
+        1.570796327
+      ],
+      "axis": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "R": [
+        0.0,
+        0.0,
+        -1.0,
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        -1.0,
+        0.0
+      ],
+      "limit": {
+        "lower": -0.589049,
+        "upper": 0.981748
+      }
+    },
+    {
+      "name": "right_hip_pitch_joint",
+      "index": 8,
+      "urdf_name": "leg_right_hip_pitch_joint",
+      "parent": "leg_right_hip_yaw",
+      "child": "leg_right_hip_pitch",
+      "xyz": [
+        -0.027,
+        0.0,
+        0.052
+      ],
+      "rpy": [
+        1.570796327,
+        -0.785398,
+        -1.570796327
+      ],
+      "axis": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "R": [
+        0.0,
+        0.0,
+        -1.0,
+        -0.707106897,
+        0.707106666,
+        0.0,
+        0.707106666,
+        0.707106897,
+        0.0
+      ],
+      "limit": {
+        "lower": -1.89805,
+        "upper": 0.981748
+      }
+    },
+    {
+      "name": "right_knee_pitch_joint",
+      "index": 9,
+      "urdf_name": "leg_right_knee_pitch_joint",
+      "parent": "leg_right_hip_pitch",
+      "child": "leg_right_knee_pitch",
+      "xyz": [
+        0.0,
+        0.15,
+        0.018
+      ],
+      "rpy": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "axis": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "R": [
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ],
+      "limit": {
+        "lower": 0.0,
+        "upper": 2.44346
+      }
+    },
+    {
+      "name": "right_ankle_pitch_joint",
+      "index": 10,
+      "urdf_name": "leg_right_ankle_pitch_joint",
+      "parent": "leg_right_knee_pitch",
+      "child": "leg_right_ankle_pitch",
+      "xyz": [
+        0.0,
+        0.16,
+        0.003
+      ],
+      "rpy": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "axis": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "R": [
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ],
+      "limit": {
+        "lower": -0.785398,
+        "upper": 0.785398
+      }
+    },
+    {
+      "name": "right_ankle_roll_joint",
+      "index": 11,
+      "urdf_name": "leg_right_ankle_roll_joint",
+      "parent": "leg_right_ankle_pitch",
+      "child": "leg_right_ankle_roll",
+      "xyz": [
+        0.03,
+        0.05,
+        -0.025
+      ],
+      "rpy": [
+        0.0,
+        1.570796327,
+        0.0
+      ],
+      "axis": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "R": [
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        1.0,
+        0.0,
+        -1.0,
+        0.0,
+        0.0
+      ],
+      "limit": {
+        "lower": -0.261799,
+        "upper": 0.261799
+      }
+    }
+  ],
+  "links": [
+    {
+      "name": "base",
+      "shapes": [
+        {
+          "type": "box",
+          "size": [
+            0.15,
+            0.14,
+            0.23
+          ],
+          "xyz": [
+            0.0,
+            0.0,
+            0.71
+          ],
+          "rpy": [
+            0.0,
+            0.0,
+            -1.570796327
+          ],
+          "source": "urdf_collision",
+          "role": "torso"
+        }
+      ]
+    },
+    {
+      "name": "leg_left_hip_roll",
+      "shapes": [
+        {
+          "type": "capsule",
+          "radius": 0.045,
+          "length": 0.058,
+          "role": "hip",
+          "xyz": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "rpy": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "source": "handpicked"
+        }
+      ]
+    },
+    {
+      "name": "leg_left_hip_yaw",
+      "shapes": [
+        {
+          "type": "capsule",
+          "radius": 0.045,
+          "length": 0.058,
+          "role": "hip",
+          "xyz": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "rpy": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "source": "handpicked"
+        }
+      ]
+    },
+    {
+      "name": "leg_left_hip_pitch",
+      "shapes": [
+        {
+          "type": "cylinder",
+          "radius": 0.05,
+          "length": 0.13,
+          "xyz": [
+            0.00597627,
+            0.039,
+            0.0295
+          ],
+          "rpy": [
+            1.570796327,
+            1.570796327,
+            0.0
+          ],
+          "source": "urdf_collision",
+          "role": "thigh"
+        }
+      ]
+    },
+    {
+      "name": "leg_left_knee_pitch",
+      "shapes": [
+        {
+          "type": "cylinder",
+          "radius": 0.04,
+          "length": 0.15,
+          "xyz": [
+            0.0,
+            -0.115,
+            0.022
+          ],
+          "rpy": [
+            -1.570796327,
+            1.570796327,
+            0.0
+          ],
+          "source": "urdf_collision",
+          "role": "shin"
+        }
+      ]
+    },
+    {
+      "name": "leg_left_ankle_pitch",
+      "shapes": [
+        {
+          "type": "box",
+          "size": [
+            0.06,
+            0.06,
+            0.05
+          ],
+          "role": "ankle",
+          "xyz": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "rpy": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "source": "handpicked"
+        }
+      ]
+    },
+    {
+      "name": "leg_left_ankle_roll",
+      "shapes": [
+        {
+          "type": "box",
+          "size": [
+            0.072,
+            0.22,
+            0.04
+          ],
+          "xyz": [
+            0.0,
+            0.03,
+            0.006
+          ],
+          "rpy": [
+            1.570796327,
+            0.0,
+            0.0
+          ],
+          "source": "urdf_collision",
+          "role": "foot"
+        }
+      ]
+    },
+    {
+      "name": "leg_right_hip_roll",
+      "shapes": [
+        {
+          "type": "capsule",
+          "radius": 0.045,
+          "length": 0.058,
+          "role": "hip",
+          "xyz": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "rpy": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "source": "handpicked"
+        }
+      ]
+    },
+    {
+      "name": "leg_right_hip_yaw",
+      "shapes": [
+        {
+          "type": "capsule",
+          "radius": 0.045,
+          "length": 0.058,
+          "role": "hip",
+          "xyz": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "rpy": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "source": "handpicked"
+        }
+      ]
+    },
+    {
+      "name": "leg_right_hip_pitch",
+      "shapes": [
+        {
+          "type": "cylinder",
+          "radius": 0.05,
+          "length": 0.13,
+          "xyz": [
+            0.00597627,
+            0.039,
+            -0.0295
+          ],
+          "rpy": [
+            1.570796327,
+            1.570796327,
+            0.0
+          ],
+          "source": "urdf_collision",
+          "role": "thigh"
+        }
+      ]
+    },
+    {
+      "name": "leg_right_knee_pitch",
+      "shapes": [
+        {
+          "type": "cylinder",
+          "radius": 0.04,
+          "length": 0.15,
+          "xyz": [
+            0.0,
+            0.115,
+            -0.022
+          ],
+          "rpy": [
+            1.570796327,
+            1.570796327,
+            0.0
+          ],
+          "source": "urdf_collision",
+          "role": "shin"
+        }
+      ]
+    },
+    {
+      "name": "leg_right_ankle_pitch",
+      "shapes": [
+        {
+          "type": "box",
+          "size": [
+            0.06,
+            0.06,
+            0.05
+          ],
+          "role": "ankle",
+          "xyz": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "rpy": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "source": "handpicked"
+        }
+      ]
+    },
+    {
+      "name": "leg_right_ankle_roll",
+      "shapes": [
+        {
+          "type": "box",
+          "size": [
+            0.072,
+            0.22,
+            0.04
+          ],
+          "xyz": [
+            0.0,
+            0.03,
+            0.006
+          ],
+          "rpy": [
+            1.570796327,
+            0.0,
+            0.0
+          ],
+          "source": "urdf_collision",
+          "role": "foot"
+        }
+      ]
+    }
+  ],
+  "poses": {
+    "zero": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+    ],
+    "default": [
+      0.109999999,
+      0.0,
+      -0.239999995,
+      0.829999983,
+      -0.560000002,
+      -0.07,
+      -0.109999999,
+      0.0,
+      -0.239999995,
+      0.829999983,
+      -0.560000002,
+      0.07
+    ]
+  },
+  "view": {
+    "bounds": {
+      "x": [
+        -0.25,
+        0.25
+      ],
+      "y": [
+        -0.25,
+        0.25
+      ],
+      "z": [
+        0.0,
+        0.9
+      ]
+    }
+  }
+}

@@ -3,7 +3,8 @@ import AuthGate from './components/AuthGate'
 import Header from './components/Header'
 import ControlPanel from './components/ControlPanel'
 import JointTable from './components/JointTable'
-import LegDiagram from './components/LegDiagram'
+import RobotMini from './components/RobotMini'
+import RobotView from './components/RobotView'
 import ImuPanel from './components/ImuPanel'
 import CalibrationPanel from './components/CalibrationPanel'
 import ManualPanel from './components/ManualPanel'
@@ -17,7 +18,7 @@ function ControlView({ deadmanConnected }) {
       <div className="lg:col-span-1 space-y-5">
         <ControlPanel deadmanConnected={deadmanConnected} />
         <ImuPanel />
-        <LegDiagram />
+        <RobotMini />
       </div>
       <div className="lg:col-span-2">
         <JointTable />
@@ -29,7 +30,7 @@ function ControlView({ deadmanConnected }) {
 function CalibrationView() {
   return (
     <div className="max-w-5xl mx-auto grid grid-cols-1 lg:grid-cols-3 gap-5">
-      <div className="lg:col-span-1"><LegDiagram /></div>
+      <div className="lg:col-span-1"><RobotMini /></div>
       <div className="lg:col-span-2"><CalibrationPanel /></div>
     </div>
   )
@@ -38,7 +39,7 @@ function CalibrationView() {
 function ManualView({ deadmanConnected }) {
   return (
     <div className="max-w-5xl mx-auto grid grid-cols-1 lg:grid-cols-3 gap-5">
-      <div className="lg:col-span-1"><LegDiagram /></div>
+      <div className="lg:col-span-1"><RobotMini /></div>
       <div className="lg:col-span-2"><ManualPanel deadmanConnected={deadmanConnected} /></div>
     </div>
   )
@@ -56,6 +57,7 @@ function Tabs({ view, setView }) {
   return (
     <div className="flex gap-1 px-5 pt-3 border-b border-surface-3">
       {tab('control', 'Control')}
+      {tab('robot', 'Robot')}
       {tab('manual', 'Manual')}
       {tab('calibration', 'Calibration', uncal)}
     </div>
@@ -72,6 +74,7 @@ function Shell() {
       <Tabs view={view} setView={setView} />
       <main className="flex-1 overflow-y-auto p-5">
         {view === 'control' && <ControlView deadmanConnected={deadmanConnected} />}
+        {view === 'robot' && <RobotView />}
         {view === 'manual' && <ManualView deadmanConnected={deadmanConnected} />}
         {view === 'calibration' && <CalibrationView />}
       </main>

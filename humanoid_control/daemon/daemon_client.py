@@ -385,6 +385,14 @@ class DaemonClient:
         self._base:         dict | None = None      # latest IMU base block (None if no IMU/stale)
         self._last_tel_time: float = 0.0           # monotonic time of last good frame
 
+        # Last commanded position per joint, for UI overlays (name → (rad, monotonic)).
+        # The daemon telemetry reports MEASURED position only; the target is knowable
+        # solely from our own send side. set_position() is the single choke point every
+        # command path funnels through (PolicyRunner.send_targets, the web service's
+        # manual hold, and every ramp), so recording here catches all of them.
+        self._target_lock = threading.Lock()
+        self._last_targets: dict[str, tuple[float, float]] = {}
+
         # Drop-event queue (daemon doesn't push these; kept for API compat)
         self._drop_lock   = threading.Lock()
         self._drop_events: list[dict] = []
@@ -610,6 +618,29 @@ class DaemonClient:
             "joint_name": joint_name,
             "position_rad": position_rad,
         })
+        # Record only after the daemon ACKs, so a rejected command never shows up as a
+        # target the robot is supposedly tracking.
+        with self._target_lock:
+            self._last_targets[joint_name] = (float(position_rad), time.monotonic())
+
+    def get_last_target(self, joint_name: str) -> tuple[float, float] | None:
+        """Last position commanded to joint_name as ``(rad, age_seconds)``, or None.
+
+        Display-frame radians, the same frame as ``get_cached_joint_state()['position']``.
+        The age lets a caller ignore a stale target rather than draw a command that is no
+        longer in force.
+        """
+        with self._target_lock:
+            entry = self._last_targets.get(joint_name)
+        if entry is None:
+            return None
+        value, sent_at = entry
+        return value, max(0.0, time.monotonic() - sent_at)
+
+    def clear_last_targets(self) -> None:
+        """Forget all recorded targets (nothing is commanding the robot any more)."""
+        with self._target_lock:
+            self._last_targets.clear()
 
     def clear_error(self, joint_name: str) -> None:
         self._send_command({"type": "CLEAR_ERROR", "joint_name": joint_name})

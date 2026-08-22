@@ -91,6 +91,30 @@ def status(request: Request):
     return _ok(_service(request).telemetry_snapshot())
 
 
+@router.get("/api/contract", response_model=None)
+def contract(request: Request):
+    """Frame-critical constants the robot visualizer needs, straight from the live contract.
+
+    The wireframe's *geometry* is vendored into the JS bundle
+    (``app/src/data/viz_kinematics.json``), but these four values are exactly the ones whose
+    drift would make the visualizer confidently draw the wrong robot — which is the bug class
+    it exists to catch. So they are served live and the app cross-checks ``policy_frame_sign``
+    against the copy recorded in the bundled model before it will draw anything.
+
+    ``default_pose`` and ``limits`` are DEVICE frame, matching telemetry ``joints[].position``.
+    """
+    c = _service(request).contract
+    return _ok({
+        "joint_order": list(c.joint_order),
+        "policy_frame_sign": [float(s) for s in c.policy_frame_sign],
+        "default_pose": [float(v) for v in c.default_pose],
+        "limits": {
+            "lower": [float(v) for v in c.pos_limit_lower],
+            "upper": [float(v) for v in c.pos_limit_upper],
+        },
+    })
+
+
 @router.get("/api/policies", response_model=None)
 def policies(request: Request):
     """Detect available trained policies. Prefers the deploy-bundle layout

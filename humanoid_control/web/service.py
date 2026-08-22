@@ -41,6 +41,11 @@ _log = logging.getLogger(__name__)
 # Deadman: motion requires a control heartbeat at least this fresh.
 _DEADMAN_TIMEOUT_S = 1.0
 
+# A commanded position older than this is no longer treated as a live target in telemetry.
+# Generous relative to the 50 Hz policy loop: a finished ramp legitimately stops resending
+# while the robot still holds that pose, and that hold IS the current command.
+_TARGET_STALE_S = 5.0
+
 
 class SessionState(str, Enum):
     DISCONNECTED = "DISCONNECTED"   # sockets up, joints not configured/awake
@@ -130,16 +135,35 @@ class ControlService:
     def is_motion_active(self) -> bool:
         return self._state in _MOTION_STATES
 
+    def _last_target(self, name: str) -> tuple[float | None, float | None]:
+        """Last commanded position for ``name``, or (None, None) if there isn't a live one.
+
+        A target older than ``_TARGET_STALE_S``, or one recorded before the robot went
+        idle, is reported as absent so the UI drops the overlay instead of drawing a
+        command that is no longer in force.
+        """
+        if not self.is_motion_active():
+            return None, None
+        entry = self.client.get_last_target(name)
+        if entry is None:
+            return None, None
+        value, age = entry
+        if age > _TARGET_STALE_S:
+            return None, None
+        return value, age
+
     def telemetry_snapshot(self) -> dict:
         """Non-blocking snapshot from the telemetry cache (no UDP round-trip)."""
         joints = []
         for i, name in enumerate(self.contract.joint_order):
             limit = {"min": float(self.contract.pos_limit_lower[i]),
                      "max": float(self.contract.pos_limit_upper[i])}
+            target, target_age = self._last_target(name)
             st = self.client.get_cached_joint_state(name)
             if st is None:
                 joints.append({"index": i, "name": name, "online": False,
-                               "calibrated": self._calibrated.get(name, False), "limit": limit})
+                               "calibrated": self._calibrated.get(name, False), "limit": limit,
+                               "target": target, "target_age_s": target_age})
                 continue
             state = st.get("state") or st.get("joint_state")
             joints.append({
@@ -155,6 +179,10 @@ class ControlService:
                 "calibrated": self._calibrated.get(name, False),
                 "cal_captured": dict(self._cal_captures.get(name, {})),
                 "limit": limit,
+                # Last position we COMMANDED (display frame, same as `position`), for the
+                # visualizer's target overlay. None when nothing is actively commanding.
+                "target": target,
+                "target_age_s": target_age,
             })
         try:
             buses = self.client.get_interface_stats()
@@ -327,6 +355,7 @@ class ControlService:
             self.legs.disable()
         except Exception as exc:
             _log.warning("disable on disconnect failed: %s", exc)
+        self.client.clear_last_targets()   # nothing is commanding the robot any more
         with self._lock:
             self._armed = False
             self._state = SessionState.DISCONNECTED
