@@ -65,6 +65,13 @@ class LegPolicyContract:
 
     meta: dict
 
+    # Pre-scale action clip, from the trainer's exported ``action_limit_lower/upper``.
+    # The trainer CLIPS actions to this range before scaling, so anything wider lets the
+    # policy command targets it never saw in training. Defaults are deliberately wide so an
+    # older contract without the field behaves exactly as before (no silent tightening).
+    action_limit_lower: float = -100.0
+    action_limit_upper: float = 100.0
+
     # --- derived ---------------------------------------------------------
     @property
     def num_joints(self) -> int:
@@ -102,6 +109,7 @@ class LegPolicyContract:
 
         ctrl = data["control"]
         obs = data["observation"]
+        act = data.get("action", {})
         return cls(
             joint_order=tuple(order),
             default_pose=col("default_pose"),
@@ -119,6 +127,8 @@ class LegPolicyContract:
             num_observations=int(obs["num_observations"]),
             obs_layout=tuple(obs["layout"]),
             meta=data.get("_meta", {}),
+            action_limit_lower=float(act.get("action_limit_lower", -100.0)),
+            action_limit_upper=float(act.get("action_limit_upper", 100.0)),
         )
 
     def summary(self) -> str:
@@ -126,6 +136,7 @@ class LegPolicyContract:
             f"LegPolicyContract: {self.num_joints} joints, "
             f"policy_dt={self.policy_dt}s ({1/self.policy_dt:.0f} Hz), action_scale={self.action_scale}",
             f"  obs({self.num_observations}): {' + '.join(self.obs_layout)}",
+            f"  action clip: [{self.action_limit_lower:+.1f}, {self.action_limit_upper:+.1f}] (pre-scale)",
         ]
         for i, n in enumerate(self.joint_order):
             lines.append(

@@ -9,7 +9,7 @@ trainer side; don't hand-copy numbers. This doc explains it.
 > (2026-07-01) against the `humanoid-policy` trainer repo, whose legs env implements exactly
 > this 45-dim obs, 12-dim action, `action_scale = 0.25`, canonical L→R joint order, and deep-squat
 > `default_pose`. Effort/Kt/gear/limits remain **device truth** pulled from the ESCs; **gains now
-> flow the other way** — the bench-tuned uniform kp=45 / kd=1.5 (§6) is set by the trainer contract
+> flow the other way** — the uniform kp=45 / kd=1.5 (§6) is set by the trainer contract
 > and written *to* the ESCs. The trainer can regenerate a matching machine-readable contract via
 > `scripts/rsl_rl/play.py` (writes `configs/leg_policy_contract.json`); diff it against
 > `configs/leg_policy_params.json` to keep sim and hardware in sync.
@@ -43,44 +43,50 @@ Concatenated in this exact field order (matches Berkeley `rl_controller` and
 
 ## 4. Action (12)
 ```
-target = clip(action, ±100) * action_scale + default_pose
+target = clip(action, action_limit_lower, action_limit_upper) * action_scale + default_pose
 target = clamp(target, position_limit_lower, position_limit_upper)   # hard safety
 prev_action = clip(action)   # pre-scale, fed back into the next obs
 ```
-`action_scale = 0.25`.
+`action_scale = 0.25`. The clip bounds are the trainer's exported `action_limit_lower/upper`
+(**±4.0**), carried in the contract's `action` block. The runtime previously clipped at ±100,
+letting the policy drive targets it never saw in training (observed |action| 10.17 on 2026-08-24);
+fixed 2026-08-24 in `ActionMapper`.
 
 ## 5. Timing
 `policy_dt = 0.04 s` (25 Hz policy). `control_dt = 0.004 s`. The daemon runs its own 200 Hz
 PDO loop regardless; the policy streams targets at `policy_dt`.
 
 ## 6. Per-joint params
-**Gains: uniform `kp = 45.0`, `kd = 1.5` on all 12 leg joints** (updated 2026-08-21). These are
-bench-tuned values from `humanoid-tuner` — measured to give the best tracking on *both* motor
-types on this robot (M6C12 hips/knees, MAD5010 ankles) — and they are the **sim↔real contract**,
-not a sim-only knob: `humanoid-policy` master trains on them (`1fb90de`) and the deployed walk
-policy (`6a6f171`) was trained with them, so the ESCs must be flashed to match.
-`kp`→firmware `position_kp`, `kd`→`velocity_kp` (acts as Kd), `effort`→`torque_limit` (Nm).
-Effort/Kt/gear remain **per-joint device truth** pulled from the ESCs.
+**Gains: uniform `kp = 45.0`, `kd = 1.5` on all 12 leg joints** (reverted 2026-08-24). These are the
+bench-tuned values from `humanoid-tuner`, and they are the **sim↔real contract**, not a sim-only
+knob: `humanoid-policy` trains on them (`1fb90de`) and the deployed walk policy (`6a6f171`) was
+trained with them. `kp`→firmware `position_kp`, `kd`→`velocity_kp` (acts as Kd),
+`effort`→`torque_limit` (Nm). Effort/Kt/gear remain **per-joint device truth** pulled from the ESCs.
 
-> Superseded: the per-joint asymmetric gains (kp 10.5–68.4 / kd 0.5–9.8) that shipped with the
-> 2026-07-18 walk policy. That is the policy that destabilized on the real robot; it is archived
-> at `humanoid-policy/deploy/walk/archive/2026-07-18_actuator-model-asymmetric-gains/` along with
-> its gains, for rollback.
+> **kp45 vs kp20 A/B — resolved on hardware in favour of kp45 (2026-08-24).** The Berkeley-default
+> retrain (uniform kp=20 / kd=2.0, `humanoid-policy d2d031f`, run `2026-08-21_21-20-23_kp20-berkeley`)
+> **failed to stabilise on the robot** where kp45 did, so both the policy and the gains were reverted
+> to the kp45 bundle. This matches the sim ranking (kp45 led kp20 by ~8% reward / ~4% episode length),
+> which the A/B was expected to *contradict* if the hardware jitter were gain-related — it did not.
+> Superseded bundles live in `humanoid-policy/deploy/walk/archive/`:
+> `2026-08-18_kp45-bench-tuned/` (the bundle now restored and live),
+> the kp20 Berkeley retrain, and `2026-07-18_actuator-model-asymmetric-gains/`
+> (per-joint kp 10.5–68.4 / kd 0.5–9.8).
 
 | idx | joint | kp | kd | effort | Kt | gear | default_pose |
 |--|--|--|--|--|--|--|--|
 | 0 | left_hip_roll | 45.0 | 1.50 | 6.0 | 0.08958 | +15 | +0.0296 |
 | 1 | left_hip_yaw | 45.0 | 1.50 | 12.0 | 0.08958 | −15 | +0.0038 |
-| 2 | left_hip_pitch | 45.0 | 1.50 | 9.5 | 0.08958 | −15 | +0.9817 |
-| 3 | left_knee_pitch | 45.0 | 1.50 | 6.0 | 0.08958 | +15 | +2.4435 |
+| 2 | left_hip_pitch | 45.0 | 1.50 | 9.5 | 0.08958 | +15 | +0.9817 |
+| 3 | left_knee_pitch | 45.0 | 1.50 | 11.0 | 0.08958 | +15 | +2.4435 |
 | 4 | left_ankle_pitch | 45.0 | 1.50 | 6.0 | 0.06588 | +15 | −0.7854 |
 | 5 | left_ankle_roll | 45.0 | 1.50 | 7.0 | 0.06588 | +15 | +0.0136 |
 | 6 | right_hip_roll | 45.0 | 1.50 | 6.0 | 0.08958 | −15 | +0.0296 |
 | 7 | right_hip_yaw | 45.0 | 1.50 | 6.0 | 0.08958 | +15 | +0.0038 |
-| 8 | right_hip_pitch | 45.0 | 1.50 | 9.5 | 0.08958 | +15 | +0.9817 |
-| 9 | right_knee_pitch | 45.0 | 1.50 | 6.0 | 0.08958 | −15 | +2.4435 |
+| 8 | right_hip_pitch | 45.0 | 1.50 | 9.5 | 0.08958 | −15 | +0.9817 |
+| 9 | right_knee_pitch | 45.0 | 1.50 | 11.0 | 0.08958 | −15 | +2.4435 |
 | 10 | right_ankle_pitch | 45.0 | 1.50 | 6.0 | 0.06588 | −15 | −0.7854 |
-| 11 | right_ankle_roll | 45.0 | 1.50 | 6.0 | 0.06588 | +15 | +0.0136 |
+| 11 | right_ankle_roll | 45.0 | 1.50 | 7.0 | 0.06588 | −15 | +0.0136 |
 
 Notes:
 - ⚠️ The `default_pose` column above is the **original squat→stand** pose and is stale for the
@@ -88,9 +94,27 @@ Notes:
   `configs/leg_policy_params.json` (device frame, what the runner uses) and
   `policies/walk/leg_policy_contract.json` (URDF frame, as exported by the trainer). The walk
   policy's offset is the **stand** pose (hip_pitch −0.24, knee +0.83, ankle_pitch −0.56).
-- ⚠️ `hip_pitch` took the largest change: 68.4/9.8 → 45/1.5, a 6.5× cut in damping on the
-  strongest joint — and the joint the 2026-07-14 divergence report flagged for a possible
-  sim↔hardware sign inversion. Watch it on the first run.
+- ⚠️ **`left_knee_pitch` torque-direction inversion — no longer reproducing; cause NOT confirmed.**
+  On 2026-08-21 it held on enable but ran away from any commanded target into a hardstop
+  (err 1.32 rad, pinned 96.8% of the run). It was NOT a `gear_ratio` sign issue — `gear_ratio`
+  enters the firmware loop squared (`motor_controller.c:389` and `:414`), so negating it cannot
+  invert a loop. Since 2026-08-24 the joint tracks normally (0% pinned, err 0.21–0.48 rad,
+  symmetric with the right knee) across four runs. **But the same joint threw `ERROR_ENCODER_FAULT`
+  (0x2000) on 2026-08-24**, and an intermittently corrupt encoder frame would produce exactly the
+  original symptom — holds on enable (zero error at seed), then diverges once commanded, in a
+  direction set by the sign of the first error. Treat as latent until the encoder path is hardened.
+- ⚠️ **Knee `torque_limit` raised 6.0 → 11.0 Nm (2026-08-24), right_ankle_roll 6.0 → 7.0.** The
+  knees were torque-starved: a persistent *static* knee droop (mean err −0.136 / −0.198 rad,
+  |mean|/rms ≈ 0.5) implied 6.1 / 8.9 Nm of steady extension demand against a 6.0 Nm cap, saturating
+  38.7% / 45.1% of steps. Both knees sagged together (L/R pos corr **+0.91**) instead of stepping —
+  the same policy gives **−0.84…−0.92** in an ideal loop, so the gait was never executable. Motor
+  ceiling is Kt·I·gear ≈ 26.9 Nm and `left_hip_yaw` already runs 12.0 Nm on the identical actuator.
+  **The trainer's `_CONTRACT_EFFORT` still says 6.0 and must be updated before the next retrain.**
+- ℹ️ Historical: `right_ankle_pitch` was found with `torque_limit = 0` on the ESC (producing no
+  torque at all) and that zero briefly reached flash. Corrected to 6.0 Nm and verified 2026-08-24.
+- ℹ️ The `hip_pitch` sim↔hardware sign inversion flagged by the 2026-07-14 divergence report was
+  addressed in the studio config by flipping both hip_pitch `gear_ratio` signs (left −15→+15,
+  right +15→−15); `right_ankle_roll` also moved to −15. The gear column here follows device truth.
 - **Kt (torque constant):** 0.08958 on the 8 big joints (150 KV M6C12: hip roll/yaw/pitch
   + knee), 0.06588 on the 4 ankles (200 KV 5010). Torque/gain scaling must use per-joint Kt.
 - **gear_ratio is signed** — it sets output-side direction to match the URDF/policy frame.
@@ -120,7 +144,7 @@ keep the robot supported until the IMU lands.
   the 45-dim layout; the trainer's stand-up task uses a zero-range velocity command).
 - ✅ `action_scale = 0.25`; `default_pose` **is** the action offset (Isaac `use_default_offset=True`),
   and the trainer's stand-up `init_state` = this deep-squat `default_pose`.
-- ✅ Sim PD gains = the firmware `kp/kd` above. As of 2026-08-21 that is uniform **45.0 / 1.5**,
+- ✅ Sim PD gains = the firmware `kp/kd` above. As of 2026-08-24 that is uniform **45.0 / 1.5**,
   set in the trainer's `HUMANOID_BIPED_WALK_CFG` / `HUMANOID_BIPED_SQUAT_CFG` (still per-joint
   dicts so re-asymmetrizing is a value edit). The old left/right asymmetry is retired — the ESCs
   are now flashed to the uniform bench-tuned values, so sim and hardware match.

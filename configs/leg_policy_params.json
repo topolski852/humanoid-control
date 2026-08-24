@@ -6,10 +6,11 @@
     "broken_encoder": {
       "right_ankle_roll_joint": "mirror left_ankle_roll for base/starting pose"
     },
-    "STATUS": "joint_order + obs layout + action_scale + default_pose CONFIRMED against humanoid-policy trainer; gains = uniform kp=45/kd=1.5 contract (2026-08-21); effort/limits = ESC device truth. starting_pose captured & clamped.",
+    "STATUS": "joint_order + obs layout + action_scale + default_pose CONFIRMED against humanoid-policy trainer; gains = uniform kp=45/kd=1.5 (2026-08-24 revert); effort/limits/gear = ESC device truth. starting_pose captured & clamped.",
     "default_pose_source": "WALK policy stand pose (humanoid-policy/deploy/walk/policy_latest.yaml default_joint_positions), device frame: right hip_roll/hip_yaw/ankle_roll negated from the URDF-mirrored export so both legs share sign. This is the pose the runner ramps to and uses as the walk action offset. See NEXT_STEPS.md step 1.",
     "position_limits_source": "URDF position_limits from humanoid_lite.json (ESC-read limits are offset-adjusted in firmware frame and drifted after recal \u2014 do NOT use for clamping)",
-    "gains_source": "bench-tuned uniform kp=45 / kd=1.5 (humanoid-tuner); adopted as the sim<->real contract by humanoid-policy master 1fb90de and trained into the walk policy deployed at 6a6f171 (run 2026-08-18_20-45-17, model_5999). Supersedes the per-joint asymmetric ESC gains (kp 10.5-68.4 / kd 0.5-9.8) pulled 20260701T185139Z."
+    "gains_source": "bench-tuned uniform kp=45 / kd=1.5 (humanoid-tuner); humanoid-policy 1fb90de plant + policy deployed at 6a6f171 (run 2026-08-18_20-45-17, model_5999). REVERTED to this on 2026-08-24 after the Berkeley-default kp=20/kd=2.0 A/B (humanoid-policy d2d031f) failed to stabilise on hardware where kp45 did. kp20 bundle archived at humanoid-policy/deploy/walk/archive/ ; kp45 bundle restored from deploy/walk/archive/2026-08-18_kp45-bench-tuned/.",
+    "effort_source": "Knee torque_limit raised 6.0 -> 11.0 Nm and right_ankle_roll 6.0 -> 7.0 on 2026-08-24. Evidence: run_1787604267152086081 showed a PERSISTENT negative knee error (left -0.136 rad, right -0.198 rad; |mean|/rms ~0.5 = static droop, not lag), implying 6.1 / 8.9 Nm of steady extension demand against a 6.0 Nm cap, saturating 38.7% / 45.1% of policy steps. Both knees sagged together (L/R pos corr +0.91) instead of stepping (ideal-loop gait gives -0.84..-0.92). Motor ceiling is Kt*current_limit*gear = 0.08958*20*15 ~ 26.9 Nm, and left_hip_yaw already runs 12.0 Nm on the identical actuator, so 11.0 Nm is within established practice on this hardware. NOTE: humanoid-policy _CONTRACT_EFFORT still says 6.0 for the knees and MUST be updated before the next retrain, or sim and hardware diverge. policies/walk/leg_policy_contract.json is left at 6.0 because it records what THIS policy was trained with."
   },
   "canonical_joint_order": [
     "left_hip_roll_joint",
@@ -44,7 +45,10 @@
   },
   "action": {
     "num_actions": 12,
-    "formula": "target = clip(action)*action_scale + default_pose, then clamp to [position_limit_lower, position_limit_upper]"
+    "formula": "target = clip(action, action_limit_lower, action_limit_upper)*action_scale + default_pose, then clamp to [position_limit_lower, position_limit_upper]",
+    "action_limit_lower": -4.0,
+    "action_limit_upper": 4.0,
+    "action_limit_source": "humanoid-policy trainer export policies/walk/policy_latest.yaml (action_limit_lower/upper). The trainer clips pre-scale actions to this range during training; the runtime previously clipped at +/-100, letting the policy command targets far outside the trained range (observed |action| up to 10.17 on 2026-08-24)."
   },
   "joints": [
     {
@@ -80,7 +84,7 @@
       "kd": 1.5,
       "effort_limit": 9.5,
       "torque_constant": 0.0895799994468689,
-      "gear_ratio": -15.0,
+      "gear_ratio": 15.0,
       "position_offset": 1.5023807287216187,
       "position_limit_lower": -1.8980455615438334,
       "position_limit_upper": 0.9817477042468103,
@@ -91,7 +95,7 @@
       "joint_name": "left_knee_pitch_joint",
       "kp": 45.0,
       "kd": 1.5,
-      "effort_limit": 6.0,
+      "effort_limit": 11.0,
       "torque_constant": 0.0895799994468689,
       "gear_ratio": 15.0,
       "position_offset": -0.03180453181266785,
@@ -158,7 +162,7 @@
       "kd": 1.5,
       "effort_limit": 9.5,
       "torque_constant": 0.0895799994468689,
-      "gear_ratio": 15.0,
+      "gear_ratio": -15.0,
       "position_offset": 1.68273,
       "position_limit_lower": -1.8989182261698305,
       "position_limit_upper": 0.9826203688728075,
@@ -169,7 +173,7 @@
       "joint_name": "right_knee_pitch_joint",
       "kp": 45.0,
       "kd": 1.5,
-      "effort_limit": 6.0,
+      "effort_limit": 11.0,
       "torque_constant": 0.0895799994468689,
       "gear_ratio": -15.0,
       "position_offset": -0.5353593230247498,
@@ -195,9 +199,9 @@
       "joint_name": "right_ankle_roll_joint",
       "kp": 45.0,
       "kd": 1.5,
-      "effort_limit": 6.0,
+      "effort_limit": 7.0,
       "torque_constant": 0.06588000059127808,
-      "gear_ratio": 15.0,
+      "gear_ratio": -15.0,
       "position_offset": 0.33144211769104004,
       "position_limit_lower": -0.2617993877991494,
       "position_limit_upper": 0.2617993877991494,
