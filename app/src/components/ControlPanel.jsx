@@ -1,16 +1,20 @@
-import { useEffect, useRef, useState } from 'react'
+import { useState } from 'react'
 import { api } from '../api'
 import { useTelemetry } from '../context/TelemetryContext'
 
-// The command surface. Every mutating call funnels through here; buttons enable/disable off the
-// live session state so you can only take a legal next step (connect → arm → hold/run → stop).
+// CONNECTION AND ARMING ONLY — the robot's lifecycle, not what is driving it.
+//
+// Choosing what drives the robot (Xbox / Quest / a policy) lives in the Control method card,
+// and each method's own controls live with it. Splitting them keeps this card answerable at a
+// glance: is the robot connected, is it armed, what state is it in.
+//
+// `Stop` deliberately stays HERE rather than moving with the motion controls. It is reachable
+// from the card you are already looking at while the robot moves, and removing a way to stop a
+// moving robot to satisfy a card boundary is not a trade worth making.
 export default function ControlPanel({ deadmanConnected, size = 'full' }) {
   const t = useTelemetry()
   const [busy, setBusy] = useState(null)      // name of the in-flight action
   const [error, setError] = useState(null)
-  const [policies, setPolicies] = useState([])
-  const [defaultPolicy, setDefaultPolicy] = useState(null)
-  const [checkpoint, setCheckpoint] = useState('')
 
   const motion = t.state === 'HOLDING' || t.state === 'RUNNING'
   const isConnected = t.state === 'CONNECTED'
@@ -25,33 +29,6 @@ export default function ControlPanel({ deadmanConnected, size = 'full' }) {
     setBusy(name); setError(null)
     try { await fn() } catch (e) { setError(e.message) } finally { setBusy(null) }
   }
-
-  async function loadPolicies() {
-    try {
-      const d = await api.getPolicies()
-      setPolicies(d.policies || [])
-      setDefaultPolicy(d.default || null)
-    } catch { /* ignore — daemon/dir may be absent */ }
-  }
-  useEffect(() => { loadPolicies() }, [])
-  useEffect(() => {
-    if (policies.length && !checkpoint) {
-      const def = policies.find((p) => p.name === defaultPolicy) || policies[0]
-      setCheckpoint(def.path)
-    }
-  }, [policies, defaultPolicy])
-
-  // Wire the dropdown to the gamepad deadman: the controller's A-button arms whatever policy is
-  // selected here (without this, arm_deadman() falls back to a ZeroPolicy "hold" and the sticks do
-  // nothing). Re-assert on every entry to CONNECTED so a fresh/restarted service picks it up.
-  // select_session is rejected while a session is live, so only sync from CONNECTED.
-  const syncedRef = useRef(null)
-  useEffect(() => {
-    if (t.state !== 'CONNECTED') { syncedRef.current = null; return }
-    if (!checkpoint || syncedRef.current === checkpoint) return
-    syncedRef.current = checkpoint
-    api.deadmanSelect('policy', checkpoint).catch(() => { syncedRef.current = null })
-  }, [checkpoint, t.state])
 
   const deadmanWarn = (t.armed || motion) && !(deadmanConnected && t.deadman_ok)
   const compact = size !== 'full'
@@ -130,38 +107,18 @@ export default function ControlPanel({ deadmanConnected, size = 'full' }) {
         </div>
       )}
 
-      {/* 3 · Motion — Ramp-to-pose Hold and Run policy command the calibrated default_pose
-          frame, so both require calibration (manual capture-hold does not; see Manual tab).
-          Dropped in compact mode: connection and arming are the things you need at a glance,
-          motion is a deliberate act you would open the full card for. Stop is kept regardless —
-          removing a way to stop a moving robot to save space is never the right trade. */}
-      {compact ? (
-        motion && (
-          <button className="btn-ghost w-full" disabled={busy}
-            onClick={() => run('stop', () => api.stop())}>Stop</button>
-        )
-      ) : (
-      <Section step="3" title="Motion">
-        <button className="btn-primary" disabled={busy || t.state !== 'CONNECTED' || !t.armed || !t.all_calibrated}
-          onClick={() => run('hold', () => api.hold())}>
-          {busy === 'hold' ? 'Ramping…' : 'Ramp to pose / Hold'}
-        </button>
-        <div className="flex items-center gap-2">
-          <select value={checkpoint} onChange={(e) => setCheckpoint(e.target.value)}
-            className="bg-surface-2 border border-surface-3 rounded-lg px-2 py-2 text-xs text-gray-200 max-w-[10rem]">
-            {policies.length === 0 && <option value="">no checkpoints</option>}
-            {policies.map((p) => <option key={p.path} value={p.path}>{p.name}</option>)}
-          </select>
-          <button className="btn-primary" disabled={busy || t.state !== 'CONNECTED' || !t.armed || !checkpoint || !t.all_calibrated}
-            onClick={() => run('run', () => api.runPolicy(checkpoint))}>
-            {busy === 'run' ? 'Starting…' : 'Run policy'}
+      {/* 3 · Stop — the one motion control that stays here. Choosing and starting a motion
+          belongs to the Control method card; STOPPING one belongs wherever you are looking.
+          Shown only while something is actually moving, so it is never a dead button. */}
+      {motion && (
+        <Section step="3" title="Stop">
+          <button className="btn-danger" disabled={busy}
+            onClick={() => run('stop', () => api.stop())}>
+            {busy === 'stop' ? 'Stopping…' : 'Stop motion'}
           </button>
-        </div>
-        <span className="text-[10px] text-gray-500">
-          Gamepad <b>A</b> arms this policy · hold a trigger to run · sticks drive it
-        </span>
-        <button className="btn-ghost" disabled={busy || !motion}
-          onClick={() => run('stop', () => api.stop())}>Stop</button>
+          <span className="text-[10px] text-gray-500">
+            Graceful stop → IDLE. For an immediate cut, use E-STOP in the header.
+          </span>
         </Section>
       )}
 

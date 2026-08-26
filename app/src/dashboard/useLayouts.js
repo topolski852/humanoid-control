@@ -20,7 +20,7 @@ function read() {
     const raw = localStorage.getItem(KEY)
     if (raw) {
       const parsed = JSON.parse(raw)
-      if (parsed?.tabs?.length) return parsed
+      if (parsed?.tabs?.length) return migrateV2(parsed)
     }
     const legacy = localStorage.getItem(LEGACY_KEY)
     if (legacy) return migrateV1(JSON.parse(legacy))
@@ -52,6 +52,62 @@ function migrateV1(old) {
       const l = byType.get(card.type)          // v1 keyed by widget id, not instance
       if (l && Number.isFinite(l.x)) Object.assign(card, { x: l.x, y: l.y, w: l.w, h: l.h })
     }
+  }
+  return next
+}
+
+/** v2 → v3: the Control card lost its motion section to the new Control method card.
+ *
+ *  Until now `version` was decorative — it was written and never read, so a saved layout came
+ *  back verbatim however far the catalog had moved on. That was harmless while cards only ever
+ *  gained features; it stops being harmless the moment a card LOSES one. Anyone who had ever
+ *  touched their dashboard would get the motion-less Control card with no Control method card
+ *  anywhere, and therefore no route to Run policy at all, with nothing on screen explaining why.
+ *
+ *  INSERT ONLY. Every existing card, position and setting is preserved: `control-method` goes
+ *  directly below the Control card and `quest` below the Xbox card, with everything lower on
+ *  that column pushed down. If a layout has no Control card at all, the method card is appended
+ *  to the first tab rather than dropped — the controls must never be unreachable.
+ */
+function migrateV2(layout) {
+  if ((layout.version ?? 2) >= 3) return layout
+  const next = clone(layout)
+  next.version = 3
+
+  const insertBelow = (tab, anchorType, card) => {
+    const anchor = tab.cards.find((c) => c.type === anchorType)
+    if (!anchor) return false
+    if (tab.cards.some((c) => c.type === card.type)) return true   // already present
+    const y = anchor.y + anchor.h
+    // Push down anything below the anchor IN THE SAME COLUMN. Cards in other columns keep
+    // their position — shifting the whole tab would rearrange a layout the user chose.
+    for (const c of tab.cards) {
+      if (c !== anchor && c.y >= y && c.x < anchor.x + anchor.w && c.x + c.w > anchor.x) {
+        c.y += card.h
+      }
+    }
+    tab.cards.push({ ...card, x: anchor.x, y, w: anchor.w })
+    return true
+  }
+
+  let placedMethod = false
+  for (const tab of next.tabs) {
+    if (!Array.isArray(tab.cards)) continue
+    if (insertBelow(tab, 'control-panel',
+                    { key: 'control-method#1', type: 'control-method',
+                      title: 'Control method', h: 8, props: {} })) {
+      placedMethod = true
+    }
+    insertBelow(tab, 'gamepad',
+                { key: 'quest#1', type: 'quest', title: 'Quest', h: 9, props: {} })
+  }
+
+  if (!placedMethod && next.tabs[0]?.cards) {
+    const maxY = next.tabs[0].cards.reduce((m, c) => Math.max(m, c.y + c.h), 0)
+    next.tabs[0].cards.push({
+      key: 'control-method#1', type: 'control-method', title: 'Control method',
+      x: 0, y: maxY, w: 4, h: 8, props: {},
+    })
   }
   return next
 }

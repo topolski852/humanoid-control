@@ -72,6 +72,11 @@ export const api = {
   deadmanSelect: (kind, checkpoint = null) =>
     request('/api/deadman/select', { method: 'POST', body: JSON.stringify({ kind, checkpoint }) }),
 
+  // Which input source may drive the robot ('xbox' | 'quest' | 'web'). Exactly one holds the
+  // token; the backend drops commands from every other source. Refused mid-session (409).
+  setInputSource: (source) =>
+    request('/api/input_source', { method: 'POST', body: JSON.stringify({ source }) }),
+
   // motion
   hold: (ramp = 5.0, seconds = null) =>
     request('/api/hold', { method: 'POST', body: JSON.stringify({ ramp, seconds }) }),
@@ -88,6 +93,9 @@ export const api = {
   calApply: (joint) => request(`/api/calibrate/${joint}/apply`, { method: 'POST' }),
   calReset: (joint) => request(`/api/calibrate/${joint}/reset`, { method: 'POST' }),
   calComplete: () => request('/api/calibrate/complete', { method: 'POST' }),
+  // Arms have no hardstops, so they are zeroed from a held T-pose rather than by capturing
+  // two mechanical stops. Must be redone after every power cycle — single-turn encoders.
+  calibrateArm: (limb) => request(`/api/calibrate/arm/${limb}`, { method: 'POST' }),
 
   // manual control + saved poses (values in degrees)
   getPoses: () => request('/api/poses'),

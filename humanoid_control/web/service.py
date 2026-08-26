@@ -698,6 +698,126 @@ class ControlService:
                 bad.append({"joint": name, "reason": "out_of_limits", "position": pos, "min": lo, "max": hi})
         return bad
 
+    # ── arm zeroing from a held pose ─────────────────────────────────────────
+    _TEACH_SAMPLE_S = 1.5          # averaged, so a slightly unsteady hold still lands well
+    _TEACH_STEADY_DEG = 2.0        # peak-to-peak above this and the hold is reported as shaky
+
+    def teach_arm_zero(self, limb: str) -> dict:
+        """Zero one arm from the T-pose the operator is holding.
+
+        The arms have no hardstops, so the per-joint capture flow cannot be used on them (see
+        ``humanoid_control.arm_calibration``). This samples the held pose, solves each joint's
+        ``position_offset`` so it reads its known T-pose angle, writes it, and verifies by
+        reading back — a write that does not land is reported rather than assumed.
+
+        Writes ``position_offset`` only. Nothing is commanded to move.
+        """
+        from ..arm_calibration import is_declared, t_pose_targets
+
+        if limb not in self._layout.arms:
+            raise ControlError(
+                f"{limb} is not configured — attached: {', '.join(self._layout.arms) or 'none'}",
+                400)
+        if self._state != SessionState.CONNECTED:
+            raise ControlError(f"Connect first (state={self._state.value}).", 409)
+        if self.is_motion_active():
+            raise ControlError("A motion session is active — stop it before calibrating.", 409)
+
+        targets = t_pose_targets(limb)
+        joints = [n for n in self._layout.joints_of(limb) if n in targets]
+        offline = [n for n in joints if not self._joint_online(n)]
+        if offline:
+            raise ControlError(
+                "offline: " + ", ".join(n.replace("_joint", "") for n in offline), 409)
+
+        # Average the hold. A single sample would bake in whatever jitter happened to be on that
+        # frame; the spread is reported so a shaky hold is visible rather than silently accepted.
+        samples: dict[str, list[float]] = {n: [] for n in joints}
+        deadline = time.monotonic() + self._TEACH_SAMPLE_S
+        while time.monotonic() < deadline:
+            for n in joints:
+                st = self.client.get_cached_joint_state(n)
+                p = (st or {}).get("position")
+                if isinstance(p, (int, float)):
+                    samples[n].append(float(p))
+            time.sleep(0.02)
+        if any(not v for v in samples.values()):
+            raise ControlError("No telemetry while sampling — is the daemon running?", 503)
+
+        held = {n: sum(v) / len(v) for n, v in samples.items()}
+        spread = {n: (max(v) - min(v)) for n, v in samples.items()}
+        worst = max(spread.values()) * 180.0 / np.pi
+
+        results = []
+        for n in joints:
+            old = self._read_offset(n)
+            if old is None:
+                results.append({"joint": n, "ok": False, "reason": "could not read offset"})
+                continue
+            want = targets[n]
+            new = old - (want - held[n])
+            try:
+                self.client.apply_config(n, {"position_offset": float(new)}, timeout=10.0)
+            except Exception as exc:
+                results.append({"joint": n, "ok": False, "reason": str(exc)})
+                continue
+            results.append({
+                "joint": n,
+                "ok": True,
+                "declared": is_declared(n),
+                "was_deg": held[n] * 180.0 / np.pi,
+                "target_deg": want * 180.0 / np.pi,
+                "shift_deg": (want - held[n]) * 180.0 / np.pi,
+                "offset": float(new),
+            })
+        time.sleep(0.4)
+
+        # Verify from telemetry rather than trusting the ACK: a write that silently fails would
+        # otherwise leave a joint marked calibrated with the wrong zero.
+        for r in results:
+            if not r.get("ok"):
+                continue
+            st = self.client.get_cached_joint_state(r["joint"]) or {}
+            now = st.get("position")
+            r["now_deg"] = (now * 180.0 / np.pi) if isinstance(now, (int, float)) else None
+            r["error_deg"] = (None if r["now_deg"] is None
+                              else round(r["now_deg"] - r["target_deg"], 2))
+            if r["error_deg"] is None or abs(r["error_deg"]) > 3.0:
+                r["ok"] = False
+                r["reason"] = "did not land on target"
+
+        ok = all(r.get("ok") for r in results)
+        with self._lock:
+            for r in results:
+                if r.get("ok"):
+                    self._calibrated[r["joint"]] = True
+            if all(self._calibrated.get(n, False) for n in self._joints):
+                self._joints_dropped_since_cal = False
+        _log.info("teach %s from T-pose: %s (hold steady to %.2f deg)",
+                  limb, "OK" if ok else "INCOMPLETE", worst)
+        return {
+            "limb": limb, "ok": ok,
+            "steady_deg": round(worst, 2),
+            "shaky": worst > self._TEACH_STEADY_DEG,
+            "joints": results,
+        }
+
+    def _joint_online(self, name: str) -> bool:
+        st = self.client.get_cached_joint_state(name)
+        state = (st or {}).get("state") or (st or {}).get("joint_state")
+        return st is not None and state not in (None, "OFFLINE")
+
+    def _read_offset(self, name: str) -> float | None:
+        """READ_CONFIG drops a random param per call; retry until position_offset lands."""
+        for _ in range(6):
+            try:
+                c = self.client.read_device_config(name)
+            except Exception:
+                continue
+            if c.get("position_offset") is not None:
+                return float(c["position_offset"])
+        return None
+
     def cal_mark_complete(self) -> dict:
         """Operator override: mark ALL joints calibrated without re-running per-joint calibration.
         Only allowed when every joint's live position is within its configured limits — a sanity

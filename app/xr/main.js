@@ -196,9 +196,23 @@ async function start() {
 
 // ── boot ────────────────────────────────────────────────────────────────────
 (async () => {
+  // `navigator.xr` only exists in a SECURE CONTEXT. Plain HTTP has none, and — the part that
+  // catches people out — neither does an HTTPS origin whose certificate you click-through:
+  // Chromium keeps such an origin flagged and withholds powerful features from it. So a
+  // self-signed cert is not reliably enough on its own.
+  //
+  // The dependable route is `adb reverse`, because Chromium trusts `localhost` as a secure
+  // context with no certificate at all.
+  const insecure = !window.isSecureContext;
   if (!navigator.xr) {
     $enter.textContent = 'WebXR unavailable';
-    show('This browser has no WebXR. Open this page in the Quest browser over HTTPS.', 'err');
+    show(insecure
+      ? 'This page is not a secure context, so the browser hides WebXR.\n\n'
+        + 'On the robot:  adb reverse tcp:8000 tcp:8000\n'
+        + 'On the Quest:  open http://localhost:8000/xr/\n\n'
+        + 'localhost is trusted with no certificate. A self-signed HTTPS cert that you '
+        + 'click through is NOT enough — Chromium keeps withholding WebXR from it.'
+      : 'This browser has no WebXR at all. Use the Quest browser.', 'err');
     return;
   }
   const ok = await navigator.xr.isSessionSupported('immersive-ar').catch(() => false);

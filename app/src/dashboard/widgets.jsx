@@ -1,5 +1,7 @@
 import ControlPanel from '../components/ControlPanel'
+import ControlMethodPanel from '../components/ControlMethodPanel'
 import GamepadPanel from '../components/GamepadPanel'
+import QuestPanel from '../components/QuestPanel'
 import ImuPanel from '../components/ImuPanel'
 import JointTable from '../components/JointTable'
 import RobotMini from '../components/RobotMini'
@@ -8,6 +10,7 @@ import CalibrationPanel from '../components/CalibrationPanel'
 import ManualPanel from '../components/ManualPanel'
 import SettingsPanel from '../components/SettingsPanel'
 import JointCard from '../components/JointCard'
+import ArmCalibration from '../components/ArmCalibration'
 
 // The widget CATALOG — every card that can be placed, and nothing about where any of them is.
 //
@@ -46,12 +49,21 @@ export const WIDGETS = [
     id: 'control-panel',
     title: 'Control',
     group: 'Control',
-    description: 'Connect, arm and run motion. Mini shows state only — for gamepad driving.',
-    defaultLayout: { w: 4, h: 8 },
+    description: 'Connect, arm, state. Mini shows state only — for driving from a controller.',
+    defaultLayout: { w: 4, h: 6 },
     minW: 2, minH: 2,
     tiers: { mini: 5, compact: 8 },
     render: ({ deadmanConnected, size }) =>
       <ControlPanel deadmanConnected={deadmanConnected} size={size} />,
+  },
+  {
+    id: 'control-method',
+    title: 'Control method',
+    group: 'Control',
+    description: 'What drives the robot — Xbox, Quest or a policy — plus that method\'s controls.',
+    defaultLayout: { w: 4, h: 8 },
+    minW: 2, minH: 4,
+    render: () => <ControlMethodPanel />,
   },
   {
     id: 'manual-panel',
@@ -72,14 +84,37 @@ export const WIDGETS = [
     render: () => <CalibrationPanel />,
   },
   {
+    id: 'arm-calibration',
+    title: 'Arm zeroing',
+    group: 'Control',
+    description: 'Zero an arm from a held T-pose. Arms have no hardstops, and the zero is lost '
+               + 'on every power cycle.',
+    defaultLayout: { w: 8, h: 7 },
+    minW: 3, minH: 3,
+    bare: true,
+    render: () => <ArmCalibration />,
+  },
+  {
+    // The `id` stays 'gamepad' — renaming one orphans every saved layout that mentions it.
+    // Only the TITLE becomes device-specific, now that it is one of several input devices.
     id: 'gamepad',
-    title: 'Controller',
+    title: 'Xbox controller',
     group: 'Diagnostics',
-    description: 'Live button and axis state, plus the active control mode.',
+    description: 'Live button and axis state from the Xbox pad, plus the active control mode.',
     defaultLayout: { w: 4, h: 11 },
     minW: 2, minH: 2,
     tiers: { mini: 6, compact: 11 },
     render: () => <GamepadPanel />,
+  },
+  {
+    id: 'quest',
+    title: 'Quest',
+    group: 'Diagnostics',
+    description: 'Headset link health, tracking and clutch state.',
+    defaultLayout: { w: 4, h: 9 },
+    minW: 2, minH: 2,
+    tiers: { mini: 5, compact: 9 },
+    render: ({ size }) => <QuestPanel size={size} />,
   },
   {
     id: 'imu',
@@ -181,15 +216,17 @@ export function settingsFor(widget) {
 // The shipped dashboard. Seeds first run and backs "Restore default layout". Kept identical to
 // the pre-configurable arrangement so an existing user sees no change until they edit something.
 export const DEFAULT_LAYOUT = {
-  version: 2,
+  version: 3,
   tabs: [
     {
       id: 'control', name: 'Control',
       cards: [
-        { key: 'control-panel#1', type: 'control-panel', title: 'Control', x: 0, y: 0, w: 4, h: 8, props: {} },
-        { key: 'gamepad#1', type: 'gamepad', title: 'Controller', x: 0, y: 8, w: 4, h: 11, props: {} },
-        { key: 'imu#1', type: 'imu', title: 'IMU', x: 0, y: 19, w: 4, h: 4, props: {} },
-        { key: 'robot-mini#1', type: 'robot-mini', title: 'Robot pose', x: 0, y: 23, w: 4, h: 11, props: {} },
+        { key: 'control-panel#1', type: 'control-panel', title: 'Control', x: 0, y: 0, w: 4, h: 6, props: {} },
+        { key: 'control-method#1', type: 'control-method', title: 'Control method', x: 0, y: 6, w: 4, h: 8, props: {} },
+        { key: 'gamepad#1', type: 'gamepad', title: 'Xbox controller', x: 0, y: 14, w: 4, h: 11, props: {} },
+        { key: 'quest#1', type: 'quest', title: 'Quest', x: 0, y: 25, w: 4, h: 9, props: {} },
+        { key: 'imu#1', type: 'imu', title: 'IMU', x: 0, y: 34, w: 4, h: 4, props: {} },
+        { key: 'robot-mini#1', type: 'robot-mini', title: 'Robot pose', x: 0, y: 38, w: 4, h: 11, props: {} },
         { key: 'joint-table#1', type: 'joint-table', title: 'Joints', x: 4, y: 0, w: 8, h: 9, props: {} },
       ],
     },
@@ -210,7 +247,8 @@ export const DEFAULT_LAYOUT = {
       id: 'calibration', name: 'Calibration', badge: 'uncalibrated',
       cards: [
         { key: 'robot-mini#3', type: 'robot-mini', title: 'Robot pose', x: 0, y: 0, w: 4, h: 11, props: {} },
-        { key: 'calibration-panel#1', type: 'calibration-panel', title: 'Calibration', x: 4, y: 0, w: 8, h: 12, props: {} },
+        { key: 'arm-calibration#1', type: 'arm-calibration', title: 'Arm zeroing', x: 4, y: 0, w: 8, h: 7, props: {} },
+        { key: 'calibration-panel#1', type: 'calibration-panel', title: 'Calibration', x: 4, y: 7, w: 8, h: 12, props: {} },
       ],
     },
     {

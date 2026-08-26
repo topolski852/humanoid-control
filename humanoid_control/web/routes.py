@@ -417,6 +417,22 @@ def cal_reset(request: Request, joint: str):
     return _cal_result(request, data)
 
 
+@router.post("/api/calibrate/arm/{limb}", response_model=None)
+async def cal_arm(request: Request, limb: str):
+    """Zero one arm from the T-pose the operator is holding.
+
+    The arms have no hardstops, so the per-joint capture flow does not apply to them. Blocking
+    (it samples the hold for ~1.5 s and does SDO round-trips), so it runs off the event loop.
+    """
+    try:
+        data = await _blocking(_service(request).teach_arm_zero, limb)
+    except ControlError as exc:
+        return _err(str(exc), exc.status)
+    except Exception as exc:
+        return _err(f"arm calibration failed: {exc}", 500)
+    return _cal_result(request, data)
+
+
 @router.post("/api/calibrate/complete", response_model=None)
 async def cal_complete(request: Request):
     """Operator override: mark all joints calibrated if every one is within limits."""
