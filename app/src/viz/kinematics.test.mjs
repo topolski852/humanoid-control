@@ -7,12 +7,26 @@
 // test would only prove the code agrees with itself.
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
 
-import model from '../data/viz_kinematics.json' with { type: 'json' }
 import {
-  forwardKinematics, deviceToUrdf, project, buildDrawables, lowestZ, linkRadius,
+  forwardKinematics, deviceToUrdf, project, buildDrawables, lowestZ, linkRadius, selectModel,
+  buildTwistTicks, buildGripper,
   shortestArcMatrix, baseRotationFromGravity, tiltAngle, applyPoint, applyDir, IDENTITY4,
 } from './kinematics.js'
+
+// Read rather than `import ... with { type: 'json' }`: import attributes need Node >= 20.10 and
+// the older `assert { type: 'json' }` spelling is deprecated in newer Node. fs works on both.
+const bundle = JSON.parse(
+  readFileSync(fileURLToPath(new URL('../data/viz_kinematics.json', import.meta.url)), 'utf8'),
+)
+
+// The bundled model is the SUPERSET of every limb the robot could have. The app renders the
+// subset the live layout enables, so the leg goldens below are asserted against the leg subset —
+// exactly what a legs-only layout draws — and `selectModel` is exercised on the way through.
+const LEG_JOINTS = bundle.limbs.left_leg.concat(bundle.limbs.right_leg)
+const model = selectModel(bundle, LEG_JOINTS)
 
 const TOL = 1e-3
 
@@ -27,19 +41,173 @@ function closeVec(actual, expected, tol = TOL, what = '') {
   expected.forEach((e, i) => close(actual[i], e, tol, `${what}[${i}]`))
 }
 
-test('model self-describes 12 joints in canonical order', () => {
+test('bundle is the full-body superset in layout order', () => {
+  assert.equal(bundle.joints.length, 22)
+  assert.equal(bundle.joint_order.length, 22)
+  assert.deepEqual(Object.keys(bundle.limbs), ['left_leg', 'right_leg', 'left_arm', 'right_arm'])
+  bundle.joints.forEach((j, i) => {
+    assert.equal(j.name, bundle.joint_order[i])
+    assert.equal(j.index, i)
+    assert.ok(j.limb, `${j.name} is tagged with its limb`)
+  })
+  // Device names are authoritative; the URDF calls the wrist "elbow_roll".
+  const wrist = bundle.joints.find((j) => j.name === 'left_wrist_yaw_joint')
+  assert.equal(wrist.urdf_name, 'arm_left_elbow_roll_joint')
+})
+
+test('selectModel narrows to a joint list and stays index-aligned', () => {
   assert.equal(model.joints.length, 12)
   assert.equal(model.joint_order.length, 12)
-  model.joints.forEach((j, i) => {
-    assert.equal(j.name, model.joint_order[i])
-    assert.equal(j.index, i)
-  })
+  model.joints.forEach((j, i) => assert.equal(j.name, model.joint_order[i]))
+
+  // An arm-only selection is a first-class configuration, not a degenerate one.
+  const arm = selectModel(bundle, bundle.limbs.left_arm)
+  assert.equal(arm.joints.length, 5)
+  assert.deepEqual(arm.joint_sign, [1, 1, 1, 1, 1])
+  assert.equal(arm.joints[0].parent, bundle.root_link, 'shoulder hangs off the base')
+
+  // A joint the bundle does not contain must fail loudly, not silently draw a partial robot.
+  assert.equal(selectModel(bundle, ['left_hip_roll_joint', 'nope_joint']), null)
 })
 
 test('joint_sign matches the contract sign map', () => {
-  // Must equal humanoid_control.config.LegPolicyContract.policy_frame_sign. The app also
+  // Legs must equal humanoid_control.config.LegPolicyContract.policy_frame_sign. The app also
   // checks this at runtime against GET /api/contract; this catches it at build time.
   assert.deepEqual(model.joint_sign, [1, 1, 1, 1, 1, 1, -1, -1, 1, 1, 1, -1])
+  // Arms are deliberately +1: no trained arm policy means no frame to reconcile to, so they
+  // are drawn raw and any disagreement with the hardware stays visible.
+  const arms = bundle.limbs.left_arm.concat(bundle.limbs.right_arm)
+  for (const n of arms) {
+    assert.equal(bundle.joint_sign[bundle.joint_order.indexOf(n)], 1, `${n} sign is +1`)
+  }
+})
+
+test('left arm FK matches independently derived URDF values', () => {
+  // Goldens FK'd from humanoid.urdf directly in Python with numpy, not captured from this
+  // implementation — otherwise the test would only prove the code agrees with itself.
+  const arm = selectModel(bundle, bundle.limbs.left_arm)
+  const zero = forwardKinematics(arm, [0, 0, 0, 0, 0])
+  closeVec(zero.joints.left_shoulder_pitch_joint, [0, 0.133, 0.76403], TOL, 'shoulder_pitch')
+  closeVec(zero.joints.left_shoulder_roll_joint, [0.0255, 0.176, 0.76403], TOL, 'shoulder_roll')
+  closeVec(zero.joints.left_shoulder_yaw_joint, [0, 0.20783, 0.64522], TOL, 'shoulder_yaw')
+  closeVec(zero.joints.left_elbow_pitch_joint, [0, 0.1953, 0.59734], TOL, 'elbow_pitch')
+  closeVec(zero.joints.left_wrist_yaw_joint, [0, 0.25176, 0.48513], TOL, 'wrist_yaw')
+
+  // Bending the elbow 90 deg must swing the wrist forward (+X) and up — if the axis or the
+  // parent transform were wrong this is where it would show.
+  const bent = forwardKinematics(arm, [0, 0, 0, Math.PI / 2, 0])
+  closeVec(bent.joints.left_wrist_yaw_joint, [0.123, 0.21993, 0.60394], TOL, 'wrist_yaw @ elbow 90')
+})
+
+test('an arm mounts to the side of the torso, not the centreline', () => {
+  // Running the shoulder strut to the centreline draws the arm as if it grew out of the
+  // sternum, and the bright skeleton line then makes the shoulder look centred on the torso.
+  const shoulder = bundle.joints.find((j) => j.name === 'left_shoulder_pitch_joint')
+  assert.equal(shoulder.mount.source, 'torso_surface')
+  assert.ok(shoulder.mount.xyz[1] > 0, 'mount stays on the arm\'s own side')
+  assert.ok(shoulder.mount.xyz[1] < shoulder.xyz[1], 'mount is inboard of the joint')
+
+  // The hips keep the centreline mount: the two struts together read as a pelvis.
+  const hip = bundle.joints.find((j) => j.name === 'left_hip_roll_joint')
+  assert.equal(hip.mount.source, 'centreline')
+  assert.equal(hip.mount.xyz[1], 0)
+
+  // And the strut must actually start there.
+  const arm = selectModel(bundle, bundle.limbs.left_arm)
+  const bones = buildDrawables(arm, forwardKinematics(arm, [0, 0, 0, 0, 0])).bones
+  const clavicle = bones.find((b) => b.role === 'clavicle')
+  closeVec(clavicle.a, shoulder.mount.xyz, 1e-9, 'clavicle starts at the torso wall')
+})
+
+test('measured dimensions override the URDF cosmetic geometry', () => {
+  // The URDF torso is 10 cm narrower than the machine that got built. Drawn that way, the
+  // shoulder floats clear of the body on a long strut and reads as mounted on the sternum.
+  const torso = bundle.links.find((l) => l.name === 'base').shapes.find((s) => s.role === 'torso')
+  assert.equal(torso.source, 'measured')
+  close(torso.size[0], 0.25, 1e-9, 'torso width')
+  close(torso.size[1], 0.14, 1e-9, 'torso depth')      // this one agreed with the URDF
+  close(torso.size[2], 0.25, 1e-9, 'torso height')
+  assert.deepEqual(torso.urdf_size, [0.15, 0.14, 0.23], 'what the URDF claimed is kept on record')
+
+  // With the real width the shoulder sits just outboard of the corner, not on a long spur.
+  const shoulder = bundle.joints.find((j) => j.name === 'left_shoulder_pitch_joint')
+  const strut = shoulder.xyz[1] - shoulder.mount.xyz[1]
+  assert.ok(strut > 0 && strut < 0.02, `clavicle strut should be ~1cm, got ${(strut * 100).toFixed(1)}cm`)
+
+  // The claw is a real part, so its reach is measured, not chosen.
+  const hand = bundle.joints.find((j) => j.name === 'left_wrist_yaw_joint').hand
+  assert.equal(hand.source, 'measured')
+  close(hand.length_closed, 0.12, 1e-9, 'hand length')
+  const reach = hand.palm[0] * hand.axis[0] + hand.palm[1] * hand.axis[1] + hand.palm[2] * hand.axis[2]
+  close(reach + hand.jaw_length, 0.12, 1e-6, 'palm reach + jaw length must equal the measured hand')
+})
+
+test('inline-twist joints are detected geometrically and their spurs sweep', () => {
+  // shoulder_yaw's axis runs straight down the limb, so it reorients the arm without moving
+  // it: the drawing needs a spur or the joint looks broken when it is merely axial.
+  const twisters = bundle.joints.filter((j) => j.twist).map((j) => j.name)
+  assert.deepEqual(twisters, ['left_shoulder_yaw_joint', 'right_shoulder_yaw_joint'])
+
+  const arm = selectModel(bundle, bundle.limbs.left_arm)
+  const ticksAt = (yaw) => buildTwistTicks(arm, forwardKinematics(arm, [0, 0, yaw, 0, 0]))
+  const a = ticksAt(0)
+  const b = ticksAt(Math.PI / 2)
+  assert.equal(a.length, 2, 'two spurs, so orientation survives any viewing angle')
+  const moved = Math.hypot(...a[0].b.map((v, i) => v - b[0].b[i]))
+  assert.ok(moved > 0.02, `spur must sweep with the joint, moved ${moved}`)
+  // ...while the joint origin itself stays put, which is the whole point.
+  closeVec(a[0].a, b[0].a, 1e-9, 'twist joint origin is fixed')
+})
+
+test('the claw plane sweeps with the wrist and opens', () => {
+  const arm = selectModel(bundle, bundle.limbs.left_arm)
+  const grip = (wrist, open) =>
+    buildGripper(arm, forwardKinematics(arm, [0, 0, 0, 0, wrist]), open)[0]
+
+  const g = grip(0, 0.35)
+  assert.equal(g.jaws.length, 2)
+
+  // Rotating the wrist must swing the jaws — this is what makes the inline twist legible,
+  // and it must move MORE than the hand centroid does (which sits nearly on the axis).
+  const j0 = grip(0, 0.35).jaws[0].b
+  const j90 = grip(Math.PI / 2, 0.35).jaws[0].b
+  const jawSwing = Math.hypot(...j0.map((v, i) => v - j90[i]))
+  const palmSwing = Math.hypot(...grip(0, 0.35).palm.map((v, i) => v - grip(Math.PI / 2, 0.35).palm[i]))
+  assert.ok(jawSwing > 0.03, `jaw tip should swing clearly, got ${jawSwing}`)
+  assert.ok(jawSwing > palmSwing * 2, 'jaws must read better than the near-axial palm point')
+
+  // Opening splays the jaws apart; closing brings them together.
+  const spread = (open) => {
+    const x = grip(0, open)
+    return Math.hypot(...x.jaws[0].b.map((v, i) => v - x.jaws[1].b[i]))
+  }
+  assert.ok(spread(1) > spread(0.35), 'open splays wider than half-open')
+  assert.ok(spread(0.35) > spread(0), 'half-open splays wider than closed')
+
+  // Every point finite in any configuration.
+  for (const open of [0, 0.5, 1]) {
+    for (const jw of grip(1.0, open).jaws) {
+      ;[...jw.a, ...jw.b].forEach((v) => assert.ok(Number.isFinite(v)))
+    }
+  }
+})
+
+test('the arm ends in a hand that swings with the wrist', () => {
+  const arm = selectModel(bundle, bundle.limbs.left_arm)
+  const wrist = arm.joints.find((j) => j.name === 'left_wrist_yaw_joint')
+  assert.ok(wrist.tip, 'wrist carries a terminal stub, else its rotation draws nothing')
+  assert.equal(wrist.tip.source, 'urdf_hand_com')
+
+  const at = (q) => {
+    const bones = buildDrawables(arm, forwardKinematics(arm, [0, 0, 0, 0, q])).bones
+    return bones.find((b) => b.role === 'hand').b
+  }
+  const a = at(0)
+  const b = at(Math.PI / 2)
+  const swing = Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2])
+  // The hand sits nearly ON the wrist axis, so the swing is real but small (~1.4 cm radius).
+  // Asserting the magnitude keeps the UI's "read the wrist from the number" caveat honest.
+  assert.ok(swing > 0.005 && swing < 0.05, `hand swing should be small but non-zero, got ${swing}`)
 })
 
 test('default pose FK is mirror-symmetric with both feet level', () => {

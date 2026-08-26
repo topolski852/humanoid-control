@@ -19,7 +19,7 @@ import sys
 import numpy as np
 
 from humanoid_control import (
-    LegPolicyContract, LIVE_ROBOT_CONFIG_PATH, PolicyRunner, load_policy,
+    LegPolicyContract, LIVE_ROBOT_CONFIG_PATH, resolve_robot_config_path, PolicyRunner, load_policy,
     UprightStubBaseState, EstopController,
 )
 from humanoid_control.daemon import DaemonClient, RobotConfig
@@ -28,7 +28,7 @@ from humanoid_control.daemon import DaemonClient, RobotConfig
 async def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--policy", required=True, help="path to .onnx or .pt checkpoint")
-    ap.add_argument("--config", default=str(LIVE_ROBOT_CONFIG_PATH))
+    ap.add_argument("--config", default=str(resolve_robot_config_path() or LIVE_ROBOT_CONFIG_PATH))
     ap.add_argument("--command", type=float, nargs=3, default=[0.0, 0.0, 0.0],
                     help="velocity command vector (3,)")
     ap.add_argument("--i-am-present", action="store_true")

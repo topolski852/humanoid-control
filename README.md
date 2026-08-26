@@ -21,6 +21,9 @@ policy runner (Python)  ──UDP :9001/:9000──▶  daemon (C++, owns CAN @2
   - `daemon/` — **vendored** studio client (`daemon_client.py`, `robot_config.py`,
     `actuator.py` trimmed to `ActuatorState`). The only thing that talks to the daemon.
   - `config.py` — loads the policy contract (`configs/leg_policy_params.json`).
+  - `layout.py` — **which limbs are attached to this machine** (see *Robot layout* below).
+    Deliberately separate from the policy contract: the contract is the sim↔real interface
+    the trainer agreed to, not a description of the hardware in the room.
   - `base_state.py` — pluggable base state (upright stub now → IMU telemetry later).
   - `observation.py` / `action.py` — obs assembly (45) and action→target mapping + clamps.
   - `policy.py` — Policy ABC + Zero/Onnx/Torch loaders.
@@ -69,8 +72,47 @@ browser tab closes or WiFi drops mid-motion, the server auto-fires E-STOP. A rob
 `humanoid_control/web/gamepad.py` but **disabled by default** (enable with `HUMANOID_GAMEPAD_ENABLE=1`).
 
 Env: `HUMANOID_WEB_HOST`/`HUMANOID_WEB_PORT`, `HUMANOID_CONFIG` (robot config),
-`HUMANOID_WEB_PASSWORD` (optional login), `HUMANOID_POLICY_DIR` (checkpoint list). For
-auto-start on boot, see [`deploy/`](deploy/README.md).
+`HUMANOID_LAYOUT` (robot layout file), `HUMANOID_WEB_PASSWORD` (optional login),
+`HUMANOID_POLICY_DIR` (checkpoint list). For auto-start on boot, see
+[`deploy/`](deploy/README.md).
+
+> **Which robot config?** There is more than one copy of `humanoid_lite.json` on a typical
+> machine and they drift — the studio GUI writes to `~/.config/humanoid-studio/`, the repo
+> checkout keeps its own. `resolve_robot_config_path()` searches `$HUMANOID_CONFIG` → the
+> studio user config → the repo copy and **logs which one won** at startup. Point the daemon's
+> `--config` at the same file, or you will run gains you did not set.
+
+## Robot layout (which limbs are attached)
+The app drives whatever is actually plugged in — legs on a gantry, a single arm on the bench,
+or the full robot. Tick the limbs in the web UI's **Settings** tab; the choice is written to
+`~/.config/humanoid-control/robot_layout.json` and read at startup, so each machine (this bench
+PC, the torso PC later) keeps its own answer. With no file the default is **both legs**, which
+is exactly the behaviour that predates the setting.
+
+The layout is the joint set for everything downstream: telemetry, the health check that gates
+`connect`, calibration, and what the Robot tab draws. That is the point — with the legs
+unpowered, offline leg joints are the expected state, not a fault.
+
+```bash
+# the same thing over the API
+curl -X PUT localhost:8000/api/layout -H 'Content-Type: application/json' \
+     -d '{"enabled":["left_arm"],"imu_expected":true}'
+```
+
+**Motion still requires both legs.** Every motion path here commands the twelve contract leg
+joints, so Hold / Run / Manual are refused on an arm-only layout with a message saying so. An
+arm layout is a look-and-calibrate configuration: the Robot tab draws it live from the encoders
+and the Calibration tab can zero it, but nothing here drives an arm yet.
+
+**Arm joints are drawn raw** (`policy_frame_sign = +1`). There is no trained arm policy, so
+there is no frame to reconcile to, and inventing one would hide exactly what the visualizer
+exists to expose. Move a joint by hand: if the drawing moves the *opposite* way the
+`gear_ratio` sign is wrong; if it moves the right way but sits in the wrong *place* that is a
+zero offset. The Robot tab's **vs URDF** column says which of the two each joint's range implies.
+
+Note the device names are authoritative and differ from the URDF asset: the arm's fifth joint
+is `{side}_wrist_yaw_joint` on the hardware and `elbow_roll` in the URDF. The mapping lives in
+`scripts/gen_viz_kinematics.py`.
 
 ## Safety (non-negotiable)
 Never drive the robot beyond a supported/gantry dry-run without a human present. Targets

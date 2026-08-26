@@ -26,7 +26,7 @@ import time
 import numpy as np
 
 from humanoid_control import (
-    LegPolicyContract, LIVE_ROBOT_CONFIG_PATH, EstopController, ramp_to_pose,
+    LegPolicyContract, LIVE_ROBOT_CONFIG_PATH, resolve_robot_config_path, EstopController, ramp_to_pose,
     reconcile_firmware_limits,
 )
 from humanoid_control.daemon import DaemonClient, RobotConfig
@@ -47,7 +47,7 @@ SIDES = ("left", "right")
 
 async def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--config", default=str(LIVE_ROBOT_CONFIG_PATH))
+    ap.add_argument("--config", default=str(resolve_robot_config_path() or LIVE_ROBOT_CONFIG_PATH))
     ap.add_argument("--i-am-present", action="store_true",
                     help="REQUIRED: human present, robot secured to the bench")
     ap.add_argument("--freq", type=float, default=0.3, help="sine frequency (Hz)")

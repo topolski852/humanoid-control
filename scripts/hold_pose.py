@@ -17,7 +17,7 @@ import asyncio
 import sys
 
 from humanoid_control import (
-    LegPolicyContract, LIVE_ROBOT_CONFIG_PATH, PolicyRunner, ZeroPolicy,
+    LegPolicyContract, LIVE_ROBOT_CONFIG_PATH, resolve_robot_config_path, PolicyRunner, ZeroPolicy,
     UprightStubBaseState, EstopController,
 )
 from humanoid_control.daemon import DaemonClient, RobotConfig
@@ -25,7 +25,7 @@ from humanoid_control.daemon import DaemonClient, RobotConfig
 
 async def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--config", default=str(LIVE_ROBOT_CONFIG_PATH))
+    ap.add_argument("--config", default=str(resolve_robot_config_path() or LIVE_ROBOT_CONFIG_PATH))
     ap.add_argument("--i-am-present", action="store_true",
                     help="REQUIRED confirmation that a human is present and the robot is supported")
     ap.add_argument("--ramp", type=float, default=5.0, help="ramp duration to default_pose (s)")

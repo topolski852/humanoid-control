@@ -8,6 +8,7 @@ import RobotView from './components/RobotView'
 import ImuPanel from './components/ImuPanel'
 import CalibrationPanel from './components/CalibrationPanel'
 import ManualPanel from './components/ManualPanel'
+import SettingsPanel from './components/SettingsPanel'
 import { TelemetryProvider } from './context/TelemetryContext'
 import { useTelemetry } from './context/TelemetryContext'
 import { useDeadman } from './hooks/useDeadman'
@@ -60,6 +61,8 @@ function Tabs({ view, setView }) {
       {tab('robot', 'Robot')}
       {tab('manual', 'Manual')}
       {tab('calibration', 'Calibration', uncal)}
+      <span className="flex-1" />
+      {tab('settings', 'Settings')}
     </div>
   )
 }
@@ -77,6 +80,7 @@ function Shell() {
         {view === 'robot' && <RobotView />}
         {view === 'manual' && <ManualView deadmanConnected={deadmanConnected} />}
         {view === 'calibration' && <CalibrationView />}
+        {view === 'settings' && <SettingsPanel />}
       </main>
     </div>
   )

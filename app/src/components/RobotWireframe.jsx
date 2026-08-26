@@ -1,7 +1,7 @@
 import { useMemo } from 'react'
 import {
   forwardKinematics, deviceToUrdf, project, depth, buildDrawables, arcPoints,
-  applyPoint, IDENTITY4,
+  buildTwistTicks, buildGripper, applyPoint, IDENTITY4,
 } from '../viz/kinematics'
 
 // 2D wireframe of the robot, posed from live encoder telemetry and oriented by the IMU.
@@ -24,15 +24,24 @@ const VIEW_W = 320
 const VIEW_H = 460
 const PX_PER_M = 300
 const ORIGIN_X = VIEW_W / 2
-// Where the pelvis is pinned. Not centred: from the pelvis the body reaches ~0.28 m up to the
+// Where the body anchor is pinned. Not centred: on the full robot it reaches ~0.28 m up to the
 // torso top but ~0.48 m down to the soles, so sitting it above centre balances the frame.
 const ORIGIN_Y = Math.round(VIEW_H * 0.45)
 const MARGIN = 14                            // keep drawn content this far inside the frame
 
-// The body pivots about the PELVIS, not the URDF base datum. The datum sits near ground level,
-// so anchoring there swings the torso through a 0.8 m arc whenever the robot tilts. The pelvis
-// is where the legs meet the torso, which is how the real robot reads.
-const PELVIS_ANCHOR = [-0.0291, 0, 0.542631]   // midpoint of the two hip_roll joint origins
+// The body pivots about where the limbs meet the torso, NOT the URDF base datum. The datum sits
+// near ground level, so anchoring there swings the torso through a 0.8 m arc whenever the robot
+// tilts. Derived from the model rather than hardcoded so an arm-only layout pivots about the
+// shoulder instead of about a pelvis that isn't being drawn.
+function bodyAnchor(model) {
+  const roots = model.joints.filter((j) => j.parent === model.root_link)
+  if (!roots.length) return [0, 0, 0]
+  const sum = roots.reduce(
+    (acc, j) => [acc[0] + j.xyz[0], acc[1], acc[2] + j.xyz[2]],
+    [0, 0, 0],
+  )
+  return [sum[0] / roots.length, 0, sum[2] / roots.length]   // y=0: stay on the centreline
+}
 
 // Two layers, and the split is the point:
 //   BODY     — thick soft strokes at the real link widths. Gives the shape of the robot, but
@@ -45,7 +54,9 @@ const SKELETON_W = 2
 
 const COLORS = {
   left: '#e5e7eb',
-  right: '#8b93a3',           // the two legs differ in tone so they separate at a glance
+  right: '#8b93a3',           // the two limbs differ in tone so they separate at a glance
+  armLeft: '#d7c9a8',         // arms warmer than legs, so limb type reads at a glance too
+  armRight: '#9c9079',
   torso: '#cbd2dd',
   dim: '#4b5563',
   skeleton: '#22ff88',        // bright green: never confusable with the body or the ghosts
@@ -55,12 +66,19 @@ const COLORS = {
   jointOff: '#4b5563',
   arc: '#2d3148',
   arcHot: '#ef4444',
+  twist: '#c084fc',           // inline-twist spurs: a distinct hue, they are not structure
+  claw: '#e8b04b',            // the gripper — an indicator, so it reads as its own thing
   horizon: '#252836',
   gravity: '#3f4457',
 }
 
+const _ARM_ROLES = new Set(['clavicle', 'shoulder', 'upper_arm', 'forearm', 'wrist', 'hand'])
+
 function limbColor(bone) {
   if (bone.role === 'pelvis') return COLORS.torso
+  if (_ARM_ROLES.has(bone.role)) {
+    return bone.side === 'left' ? COLORS.armLeft : COLORS.armRight
+  }
   return bone.side === 'left' ? COLORS.left : COLORS.right
 }
 
@@ -147,20 +165,27 @@ function Ghost({ drawables, toScreen, color }) {
 export default function RobotWireframe({
   model,
   sign,
-  devicePose,                 // (12,) device-frame radians; NaN/null where unknown
+  devicePose,                 // (N,) device-frame radians, in model.joint_order; NaN/null where unknown
   baseRotation = IDENTITY4,   // base->world from the IMU; identity draws upright
   joints = [],                // telemetry joint objects, for pivot health + limits
   ghosts = [],                // [{pose (device frame), color, label}]
   azimuth = 0,
   showLimits = false,
   showPivots = true,
+  showTwist = true,           // spurs on inline-twist joints (shoulder_yaw)
+  gripperOpen = 0.35,         // claw splay, 0..1. Display only — there is no gripper actuator.
   compact = false,
   className = '',
 }) {
   const live = useMemo(() => {
     const fk = forwardKinematics(model, deviceToUrdf(devicePose, sign), baseRotation)
-    return { fk, drawables: buildDrawables(model, fk) }
-  }, [model, sign, devicePose, baseRotation])
+    return {
+      fk,
+      drawables: buildDrawables(model, fk),
+      twist: buildTwistTicks(model, fk),
+      grippers: buildGripper(model, fk, gripperOpen),
+    }
+  }, [model, sign, devicePose, baseRotation, gripperOpen])
 
   const ghostFrames = useMemo(
     () => ghosts.map((g) => {
@@ -177,10 +202,12 @@ export default function RobotWireframe({
   // rock-steady.
   // Screen offset that puts the (rotated) pelvis on a fixed point. Recomputed from the live
   // base attitude, so the pelvis stays put and the body tips about it instead of sweeping.
+  const anchor = useMemo(() => bodyAnchor(model), [model])
+
   const [baseX, baseY] = useMemo(() => {
-    const [au, av] = project(applyPoint(baseRotation, PELVIS_ANCHOR), azimuth)
+    const [au, av] = project(applyPoint(baseRotation, anchor), azimuth)
     return [ORIGIN_X - au * PX_PER_M, ORIGIN_Y + av * PX_PER_M]
-  }, [baseRotation, azimuth])
+  }, [baseRotation, azimuth, anchor])
 
   const [panX, panY] = useMemo(() => {
     let left = Infinity, right = -Infinity, top = Infinity, bottom = -Infinity
@@ -197,6 +224,8 @@ export default function RobotWireframe({
       for (const b of set.bones) { see(b.a); see(b.b) }
       for (const bx of set.boxes) for (const [p, q] of bx.edges) { see(p); see(q) }
     }
+    // The claw reaches past the last joint, so it has to be inside the fit or it gets clipped.
+    for (const g of live.grippers) for (const jw of g.jaws) { see(jw.a); see(jw.b) }
     if (!Number.isFinite(top) || !Number.isFinite(left)) return [0, 0]
     // If the content is wider/taller than the band it cannot fit; centre it and accept the
     // overflow rather than jamming one edge in and letting the other run off unboundedly.
@@ -224,7 +253,7 @@ export default function RobotWireframe({
   // a body landmark. Pinning it to the base datum would drag it half a metre off-body in a
   // folded pose, or off-frame entirely once panning kicks in.
   const horizonY = VIEW_H - 26
-  const pivotPt = toScreen(applyPoint(baseRotation, PELVIS_ANCHOR))
+  const pivotPt = toScreen(applyPoint(baseRotation, anchor))
 
   const arcs = useMemo(() => {
     if (!showLimits) return []
@@ -270,6 +299,34 @@ export default function RobotWireframe({
         <Body drawables={live.drawables} toScreen={toScreen} azimuth={azimuth}
               faded={!anyOnline} />
         <SkeletonOverlay drawables={live.drawables} toScreen={toScreen} />
+
+        {/* Inline-twist spurs. shoulder_yaw rotates the limb about its own centreline, which a
+            centreline drawing cannot show — these sweep with it so the twist is readable. */}
+        {showTwist && live.twist.map((tk, i) => {
+          const [x1, y1] = toScreen(tk.a)
+          const [x2, y2] = toScreen(tk.b)
+          return (
+            <line key={`tw${i}`} x1={x1} y1={y1} x2={x2} y2={y2}
+                  stroke={COLORS.twist} strokeWidth="1.6" strokeLinecap="round" opacity="0.85" />
+          )
+        })}
+
+        {/* The claw. Drawn, not derived — see buildGripper(). Its plane makes the wrist's
+            inline rotation visible, and it is where a real gripper's state will show. */}
+        {live.grippers.map((g) => {
+          const seg = (p, q, w, key) => {
+            const [x1, y1] = toScreen(p)
+            const [x2, y2] = toScreen(q)
+            return <line key={key} x1={x1} y1={y1} x2={x2} y2={y2}
+                         stroke={COLORS.claw} strokeWidth={w} strokeLinecap="round" />
+          }
+          return (
+            <g key={`cl${g.joint}`} opacity="0.95">
+              {seg(g.knuckleBar[0], g.knuckleBar[1], 1.6, 'bar')}
+              {g.jaws.map((jw, k) => seg(jw.a, jw.b, 2.2, `j${k}`))}
+            </g>
+          )
+        })}
       </g>
 
       {showPivots && model.joints.map((j, i) => {
@@ -280,7 +337,7 @@ export default function RobotWireframe({
         )
       })}
 
-      {/* the pelvis — the point the body pivots about, held fixed on screen */}
+      {/* where the limbs meet the torso — the point the body pivots about, held fixed on screen */}
       <circle cx={pivotPt[0]} cy={pivotPt[1]} r="2" fill="none"
               stroke={COLORS.gravity} strokeWidth="1" />
 

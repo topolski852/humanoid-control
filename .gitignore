@@ -22,3 +22,5 @@ recordings/
 
 # misc
 .DS_Store
+# temporary arm frame-calibration recordings (scripts/tmp_record_arm.py)
+_arm_recording/

@@ -1,0 +1,32 @@
+{
+  "_meta": {
+    "schema_version": 1,
+    "purpose": "Physically MEASURED dimensions of this robot, where they disagree with the URDF asset. Read by scripts/gen_viz_kinematics.py to correct the wireframe.",
+    "why": "The URDF is the trainer's asset. Its JOINT ORIGINS are the sim/real contract and are never touched here — the policy was trained against them. But its cosmetic collision geometry does not match the machine that got built, and a torso drawn 10cm too narrow made the shoulder look centred on the chest, which is exactly the kind of misreading the visualizer exists to prevent.",
+    "measured_by": "robobuilders383@gmail.com",
+    "measured_utc": "2026-08-25",
+    "units": "metres (the operator reported centimetres; converted here)"
+  },
+
+  "torso": {
+    "width_y": 0.25,
+    "depth_x": 0.14,
+    "height_z": 0.25,
+    "note": "Depth matches the URDF collision box (0.14) exactly, which is what confirms the unit scale. Width and height do not: the URDF says 0.15 x 0.23. Grown about the URDF box's existing centre (z = 0.71), since only the extents were measured, not the datum.",
+    "urdf_was": [0.15, 0.14, 0.23]
+  },
+
+  "hand": {
+    "length_closed": 0.12,
+    "part": "BigClaw mechanical claw gripper with digital servo (off-the-shelf DIY part)",
+    "actuation": "digital hobby servo — NOT one of the CAN ESCs, so it is not in humanoid_lite.json and the daemon cannot address it. Driving it will need a separate PWM path.",
+    "open_span": null,
+    "note": "Wrist pivot to fingertip with the claw CLOSED, measured along the hand's own axis. The URDF has no gripper at all — it models the hand as one fixed link — so these numbers, not the asset, define the drawn claw. Palm reach comes from the URDF hand link's centre of mass; jaw length makes up the difference. open_span (fingertip-to-fingertip, fully open) has NOT been measured — the drawing uses a nominal splay until it is.",
+    "urdf_was": null
+  },
+
+  "arm": {
+    "shoulder_to_hand_end": 0.48,
+    "note": "REFERENCE ONLY - not applied. The URDF chain plus the measured hand gives 47.1cm against 48cm measured, a ~2% gap that is within the difference between measuring from the shoulder pivot and from the torso surface. Joint origins are the trained contract and are not adjusted to close it."
+  }
+}

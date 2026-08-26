@@ -1,11 +1,12 @@
 {
   "_meta": {
-    "schema_version": 1,
+    "schema_version": 2,
     "generated_by": "scripts/gen_viz_kinematics.py",
-    "source_urdf": "/home/nse/humanoid-policy/source/humanoid_policy_assets/data/robots/humanoid/urdf/humanoid_biped.urdf",
-    "source_repo_sha": "6a6f171a7009a0b8c81bf3b8a10a878da75a3ba7",
+    "source_urdf": "/home/nse/humanoid/humanoid-policy/source/humanoid_policy_assets/data/robots/humanoid/urdf/humanoid.urdf",
+    "source_repo_sha": "b30922c4b5bfe72d7f3614ad1d5e703b058b38f2",
     "frame": "URDF frame. Feed q_urdf[i] = joint_sign[i] * telemetry_position[i]; telemetry from the daemon is DEVICE frame.",
     "conventions": "URDF fixed-axis rpy (R = Rz*Ry*Rx); child = T(xyz)*R(rpy)*R_axis(q); +X forward, +Y left, +Z up; metres and radians.",
+    "naming": "DEVICE joint names are authoritative. `urdf_name` records the URDF's name for the same joint; note the arm's 5th joint is wrist_yaw on the hardware and elbow_roll in the URDF.",
     "note": "Derived artifact - do not hand-edit. Regenerate with `python scripts/gen_viz_kinematics.py` if the URDF changes."
   },
   "joint_order": [
@@ -20,8 +21,50 @@
     "right_hip_pitch_joint",
     "right_knee_pitch_joint",
     "right_ankle_pitch_joint",
-    "right_ankle_roll_joint"
+    "right_ankle_roll_joint",
+    "left_shoulder_pitch_joint",
+    "left_shoulder_roll_joint",
+    "left_shoulder_yaw_joint",
+    "left_elbow_pitch_joint",
+    "left_wrist_yaw_joint",
+    "right_shoulder_pitch_joint",
+    "right_shoulder_roll_joint",
+    "right_shoulder_yaw_joint",
+    "right_elbow_pitch_joint",
+    "right_wrist_yaw_joint"
   ],
+  "limbs": {
+    "left_leg": [
+      "left_hip_roll_joint",
+      "left_hip_yaw_joint",
+      "left_hip_pitch_joint",
+      "left_knee_pitch_joint",
+      "left_ankle_pitch_joint",
+      "left_ankle_roll_joint"
+    ],
+    "right_leg": [
+      "right_hip_roll_joint",
+      "right_hip_yaw_joint",
+      "right_hip_pitch_joint",
+      "right_knee_pitch_joint",
+      "right_ankle_pitch_joint",
+      "right_ankle_roll_joint"
+    ],
+    "left_arm": [
+      "left_shoulder_pitch_joint",
+      "left_shoulder_roll_joint",
+      "left_shoulder_yaw_joint",
+      "left_elbow_pitch_joint",
+      "left_wrist_yaw_joint"
+    ],
+    "right_arm": [
+      "right_shoulder_pitch_joint",
+      "right_shoulder_roll_joint",
+      "right_shoulder_yaw_joint",
+      "right_elbow_pitch_joint",
+      "right_wrist_yaw_joint"
+    ]
+  },
   "joint_sign": [
     1,
     1,
@@ -34,7 +77,17 @@
     1,
     1,
     1,
-    -1
+    -1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1
   ],
   "root_link": "base",
   "imu": {
@@ -60,6 +113,7 @@
     {
       "name": "left_hip_roll_joint",
       "index": 0,
+      "limb": "left_leg",
       "urdf_name": "leg_left_hip_roll_joint",
       "parent": "base",
       "child": "leg_left_hip_roll",
@@ -92,11 +146,20 @@
       "limit": {
         "lower": -0.174533,
         "upper": 1.570796327
+      },
+      "mount": {
+        "xyz": [
+          -0.0290919,
+          0.0,
+          0.542631
+        ],
+        "source": "centreline"
       }
     },
     {
       "name": "left_hip_yaw_joint",
       "index": 1,
+      "limb": "left_leg",
       "urdf_name": "leg_left_hip_yaw_joint",
       "parent": "leg_left_hip_roll",
       "child": "leg_left_hip_yaw",
@@ -134,6 +197,7 @@
     {
       "name": "left_hip_pitch_joint",
       "index": 2,
+      "limb": "left_leg",
       "urdf_name": "leg_left_hip_pitch_joint",
       "parent": "leg_left_hip_yaw",
       "child": "leg_left_hip_pitch",
@@ -171,6 +235,7 @@
     {
       "name": "left_knee_pitch_joint",
       "index": 3,
+      "limb": "left_leg",
       "urdf_name": "leg_left_knee_pitch_joint",
       "parent": "leg_left_hip_pitch",
       "child": "leg_left_knee_pitch",
@@ -208,6 +273,7 @@
     {
       "name": "left_ankle_pitch_joint",
       "index": 4,
+      "limb": "left_leg",
       "urdf_name": "leg_left_ankle_pitch_joint",
       "parent": "leg_left_knee_pitch",
       "child": "leg_left_ankle_pitch",
@@ -245,6 +311,7 @@
     {
       "name": "left_ankle_roll_joint",
       "index": 5,
+      "limb": "left_leg",
       "urdf_name": "leg_left_ankle_roll_joint",
       "parent": "leg_left_ankle_pitch",
       "child": "leg_left_ankle_roll",
@@ -282,6 +349,7 @@
     {
       "name": "right_hip_roll_joint",
       "index": 6,
+      "limb": "right_leg",
       "urdf_name": "leg_right_hip_roll_joint",
       "parent": "base",
       "child": "leg_right_hip_roll",
@@ -314,11 +382,20 @@
       "limit": {
         "lower": -1.570796327,
         "upper": 0.174533
+      },
+      "mount": {
+        "xyz": [
+          -0.0290919,
+          0.0,
+          0.542631
+        ],
+        "source": "centreline"
       }
     },
     {
       "name": "right_hip_yaw_joint",
       "index": 7,
+      "limb": "right_leg",
       "urdf_name": "leg_right_hip_yaw_joint",
       "parent": "leg_right_hip_roll",
       "child": "leg_right_hip_yaw",
@@ -356,6 +433,7 @@
     {
       "name": "right_hip_pitch_joint",
       "index": 8,
+      "limb": "right_leg",
       "urdf_name": "leg_right_hip_pitch_joint",
       "parent": "leg_right_hip_yaw",
       "child": "leg_right_hip_pitch",
@@ -393,6 +471,7 @@
     {
       "name": "right_knee_pitch_joint",
       "index": 9,
+      "limb": "right_leg",
       "urdf_name": "leg_right_knee_pitch_joint",
       "parent": "leg_right_hip_pitch",
       "child": "leg_right_knee_pitch",
@@ -430,6 +509,7 @@
     {
       "name": "right_ankle_pitch_joint",
       "index": 10,
+      "limb": "right_leg",
       "urdf_name": "leg_right_ankle_pitch_joint",
       "parent": "leg_right_knee_pitch",
       "child": "leg_right_ankle_pitch",
@@ -467,6 +547,7 @@
     {
       "name": "right_ankle_roll_joint",
       "index": 11,
+      "limb": "right_leg",
       "urdf_name": "leg_right_ankle_roll_joint",
       "parent": "leg_right_ankle_pitch",
       "child": "leg_right_ankle_roll",
@@ -500,6 +581,456 @@
         "lower": -0.261799,
         "upper": 0.261799
       }
+    },
+    {
+      "name": "left_shoulder_pitch_joint",
+      "index": 12,
+      "limb": "left_arm",
+      "urdf_name": "arm_left_shoulder_pitch_joint",
+      "parent": "base",
+      "child": "arm_left_shoulder_pitch",
+      "xyz": [
+        0.0,
+        0.133,
+        0.764028
+      ],
+      "rpy": [
+        -1.570796327,
+        0.0,
+        0.0
+      ],
+      "axis": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "R": [
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        -1.0,
+        0.0
+      ],
+      "limit": {
+        "lower": -1.570796327,
+        "upper": 0.785398
+      },
+      "mount": {
+        "xyz": [
+          0.0,
+          0.125,
+          0.764028
+        ],
+        "source": "torso_surface"
+      }
+    },
+    {
+      "name": "left_shoulder_roll_joint",
+      "index": 13,
+      "limb": "left_arm",
+      "urdf_name": "arm_left_shoulder_roll_joint",
+      "parent": "arm_left_shoulder_pitch",
+      "child": "arm_left_shoulder_roll",
+      "xyz": [
+        0.0255,
+        0.0,
+        0.043
+      ],
+      "rpy": [
+        1.570796327,
+        1.309,
+        1.570796327
+      ],
+      "axis": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "R": [
+        0.0,
+        0.0,
+        1.0,
+        0.258816088,
+        0.965926619,
+        0.0,
+        -0.965926619,
+        0.258816088,
+        0.0
+      ],
+      "limit": {
+        "lower": -0.261799,
+        "upper": 1.309
+      }
+    },
+    {
+      "name": "left_shoulder_yaw_joint",
+      "index": 14,
+      "limb": "left_arm",
+      "urdf_name": "arm_left_shoulder_yaw_joint",
+      "parent": "arm_left_shoulder_roll",
+      "child": "arm_left_shoulder_yaw",
+      "xyz": [
+        0.0,
+        0.123,
+        -0.0255
+      ],
+      "rpy": [
+        -1.570796327,
+        0.0,
+        0.0
+      ],
+      "axis": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "R": [
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        -1.0,
+        0.0
+      ],
+      "limit": {
+        "lower": -0.785398,
+        "upper": 0.785398
+      },
+      "twist": true
+    },
+    {
+      "name": "left_elbow_pitch_joint",
+      "index": 15,
+      "limb": "left_arm",
+      "urdf_name": "arm_left_elbow_pitch_joint",
+      "parent": "arm_left_shoulder_yaw",
+      "child": "arm_left_elbow_pitch",
+      "xyz": [
+        0.0245,
+        0.0,
+        0.043
+      ],
+      "rpy": [
+        1.570796327,
+        0.0,
+        1.570796327
+      ],
+      "axis": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "R": [
+        0.0,
+        0.0,
+        1.0,
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0
+      ],
+      "limit": {
+        "lower": 0.0,
+        "upper": 1.570796327
+      }
+    },
+    {
+      "name": "left_wrist_yaw_joint",
+      "index": 16,
+      "limb": "left_arm",
+      "urdf_name": "arm_left_elbow_roll_joint",
+      "parent": "arm_left_elbow_pitch",
+      "child": "arm_left_elbow_roll",
+      "xyz": [
+        0.0,
+        0.123,
+        -0.0255
+      ],
+      "rpy": [
+        -1.570796327,
+        0.0,
+        0.0
+      ],
+      "axis": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "R": [
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        -1.0,
+        0.0
+      ],
+      "limit": {
+        "lower": -0.785398,
+        "upper": 0.785398
+      },
+      "tip": {
+        "xyz": [
+          -0.0134979,
+          0.00248666,
+          0.0541316
+        ],
+        "source": "urdf_hand_com"
+      },
+      "hand": {
+        "palm": [
+          -0.0134979,
+          0.00248666,
+          0.0541316
+        ],
+        "axis": [
+          0.0,
+          0.0,
+          1.0
+        ],
+        "jaw_length": 0.0658684,
+        "jaw_span": 0.03,
+        "length_closed": 0.12,
+        "part": "BigClaw mechanical claw gripper with digital servo (off-the-shelf DIY part)",
+        "source": "measured",
+        "note": "reach measured (wrist pivot to closed fingertip); jaw span from the wrist collision radius; open splay nominal until measured"
+      }
+    },
+    {
+      "name": "right_shoulder_pitch_joint",
+      "index": 17,
+      "limb": "right_arm",
+      "urdf_name": "arm_right_shoulder_pitch_joint",
+      "parent": "base",
+      "child": "arm_right_shoulder_pitch",
+      "xyz": [
+        0.0,
+        -0.133,
+        0.764028
+      ],
+      "rpy": [
+        -1.570796327,
+        0.0,
+        -3.141592654
+      ],
+      "axis": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "R": [
+        -1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        -1.0,
+        0.0,
+        -1.0,
+        0.0
+      ],
+      "limit": {
+        "lower": -0.785398,
+        "upper": 1.570796327
+      },
+      "mount": {
+        "xyz": [
+          0.0,
+          -0.125,
+          0.764028
+        ],
+        "source": "torso_surface"
+      }
+    },
+    {
+      "name": "right_shoulder_roll_joint",
+      "index": 18,
+      "limb": "right_arm",
+      "urdf_name": "arm_right_shoulder_roll_joint",
+      "parent": "arm_right_shoulder_pitch",
+      "child": "arm_right_shoulder_roll",
+      "xyz": [
+        -0.0255,
+        0.0,
+        0.043
+      ],
+      "rpy": [
+        1.570796327,
+        -1.309,
+        -1.570796327
+      ],
+      "axis": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "R": [
+        0.0,
+        0.0,
+        -1.0,
+        -0.258816088,
+        0.965926619,
+        0.0,
+        0.965926619,
+        0.258816088,
+        0.0
+      ],
+      "limit": {
+        "lower": -1.309,
+        "upper": 0.261799
+      }
+    },
+    {
+      "name": "right_shoulder_yaw_joint",
+      "index": 19,
+      "limb": "right_arm",
+      "urdf_name": "arm_right_shoulder_yaw_joint",
+      "parent": "arm_right_shoulder_roll",
+      "child": "arm_right_shoulder_yaw",
+      "xyz": [
+        0.0,
+        0.123,
+        -0.0255
+      ],
+      "rpy": [
+        1.570796327,
+        0.0,
+        3.141592654
+      ],
+      "axis": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "R": [
+        -1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        1.0,
+        0.0
+      ],
+      "limit": {
+        "lower": -0.785398,
+        "upper": 0.785398
+      },
+      "twist": true
+    },
+    {
+      "name": "right_elbow_pitch_joint",
+      "index": 20,
+      "limb": "right_arm",
+      "urdf_name": "arm_right_elbow_pitch_joint",
+      "parent": "arm_right_shoulder_yaw",
+      "child": "arm_right_elbow_pitch",
+      "xyz": [
+        0.0245,
+        0.0,
+        0.043
+      ],
+      "rpy": [
+        1.570796327,
+        0.0,
+        1.570796327
+      ],
+      "axis": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "R": [
+        0.0,
+        0.0,
+        1.0,
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0
+      ],
+      "limit": {
+        "lower": -1.570796327,
+        "upper": 0.0
+      }
+    },
+    {
+      "name": "right_wrist_yaw_joint",
+      "index": 21,
+      "limb": "right_arm",
+      "urdf_name": "arm_right_elbow_roll_joint",
+      "parent": "arm_right_elbow_pitch",
+      "child": "arm_right_elbow_roll",
+      "xyz": [
+        0.0,
+        0.123,
+        -0.0255
+      ],
+      "rpy": [
+        1.570796327,
+        0.0,
+        -3.141592654
+      ],
+      "axis": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "R": [
+        -1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        1.0,
+        0.0
+      ],
+      "limit": {
+        "lower": -0.785398,
+        "upper": 0.785398
+      },
+      "tip": {
+        "xyz": [
+          -0.0134979,
+          0.00248666,
+          0.0541316
+        ],
+        "source": "urdf_hand_com"
+      },
+      "hand": {
+        "palm": [
+          -0.0134979,
+          0.00248666,
+          0.0541316
+        ],
+        "axis": [
+          0.0,
+          0.0,
+          1.0
+        ],
+        "jaw_length": 0.0658684,
+        "jaw_span": 0.03,
+        "length_closed": 0.12,
+        "part": "BigClaw mechanical claw gripper with digital servo (off-the-shelf DIY part)",
+        "source": "measured",
+        "note": "reach measured (wrist pivot to closed fingertip); jaw span from the wrist collision radius; open splay nominal until measured"
+      }
     }
   ],
   "links": [
@@ -509,9 +1040,9 @@
         {
           "type": "box",
           "size": [
-            0.15,
+            0.25,
             0.14,
-            0.23
+            0.25
           ],
           "xyz": [
             0.0,
@@ -523,8 +1054,13 @@
             0.0,
             -1.570796327
           ],
-          "source": "urdf_collision",
-          "role": "torso"
+          "source": "measured",
+          "role": "torso",
+          "urdf_size": [
+            0.15,
+            0.14,
+            0.23
+          ]
         }
       ]
     },
@@ -803,10 +1339,240 @@
           "role": "foot"
         }
       ]
+    },
+    {
+      "name": "arm_left_shoulder_pitch",
+      "shapes": [
+        {
+          "type": "capsule",
+          "radius": 0.032,
+          "length": 0.05,
+          "role": "shoulder",
+          "xyz": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "rpy": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "source": "handpicked"
+        }
+      ]
+    },
+    {
+      "name": "arm_left_shoulder_roll",
+      "shapes": [
+        {
+          "type": "capsule",
+          "radius": 0.03,
+          "length": 0.1,
+          "role": "upper_arm",
+          "xyz": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "rpy": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "source": "handpicked"
+        }
+      ]
+    },
+    {
+      "name": "arm_left_shoulder_yaw",
+      "shapes": [
+        {
+          "type": "cylinder",
+          "radius": 0.04,
+          "length": 0.15,
+          "xyz": [
+            0.0,
+            0.0,
+            -0.035
+          ],
+          "rpy": [
+            -3.141592654,
+            0.0,
+            -3.141592654
+          ],
+          "source": "urdf_collision",
+          "role": "upper_arm"
+        }
+      ]
+    },
+    {
+      "name": "arm_left_elbow_pitch",
+      "shapes": [
+        {
+          "type": "capsule",
+          "radius": 0.028,
+          "length": 0.1,
+          "role": "forearm",
+          "xyz": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "rpy": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "source": "handpicked"
+        }
+      ]
+    },
+    {
+      "name": "arm_left_elbow_roll",
+      "shapes": [
+        {
+          "type": "cylinder",
+          "radius": 0.03,
+          "length": 0.12,
+          "xyz": [
+            0.0,
+            0.0,
+            -0.01
+          ],
+          "rpy": [
+            -3.141592654,
+            0.0,
+            0.0
+          ],
+          "source": "urdf_collision",
+          "role": "wrist"
+        }
+      ]
+    },
+    {
+      "name": "arm_right_shoulder_pitch",
+      "shapes": [
+        {
+          "type": "capsule",
+          "radius": 0.032,
+          "length": 0.05,
+          "role": "shoulder",
+          "xyz": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "rpy": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "source": "handpicked"
+        }
+      ]
+    },
+    {
+      "name": "arm_right_shoulder_roll",
+      "shapes": [
+        {
+          "type": "capsule",
+          "radius": 0.03,
+          "length": 0.1,
+          "role": "upper_arm",
+          "xyz": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "rpy": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "source": "handpicked"
+        }
+      ]
+    },
+    {
+      "name": "arm_right_shoulder_yaw",
+      "shapes": [
+        {
+          "type": "cylinder",
+          "radius": 0.04,
+          "length": 0.15,
+          "xyz": [
+            0.0,
+            0.0,
+            -0.035
+          ],
+          "rpy": [
+            -3.141592654,
+            0.0,
+            0.0
+          ],
+          "source": "urdf_collision",
+          "role": "upper_arm"
+        }
+      ]
+    },
+    {
+      "name": "arm_right_elbow_pitch",
+      "shapes": [
+        {
+          "type": "capsule",
+          "radius": 0.028,
+          "length": 0.1,
+          "role": "forearm",
+          "xyz": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "rpy": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "source": "handpicked"
+        }
+      ]
+    },
+    {
+      "name": "arm_right_elbow_roll",
+      "shapes": [
+        {
+          "type": "cylinder",
+          "radius": 0.03,
+          "length": 0.12,
+          "xyz": [
+            0.0,
+            0.0,
+            -0.01
+          ],
+          "rpy": [
+            -3.141592654,
+            0.0,
+            0.0
+          ],
+          "source": "urdf_collision",
+          "role": "wrist"
+        }
+      ]
     }
   ],
   "poses": {
     "zero": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
       0.0,
       0.0,
       0.0,
@@ -832,7 +1598,41 @@
       -0.239999995,
       0.829999983,
       -0.560000002,
-      0.07
+      0.07,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+    ],
+    "default_known": [
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
     ]
   },
   "view": {

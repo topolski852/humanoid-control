@@ -29,7 +29,9 @@ export default function RobotMini() {
     [imuLive, pg?.[0], pg?.[1], pg?.[2]],
   )
 
-  if (error) return <LegDiagram />
+  // No model yet (loading) or a frame mismatch: fall back to the pill list rather than
+  // rendering a blank canvas or a robot we cannot vouch for.
+  if (error || !model || !contract) return <LegDiagram />
 
   return (
     <div className="card p-4">

@@ -36,6 +36,22 @@ function Toggle({ on, onClick, children, title }) {
   )
 }
 
+/** Does the device range differ from the URDF's range for this joint, and how? */
+function frameDelta(model, contract, i) {
+  const u = model.joints[i]?.limit
+  if (!u) return null
+  const lo = contract.limits.lower[i]
+  const hi = contract.limits.upper[i]
+  const same = Math.abs(u.lower - lo) < 2e-3 && Math.abs(u.upper - hi) < 2e-3
+  if (same) return { kind: 'match' }
+  const spanSame = Math.abs((u.upper - u.lower) - (hi - lo)) < 2e-3
+  const negated = Math.abs(-hi - u.lower) < 2e-3 && Math.abs(-lo - u.upper) < 2e-3
+  const offset = u.lower - lo
+  if (spanSame && !negated) return { kind: 'offset', offset }
+  if (negated && spanSame) return { kind: 'negated-or-offset', offset }
+  return { kind: 'differs' }
+}
+
 function JointRows({ model, joints, pose, target, contract }) {
   return (
     <div className="overflow-x-auto">
@@ -47,7 +63,8 @@ function JointRows({ model, joints, pose, target, contract }) {
             <th className="py-1.5 px-2 data-label font-medium text-right">Sim°</th>
             <th className="py-1.5 px-2 data-label font-medium text-right">Target°</th>
             <th className="py-1.5 px-2 data-label font-medium text-right">Δ default°</th>
-            <th className="py-1.5 pl-2 data-label font-medium">Range</th>
+            <th className="py-1.5 px-2 data-label font-medium">Device range</th>
+            <th className="py-1.5 pl-2 data-label font-medium">vs URDF</th>
           </tr>
         </thead>
         <tbody className="font-mono tabular-nums">
@@ -57,11 +74,14 @@ function JointRows({ model, joints, pose, target, contract }) {
             const device = j?.position
             const known = typeof device === 'number' && Number.isFinite(device)
             const dflt = contract.default_pose[i]
+            const hasDefault = typeof dflt === 'number' && Number.isFinite(dflt)
             const lo = contract.limits.lower[i]
             const hi = contract.limits.upper[i]
             const p = known ? device : pose[i]
             const out = known && (p < lo - 1e-4 || p > hi + 1e-4)
             const near = known && !out && Math.min(p - lo, hi - p) < 0.035   // within ~2°
+            const fd = frameDelta(model, contract, i)
+            const urdf = model.joints[i]?.limit
             return (
               <tr key={name} className="border-b border-surface-3/40">
                 <td className="py-1 pr-2 font-sans text-gray-400">
@@ -81,11 +101,33 @@ function JointRows({ model, joints, pose, target, contract }) {
                 <td className="py-1 px-2 text-right text-accent/80">
                   {target[i] != null ? (target[i] * RAD2DEG).toFixed(1) : '—'}
                 </td>
-                <td className={`py-1 px-2 text-right ${known ? 'text-gray-400' : 'text-gray-600'}`}>
-                  {known ? ((device - dflt) * RAD2DEG).toFixed(1) : '—'}
+                <td className={`py-1 px-2 text-right ${known && hasDefault ? 'text-gray-400' : 'text-gray-600'}`}>
+                  {known && hasDefault ? ((device - dflt) * RAD2DEG).toFixed(1) : '—'}
                 </td>
-                <td className="py-1 pl-2 text-gray-600 text-[10px]">
+                <td className="py-1 px-2 text-gray-600 text-[10px] whitespace-nowrap">
                   {(lo * RAD2DEG).toFixed(0)}…{(hi * RAD2DEG).toFixed(0)}
+                </td>
+                <td className="py-1 pl-2 text-[10px] whitespace-nowrap">
+                  {!fd || fd.kind === 'match' ? (
+                    <span className="text-gray-700">same</span>
+                  ) : fd.kind === 'differs' ? (
+                    <span className="text-danger" title="the two ranges are not the same span">
+                      {(urdf.lower * RAD2DEG).toFixed(0)}…{(urdf.upper * RAD2DEG).toFixed(0)} ≠
+                    </span>
+                  ) : (
+                    <span
+                      className="text-warn"
+                      title={fd.kind === 'negated-or-offset'
+                        ? 'same span; a negation OR an offset explains it — ambiguous from ranges alone'
+                        : 'same span, different zero — a calibration offset, not a sign flip'}
+                    >
+                      {(urdf.lower * RAD2DEG).toFixed(0)}…{(urdf.upper * RAD2DEG).toFixed(0)}
+                      <span className="text-gray-600">
+                        {' '}{fd.kind === 'negated-or-offset' ? '±' : ''}
+                        {(fd.offset * RAD2DEG >= 0 ? '+' : '')}{(fd.offset * RAD2DEG).toFixed(0)}°
+                      </span>
+                    </span>
+                  )}
                 </td>
               </tr>
             )
@@ -106,6 +148,8 @@ export default function RobotView() {
   const [showLimits, setShowLimits] = useState(false)
   const [useImu, setUseImu] = useState(true)
   const [paused, setPaused] = useState(false)
+  const [showTwist, setShowTwist] = useState(true)
+  const [gripperOpen, setGripperOpen] = useState(0.35)
 
   const { pose, target, missing, hasTarget } = useDevicePose(t.joints, { paused })
 
@@ -146,7 +190,17 @@ export default function RobotView() {
     if (!contract) return []
     const out = []
     if (showDefault) {
-      out.push({ pose: contract.default_pose, color: '#4b5563', label: 'default_pose' })
+      // Joints outside the leg contract (the arms) have no trained default pose. Fill those
+      // from the live pose so the ghost shows the legs' default against the arm where it
+      // actually is, rather than snapping the arm to a meaningless zero.
+      const hasAnyDefault = contract.default_pose.some((v) => typeof v === 'number')
+      if (hasAnyDefault) {
+        out.push({
+          pose: mergeTarget(contract.default_pose.map((v) => (typeof v === 'number' ? v : null)), pose),
+          color: '#4b5563',
+          label: 'default_pose',
+        })
+      }
     }
     if (showTarget && hasTarget) {
       out.push({ pose: mergeTarget(target, pose), color: '#3b82f6', label: 'commanded target' })
@@ -154,7 +208,7 @@ export default function RobotView() {
     return out
   }, [contract, showDefault, showTarget, hasTarget, target, pose])
 
-  if (loading) {
+  if (loading || (!error && (!model || !contract))) {
     return <div className="card p-8 text-center text-sm text-gray-500">Loading robot model…</div>
   }
 
@@ -174,6 +228,7 @@ export default function RobotView() {
   }
 
   const az = (azDeg * Math.PI) / 180
+  const hasArms = (t.layout?.enabled ?? []).some((l) => l.endsWith('_arm'))
 
   return (
     <div className="max-w-6xl mx-auto grid grid-cols-1 lg:grid-cols-5 gap-5">
@@ -209,6 +264,8 @@ export default function RobotView() {
               ghosts={ghosts}
               azimuth={az}
               showLimits={showLimits}
+              showTwist={showTwist}
+              gripperOpen={gripperOpen}
               className="w-full max-w-[330px]"
             />
           </div>
@@ -257,7 +314,38 @@ export default function RobotView() {
                     title="Orient the body by the IMU (gravity). Off draws the base upright.">
               imu tilt
             </Toggle>
+            {hasArms && (
+              <Toggle on={showTwist} onClick={() => setShowTwist((v) => !v)}
+                      title="Spurs on inline-twist joints (shoulder_yaw), which rotate the limb about its own centreline and are otherwise invisible">
+                twist spurs
+              </Toggle>
+            )}
           </div>
+
+          {hasArms && (
+            <div className="mt-3 pt-3 border-t border-surface-3">
+              <div className="flex items-center gap-2">
+                <span className="data-label w-14">Claw</span>
+                <input
+                  type="range" min={0} max={1} step={0.01} value={gripperOpen}
+                  onChange={(e) => setGripperOpen(Number(e.target.value))}
+                  className="flex-1 accent-accent"
+                  aria-label="Gripper open"
+                />
+                <span className="font-mono text-xs text-gray-400 w-24 text-right">
+                  {(gripperOpen * 100).toFixed(0)}% open
+                </span>
+              </div>
+              <p className="text-[10px] text-gray-600 mt-1 leading-relaxed">
+                A real part — a servo BigClaw gripper. Its <span className="text-gray-400">reach</span>{' '}
+                is measured (12 cm, wrist pivot to closed fingertip) and lives in
+                <span className="font-mono"> configs/robot_dimensions.json</span>; the URDF knows
+                nothing about it. The <span className="text-gray-400">open span</span> has not been
+                measured yet, so the splay here is nominal. Its servo is not on the CAN bus, so
+                this slider moves the drawing only — nothing reaches the hardware.
+              </p>
+            </div>
+          )}
         </div>
 
         {outOfLimit.length > 0 && (
@@ -298,14 +386,47 @@ export default function RobotView() {
           </p>
           <p className="mt-2">
             Frame: <span className="text-gray-300">sim (URDF)</span> = device telemetry ×
-            <span className="font-mono text-gray-300"> policy_frame_sign</span>;
+            <span className="font-mono text-gray-300"> policy_frame_sign</span>. The URDF is
+            left↔right mirror-symmetric and the device frame is not, so
             <span className="font-mono text-gray-400"> right_hip_roll</span>,
             <span className="font-mono text-gray-400"> right_hip_yaw</span> and
             <span className="font-mono text-gray-400"> right_ankle_roll</span> are sign-flipped
-            (marked <span className="font-mono">⇄</span> in the table). Body attitude comes from
-            the IMU's <span className="font-mono text-gray-400">projected_gravity</span> — tilt
-            only; gravity cannot observe yaw. The body is not stood on a floor, so a robot on its
-            back correctly shows its feet in the air.
+            (marked <span className="font-mono">⇄</span> in the table).
+          </p>
+          {hasArms && (
+            <p className="mt-2">
+              <span className="text-gray-300">Arm joints are drawn RAW</span> — sign
+              <span className="font-mono"> +1</span>, no correction. There is no trained arm
+              policy, so there is no frame to reconcile to and inventing one would hide the very
+              thing you are looking for. Move a joint by hand and compare: if the drawing moves
+              the <em>opposite</em> way, the <span className="font-mono">gear_ratio</span> sign is
+              wrong; if it moves the right way but sits in the wrong <em>place</em>, that is a
+              zero offset — see the <span className="text-gray-300">vs URDF</span> column, which
+              says which of the two the joint's range implies.
+            </p>
+          )}
+          {hasArms && (
+            <p className="mt-2">
+              <span className="text-gray-300">Two joints are inline twists.</span>
+              <span className="font-mono text-gray-400"> shoulder_yaw</span> and
+              <span className="font-mono text-gray-400"> wrist_yaw</span> spin the limb about its
+              own centreline, so they reorient the arm without moving it much: with the elbow
+              straight, shoulder_yaw shifts the wrist about
+              <span className="font-mono text-gray-400"> 0.1 cm</span> per radian against
+              <span className="font-mono text-gray-400"> ~28 cm</span> for pitch and roll. That
+              is the real geometry, not a rendering fault — but a drawing made of centrelines
+              cannot show a rotation about a centreline, so shoulder_yaw carries
+              <span className="text-twist"> spurs</span> and the wrist carries the
+              <span className="text-claw"> claw</span>. Both sweep as their joint turns. Bend the
+              elbow and shoulder_yaw swings the forearm through a wide arc, which is the easiest
+              way to confirm its direction.
+            </p>
+          )}
+          <p className="mt-2">
+            Body attitude comes from the IMU's
+            <span className="font-mono text-gray-400"> projected_gravity</span> — tilt only;
+            gravity cannot observe yaw. The body is not stood on a floor, so a robot on its back
+            correctly shows its feet in the air.
           </p>
           {missing.length > 0 && (
             <p className="mt-2 text-warn">

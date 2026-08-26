@@ -17,16 +17,60 @@ hand-edit one side.
 from __future__ import annotations
 
 import json
+import logging
+import os
 from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
 
+_log = logging.getLogger(__name__)
+
 # Repo root = two levels up from this file (humanoid_control/config.py -> repo/)
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_CONTRACT_PATH = REPO_ROOT / "configs" / "leg_policy_params.json"
-# Live robot config (studio source of truth). Point the daemon --config at the same file.
-LIVE_ROBOT_CONFIG_PATH = Path("/home/nse/humanoid-studio/configs/humanoid_lite.json")
+
+# --- live robot config ------------------------------------------------------
+# The per-joint hardware config (gains, signed gear, limits) that the daemon is driving. There
+# is more than one copy of this file on a typical machine and they DRIFT: the studio GUI writes
+# to its user-config dir, while the repo checkout keeps a version-controlled copy. Editing one
+# and launching the daemon against the other is a silent, hard-to-see failure — the robot runs
+# gains you didn't set.
+#
+# So resolve in a fixed order and LOG which copy won, rather than naming a single path that may
+# not exist. Point the daemon's --config at whatever this resolves to.
+ROBOT_CONFIG_CANDIDATES = (
+    Path("~/.config/humanoid-studio/humanoid_lite.json").expanduser(),   # studio GUI writes here
+    Path("~/humanoid/humanoid-studio/configs/humanoid_lite.json").expanduser(),
+    REPO_ROOT / "configs" / "humanoid_lite.json",
+)
+
+
+def resolve_robot_config_path() -> Path | None:
+    """First existing robot config: ``$HUMANOID_CONFIG`` then ``ROBOT_CONFIG_CANDIDATES``.
+
+    Returns None when none exist (the runtime then runs telemetry-only and refuses to connect).
+    An explicit ``$HUMANOID_CONFIG`` that does not exist is reported rather than skipped — a
+    typo'd override must not silently fall through to a different robot's gains.
+    """
+    env = os.environ.get("HUMANOID_CONFIG")
+    if env:
+        p = Path(env).expanduser()
+        if p.exists():
+            _log.info("robot config: %s (from $HUMANOID_CONFIG)", p)
+            return p
+        _log.error("$HUMANOID_CONFIG=%s does not exist — falling back to the search path.", p)
+    for p in ROBOT_CONFIG_CANDIDATES:
+        if p.exists():
+            _log.info("robot config: %s", p)
+            return p
+    _log.warning("no robot config found; searched: %s",
+                 ", ".join(str(p) for p in ROBOT_CONFIG_CANDIDATES))
+    return None
+
+
+# Back-compat alias for callers that want a single path (may not exist).
+LIVE_ROBOT_CONFIG_PATH = ROBOT_CONFIG_CANDIDATES[0]
 
 # --- policy vs device frame -------------------------------------------------
 # The policy is trained in the URDF frame, which is left<->right MIRROR-symmetric (a symmetric

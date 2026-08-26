@@ -25,7 +25,7 @@ import os
 import sys
 from pathlib import Path
 
-from humanoid_control import LegPolicyContract, LIVE_ROBOT_CONFIG_PATH
+from humanoid_control import LegPolicyContract, LIVE_ROBOT_CONFIG_PATH, resolve_robot_config_path
 from humanoid_control.daemon import DaemonClient, DaemonError, RobotConfig
 
 # Default location of the trained-policy bundles: this repo's self-hosted policies/ dir (NOT the
@@ -77,7 +77,7 @@ async def main() -> int:
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--policy", required=True,
                     help="policy bundle name (walk|standup|squat), bundle dir, or contract json path")
-    ap.add_argument("--config", default=str(LIVE_ROBOT_CONFIG_PATH),
+    ap.add_argument("--config", default=str(resolve_robot_config_path() or LIVE_ROBOT_CONFIG_PATH),
                     help="studio robot config (for the reference 'config' column + joint set)")
     ap.add_argument("--kp-tol", type=float, default=0.5, help="allowed |Δkp| before flagging (default 0.5)")
     ap.add_argument("--kd-tol", type=float, default=0.1, help="allowed |Δkd| before flagging (default 0.1)")

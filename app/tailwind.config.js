@@ -19,6 +19,10 @@ export default {
         offline: '#4b5563',
         danger: '#ef4444',
         warn: '#f59e0b',
+        // Keep these in step with COLORS in components/RobotWireframe.jsx — the legend text
+        // is only useful if it is the same colour as the thing it names.
+        twist: '#c084fc',
+        claw: '#e8b04b',
       },
       fontFamily: {
         sans: ['Inter', 'system-ui', 'sans-serif'],

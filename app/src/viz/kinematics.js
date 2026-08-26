@@ -95,6 +95,49 @@ export function rpyToMatrix3(roll, pitch, yaw) {
   ]
 }
 
+// --- model subsetting -------------------------------------------------------
+
+/**
+ * Narrow the bundled superset model down to a given ordered list of joint names.
+ *
+ * `viz_kinematics.json` describes every limb the robot could have (22 joints). What is actually
+ * attached is a runtime fact that lives in the layout, and the server sends telemetry and the
+ * contract for exactly those joints. This returns a model whose `joint_order` matches that list
+ * one-for-one, so every array downstream — telemetry, contract, pose, ghosts — stays
+ * index-aligned without a single name lookup in the render path.
+ *
+ * Returns null if any requested joint is not in the model: a joint we cannot draw is a model
+ * that disagrees with the server, which is exactly the case the visualizer must refuse rather
+ * than paper over.
+ */
+export function selectModel(model, jointNames) {
+  const byName = new Map(model.joints.map((j) => [j.name, j]))
+  const joints = []
+  for (const name of jointNames) {
+    const j = byName.get(name)
+    if (!j) return null
+    joints.push(j)
+  }
+  const keptLinks = new Set([model.root_link, ...joints.map((j) => j.child)])
+  const index = new Map(joints.map((j, i) => [j.name, i]))
+  return {
+    ...model,
+    joint_order: jointNames.slice(),
+    joint_sign: jointNames.map((n) => model.joint_sign[model.joint_order.indexOf(n)]),
+    joints,
+    links: model.links.filter((l) => keptLinks.has(l.name)),
+    // Rebuilt so `poses.default` still lines up with the narrowed joint list.
+    poses: {
+      zero: jointNames.map(() => 0),
+      default: jointNames.map((n) => model.poses.default[model.joint_order.indexOf(n)] ?? 0),
+      default_known: jointNames.map(
+        (n) => model.poses.default_known?.[model.joint_order.indexOf(n)] ?? false,
+      ),
+    },
+    indexOfJoint: (n) => index.get(n) ?? -1,
+  }
+}
+
 // --- frames -----------------------------------------------------------------
 
 /**
@@ -319,17 +362,37 @@ export function buildDrawables(model, fk) {
         radius: linkRadius(model, j.child, 0.025),
       })
     }
-    // Pelvis: the root's centreline out to each hip. The centreline point is expressed in
-    // the base frame, so it must go through the root transform like everything else —
-    // otherwise the pelvis stays upright while the body tilts.
+    // Joints hanging directly off the root (hips, shoulders): a strut from the body out to the
+    // joint, so the limb is attached to the torso rather than floating beside it. WHERE it
+    // starts comes from the model (`mount`): the centreline for hips, which reads as a pelvis,
+    // and the torso SIDE WALL for shoulders, because an arm bolts to the side of the chest and
+    // running its strut to the centreline draws the shoulder as if it were on the sternum.
+    // The mount point is in the base frame, so it goes through the root transform like
+    // everything else — otherwise it stays put while the body tilts.
     if (j.parent === model.root_link) {
+      const mount = j.mount?.xyz ?? [j.xyz[0], 0, j.xyz[2]]
       bones.push({
-        a: applyPoint(fk.links[model.root_link] ?? IDENTITY4, [j.xyz[0], 0, j.xyz[2]]),
+        a: applyPoint(fk.links[model.root_link] ?? IDENTITY4, mount),
         b: from,
         joint: j.name,
         side: j.name.startsWith('left') ? 'left' : 'right',
-        role: 'pelvis',
+        role: j.limb?.endsWith('_arm') ? 'clavicle' : 'pelvis',
         radius: 0.03,
+      })
+    }
+
+    // Terminal stub (the hand's centre of mass, from the URDF). Without it the wrist has
+    // nothing distal and its rotation would be invisible. Note the hand sits nearly ON the
+    // wrist axis, so this swings only ~1.4 cm — read the wrist's angle from the table, not
+    // from this. It is here so the limb ends in a hand rather than in mid-air.
+    if (j.tip) {
+      bones.push({
+        a: from,
+        b: applyPoint(fk.links[j.child] ?? IDENTITY4, j.tip.xyz),
+        joint: j.name,
+        side: j.name.startsWith('left') ? 'left' : 'right',
+        role: 'hand',
+        radius: 0.024,
       })
     }
   }
@@ -343,6 +406,108 @@ export function buildDrawables(model, fk) {
 function shapeRoleOf(model, linkName) {
   const link = model.links.find((l) => l.name === linkName)
   return link?.shapes?.[0]?.role ?? 'link'
+}
+
+// --- inline-twist joints ----------------------------------------------------
+
+/**
+ * Ticks that make an INLINE TWIST joint readable.
+ *
+ * `shoulder_yaw` and `wrist_yaw` spin the limb about its own centreline. The kinematics are
+ * correct — with a straight arm, shoulder_yaw moves the wrist 0.1 cm per radian against ~28 cm
+ * for pitch and roll — but a drawing made of centrelines cannot show a rotation ABOUT a
+ * centreline, so the joint looks broken when it is merely axial.
+ *
+ * The fix is a short spur perpendicular to the rotation axis, carried in the joint's CHILD
+ * frame so it sweeps as the joint turns. Two spurs, 180 deg apart, so the orientation stays
+ * readable from any viewing angle instead of vanishing when one points at the camera.
+ */
+export function buildTwistTicks(model, fk, radius = 0.05) {
+  const out = []
+  for (const j of model.joints) {
+    if (!j.twist) continue
+    const childMat = fk.links[j.child]
+    if (!childMat) continue
+    const origin = fk.joints[j.name]
+    // Every joint in this URDF spins about its local +Z, so local +X is perpendicular to it.
+    for (const s of [1, -1]) {
+      out.push({
+        a: origin,
+        b: applyPoint(childMat, [s * radius, 0, 0]),
+        joint: j.name,
+        side: j.name.startsWith('left') ? 'left' : 'right',
+      })
+    }
+  }
+  return out
+}
+
+// --- gripper ----------------------------------------------------------------
+
+/**
+ * The claw at the end of an arm — a real servo gripper, which the URDF knows nothing about.
+ *
+ * PROVENANCE, because half of this is measured and half is not:
+ *   - REACH is measured. `configs/robot_dimensions.json` records 12 cm from the wrist pivot to
+ *     the closed fingertip, and the generator splits that into the palm reach (the URDF hand
+ *     link's centre of mass) and whatever jaw length makes up the difference.
+ *   - OPEN SPAN is not measured. The splay is nominal until someone puts a caliper on it.
+ *
+ * It earns its place twice over: it gives the wrist's inline twist something visible to carry,
+ * since the jaws splay ACROSS the rotation axis and so sweep as the wrist turns; and it is where
+ * the gripper's real open/close state will show once there is a path to drive it.
+ *
+ * @param open 0 = closed, 1 = fully splayed. DISPLAY ONLY — the gripper is a hobby servo, not one
+ *             of the CAN ESCs, so it is not in the robot config and the daemon cannot address it.
+ */
+export function buildGripper(model, fk, open = 0.35) {
+  const OPEN_ANGLE = Math.PI / 4        // splay of each jaw at open = 1
+  const out = []
+  for (const j of model.joints) {
+    const h = j.hand
+    const childMat = fk.links[j.child]
+    if (!h || !childMat) continue
+    const t = Math.max(0, Math.min(1, open)) * OPEN_ANGLE
+    const side = j.name.startsWith('left') ? 'left' : 'right'
+
+    // Build the claw CONCENTRIC with the rotation axis. The hand's centre of mass sits ~1.4 cm
+    // off the axis, and hanging the jaws off that point would partly cancel their own offset —
+    // leaving the claw almost on the axis and barely sweeping, which defeats its purpose. A
+    // real gripper is mounted concentric anyway.
+    const [ax, ay, az] = h.axis
+    const an = Math.hypot(ax, ay, az) || 1
+    const A = [ax / an, ay / an, az / an]
+    const reach = h.palm[0] * A[0] + h.palm[1] * A[1] + h.palm[2] * A[2]   // palm distance along the axis
+    const base = A.map((v) => v * reach)
+    // Any unit vector perpendicular to the axis; which one is arbitrary but must be stable.
+    let P = cross(A, [0, 0, 1])
+    if (Math.hypot(...P) < 1e-6) P = cross(A, [1, 0, 0])
+    const pn = Math.hypot(...P)
+    P = P.map((v) => v / pn)
+
+    const jaws = []
+    for (const s of [1, -1]) {
+      // Knuckles sit at the wrist link's own radius: wide enough that the claw's plane — and
+      // so the wrist's rotation — is legible at the drawing's scale, and never collapsing to a
+      // line when closed.
+      const knuckle = base.map((v, k) => v + s * h.jaw_span * P[k])
+      const tip = knuckle.map(
+        (v, k) => v + h.jaw_length * (Math.sin(t) * s * P[k] + Math.cos(t) * A[k]),
+      )
+      jaws.push({ a: applyPoint(childMat, knuckle), b: applyPoint(childMat, tip) })
+    }
+    out.push({
+      joint: j.name,
+      side,
+      palm: applyPoint(childMat, h.palm),
+      wrist: fk.joints[j.name],
+      // The bar across the knuckles: gives the claw a plane, which is what makes the wrist's
+      // rotation legible at a glance.
+      knuckleBar: [jaws[0].a, jaws[1].a],
+      jaws,
+    })
+  }
+  return out
 }
 
 /** Lowest world-Z of anything drawn — used to place the ground line under the feet. */

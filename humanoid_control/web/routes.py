@@ -17,6 +17,8 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from ..config import REPO_ROOT
+from ..layout import (LIMB_BUS, LIMB_JOINTS, LIMB_LABEL, LIMB_ORDER, RobotLayout,
+                      default_layout_path)
 from ..poses import DEG, delete_pose, load_poses, pose_names, resolve_pose, save_pose
 from .service import ControlError, ControlService
 
@@ -91,6 +93,79 @@ def status(request: Request):
     return _ok(_service(request).telemetry_snapshot())
 
 
+class LayoutBody(BaseModel):
+    enabled: list[str]                 # limb names: left_leg | right_leg | left_arm | right_arm
+    imu_expected: bool = True
+
+
+def _layout_payload(svc: ControlService) -> dict:
+    """The layout plus everything the Settings tab needs to render it: the limb catalog, which
+    joints each limb owns, its CAN bus, and whether the loaded robot config can address them."""
+    lay = svc.layout
+    known = set(svc.robot_config.joints) if svc.robot_config else set()
+    return {
+        "enabled": list(lay.enabled),
+        "imu_expected": lay.imu_expected,
+        "describe": lay.describe(),
+        "has_both_legs": lay.has_both_legs,
+        "path": str(lay.source or default_layout_path()),
+        "limbs": [
+            {
+                "id": limb,
+                "label": LIMB_LABEL[limb],
+                "bus": LIMB_BUS[limb],
+                "joints": list(LIMB_JOINTS[limb]),
+                "enabled": limb in lay.enabled,
+                # Joints this limb needs that the robot config has never heard of. A limb with
+                # any of these cannot be enabled — surfaced so the UI can say why.
+                "unknown_joints": [j for j in LIMB_JOINTS[limb] if known and j not in known],
+            }
+            for limb in LIMB_ORDER
+        ],
+    }
+
+
+@router.get("/api/layout", response_model=None)
+def get_layout(request: Request):
+    return _ok(_layout_payload(_service(request)))
+
+
+@router.put("/api/layout", response_model=None)
+def put_layout(request: Request, body: LayoutBody):
+    """Set which limbs are attached and persist it to the machine-local layout file.
+
+    Refused while a session is live. Saving is best-effort-visible: if the file cannot be
+    written the layout still applies to this process, but the response says so rather than
+    pretending the setting will survive a restart.
+    """
+    svc = _service(request)
+    try:
+        new = RobotLayout(
+            enabled=RobotLayout().with_enabled(body.enabled).enabled,
+            imu_expected=body.imu_expected,
+            robot_name=svc.layout.robot_name,
+            source=svc.layout.source,
+        )
+    except ValueError as exc:
+        return _err(str(exc), 400)
+    try:
+        svc.set_layout(new)
+    except ControlError as exc:
+        return _err(str(exc), exc.status)
+    saved, save_error = True, None
+    try:
+        svc.layout.save()
+    except Exception as exc:
+        saved, save_error = False, str(exc)
+        _log_save_failure(exc)
+    return _ok({**_layout_payload(svc), "saved": saved, "save_error": save_error})
+
+
+def _log_save_failure(exc: Exception) -> None:
+    import logging
+    logging.getLogger(__name__).error("failed to persist robot layout: %s", exc)
+
+
 @router.get("/api/contract", response_model=None)
 def contract(request: Request):
     """Frame-critical constants the robot visualizer needs, straight from the live contract.
@@ -102,16 +177,46 @@ def contract(request: Request):
     against the copy recorded in the bundled model before it will draw anything.
 
     ``default_pose`` and ``limits`` are DEVICE frame, matching telemetry ``joints[].position``.
+
+    Every array here is index-aligned to the CONFIGURED joints (``ControlService.joints``), which
+    is the same order telemetry ``joints[]`` uses — so the visualizer can index one against the
+    other without a name lookup.
+
+    Joints outside the leg policy contract (the arms) have no trained frame and no trained
+    default pose. They are served with ``policy_frame_sign = +1`` and ``default_pose = null``,
+    which means the visualizer draws their RAW device angle. That is deliberate: any disagreement
+    between the drawing and the physical arm is then a real finding about the device frame rather
+    than something a fudge factor has already hidden.
     """
-    c = _service(request).contract
+    svc = _service(request)
+    c = svc.contract
+    contract_joints = set(c.joint_order)
+    limits = svc.joint_limits
+
+    order, sign, default, lower, upper, in_contract = [], [], [], [], [], []
+    for name in svc.joints:
+        order.append(name)
+        lo, hi = limits[name]
+        lower.append(lo)
+        upper.append(hi)
+        if name in contract_joints:
+            i = c.index_of(name)
+            sign.append(float(c.policy_frame_sign[i]))
+            default.append(float(c.default_pose[i]))
+            in_contract.append(True)
+        else:
+            sign.append(1.0)
+            default.append(None)
+            in_contract.append(False)
+
     return _ok({
-        "joint_order": list(c.joint_order),
-        "policy_frame_sign": [float(s) for s in c.policy_frame_sign],
-        "default_pose": [float(v) for v in c.default_pose],
-        "limits": {
-            "lower": [float(v) for v in c.pos_limit_lower],
-            "upper": [float(v) for v in c.pos_limit_upper],
-        },
+        "joint_order": order,
+        "policy_frame_sign": sign,
+        "default_pose": default,
+        "limits": {"lower": lower, "upper": upper},
+        # True where the joint is part of the trained leg policy contract; False for joints
+        # that are merely attached hardware (the arms).
+        "in_contract": in_contract,
     })
 
 

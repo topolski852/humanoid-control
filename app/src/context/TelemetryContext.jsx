@@ -14,6 +14,8 @@ const EMPTY = {
   control_clients: 0,
   last_error: null,
   gamepad: { enabled: false, connected: false, name: null, run_gate: false },
+  // Which limbs this machine is configured for. Drives the joint set everywhere downstream.
+  layout: { enabled: [], imu_expected: true, describe: '', has_both_legs: false },
   joints: [],
   buses: [],
   base: null,

@@ -24,8 +24,9 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from ..config import LegPolicyContract, LIVE_ROBOT_CONFIG_PATH
+from ..config import LegPolicyContract, resolve_robot_config_path
 from ..daemon import DaemonClient, RobotConfig
+from .. import layout as layout_mod
 from .auth import (
     auth_required, issue_token, login_locked,
     record_login_failure, record_login_success, require_auth, token_valid,
@@ -46,20 +47,28 @@ _WEB_DIR = Path(__file__).resolve().parent.parent.parent / "app" / "dist"
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     contract = LegPolicyContract.load()
-    config_path = os.environ.get("HUMANOID_CONFIG", str(LIVE_ROBOT_CONFIG_PATH))
+    config_path = resolve_robot_config_path()
     cfg = None
-    if Path(config_path).exists():
+    if config_path is not None:
         try:
             cfg = RobotConfig.from_json(config_path)
         except Exception as exc:
             _log.warning("failed to load robot config %s: %s", config_path, exc)
     else:
-        _log.warning("robot config %s not found — running without hardware config "
-                     "(telemetry only; connect will be refused).", config_path)
+        _log.warning("no robot config found — running without hardware config "
+                     "(telemetry only; connect will be refused).")
+
+    # What hardware is attached to THIS machine (machine-local file; legs-only default).
+    robot_layout = layout_mod.load()
+    missing = robot_layout.missing_joints(cfg)
+    if missing:
+        detail = "; ".join(f"{limb}: {', '.join(js)}" for limb, js in missing.items())
+        _log.warning("layout enables joints the robot config does not define — %s", detail)
 
     client = DaemonClient(cfg)
     await client.start()   # open UDP sockets + telemetry receive thread (no daemon needed)
-    service = ControlService(client, contract, config_present=cfg is not None)
+    service = ControlService(client, contract, config_present=cfg is not None,
+                             layout=robot_layout, robot_config=cfg)
 
     app.state.client = client
     app.state.service = service
@@ -79,8 +88,9 @@ async def lifespan(app: FastAPI):
         except Exception as exc:
             _log.error("gamepad deadman failed to start: %s", exc)
 
-    _log.info("humanoid-control web up. contract: %d joints. config: %s",
-              contract.num_joints, "loaded" if cfg else "MISSING")
+    _log.info("humanoid-control web up. contract: %d joints. config: %s. layout: %s (%d joints).",
+              contract.num_joints, "loaded" if cfg else "MISSING",
+              robot_layout.describe(), len(robot_layout.joint_order))
     try:
         yield
     finally:

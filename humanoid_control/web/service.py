@@ -29,7 +29,8 @@ import numpy as np
 
 from ..calibration import compute_offset
 from ..config import LegPolicyContract
-from ..interface import LegInterface
+from ..interface import JointGroupInterface, LegInterface
+from ..layout import RobotLayout
 from ..policy import ZeroPolicy, load_policy
 from ..runner import PolicyRunner
 from ..safety import EstopController, ramp_to_pose
@@ -73,11 +74,21 @@ class ControlError(Exception):
 
 
 class ControlService:
-    def __init__(self, client: DaemonClient, contract: LegPolicyContract, *, config_present: bool):
+    def __init__(self, client: DaemonClient, contract: LegPolicyContract, *, config_present: bool,
+                 layout: RobotLayout | None = None, robot_config=None):
         self.client = client
         self.contract = contract
         self.config_present = config_present
+        self.robot_config = robot_config
+
+        # Two joint views, deliberately distinct:
+        #   self.legs  — the 12 contract joints. The policy path is contract-bound and must not
+        #                be widened by what happens to be plugged in.
+        #   self.group — every joint the LAYOUT says is attached. Connect, health, fault-clearing,
+        #                calibration and telemetry all work on this, so a bench arm with no legs
+        #                powered is a first-class configuration rather than a broken robot.
         self.legs = LegInterface(client, contract)
+        self._layout = layout or RobotLayout()
 
         self._state = SessionState.DISCONNECTED
         self._armed = False
@@ -113,11 +124,90 @@ class ControlService:
         }
         self._last_autowake = 0.0   # rate-limits ESC-reset auto-recovery
 
-        # Per-joint position_offset calibration. Reset to uncalibrated on every connect
-        # (a connect follows every power-up, and the encoder zero is lost on power-down).
-        self._joints = list(contract.joint_order)
-        self._calibrated: dict[str, bool] = {n: False for n in self._joints}
-        self._cal_captures: dict[str, dict] = {n: {"lower": None, "upper": None} for n in self._joints}
+        # Joint set, per-joint limits and the calibration bookkeeping all follow the layout.
+        # Calibration is reset to uncalibrated on every connect (a connect follows every
+        # power-up, and the encoder zero is lost on power-down).
+        self._apply_layout(self._layout)
+
+    # ── layout ───────────────────────────────────────────────────────────────
+    def _apply_layout(self, layout: RobotLayout) -> None:
+        """(Re)build the joint set, limits and calibration state from a layout.
+
+        Caller holds ``self._lock`` (or is ``__init__``). Calibration is intentionally dropped
+        for joints that leave the set and starts False for joints that join — an encoder zero
+        is only meaningful for a joint we have actually been watching.
+        """
+        self._layout = layout
+        self._joints = list(layout.joint_order)
+        self.group = JointGroupInterface(self.client, self._joints)
+        self._limits = self._build_limits(self._joints)
+        prev_cal = getattr(self, "_calibrated", {})
+        self._calibrated = {n: bool(prev_cal.get(n, False)) for n in self._joints}
+        self._cal_captures = {n: {"lower": None, "upper": None} for n in self._joints}
+
+    def _build_limits(self, joints: list[str]) -> dict[str, tuple[float, float]]:
+        """Per-joint (lower, upper) position limits in device-frame radians.
+
+        Leg joints take their limits from the POLICY CONTRACT, not the robot config: the
+        contract is what the policy was trained against and what every clamp in the runtime
+        already uses, so a drifting hardware config must not quietly widen them. Joints with no
+        contract entry (the arms) fall back to the live robot config.
+        """
+        out: dict[str, tuple[float, float]] = {}
+        contract_joints = set(self.contract.joint_order)
+        for name in joints:
+            if name in contract_joints:
+                i = self.contract.index_of(name)
+                out[name] = (float(self.contract.pos_limit_lower[i]),
+                             float(self.contract.pos_limit_upper[i]))
+                continue
+            jc = (self.robot_config.joints.get(name) if self.robot_config else None)
+            if jc is not None:
+                out[name] = (float(jc.position_limits.lower_bound),
+                             float(jc.position_limits.upper_bound))
+            else:
+                # No contract row and no hardware row: don't invent a range. Report it as
+                # unbounded so nothing is silently clamped to a made-up number.
+                _log.warning("no position limits known for %s", name)
+                out[name] = (float("-inf"), float("inf"))
+        return out
+
+    @property
+    def layout(self) -> RobotLayout:
+        return self._layout
+
+    @property
+    def joints(self) -> list[str]:
+        """The configured joints, in layout order. Telemetry, calibration and the contract
+        endpoint are all index-aligned to this."""
+        return list(self._joints)
+
+    @property
+    def joint_limits(self) -> dict[str, tuple[float, float]]:
+        return dict(self._limits)
+
+    def set_layout(self, layout: RobotLayout) -> None:
+        """Swap the attached-hardware layout. Refused while anything is live — the joint set
+        underpins the health checks and the E-STOP scope, so it must not move under a session."""
+        with self._lock:
+            if self._state in _ACTIVE_STATES:
+                raise ControlError("A session is active — disarm before changing the layout.", 409)
+            if not layout.enabled:
+                raise ControlError("Enable at least one limb.", 400)
+            missing = layout.missing_joints(self.robot_config)
+            if missing:
+                detail = "; ".join(f"{limb}: {', '.join(js)}" for limb, js in missing.items())
+                raise ControlError(
+                    f"The robot config has no entry for these joints — {detail}", 400)
+            # Only a change to the JOINT SET invalidates a connection — those are the joints
+            # being watched and health-checked. Re-saving the same limbs (or flipping the IMU
+            # flag) must not drop a live connection out from under the operator.
+            joints_changed = list(layout.joint_order) != self._joints
+            self._apply_layout(layout)
+            if joints_changed and self._state == SessionState.CONNECTED:
+                self._state = SessionState.DISCONNECTED
+                self._armed = False
+        _log.info("layout set: %s (%d joints)", layout.describe(), len(self._joints))
 
     # ── E-STOP controller lifecycle ──────────────────────────────────────────
     def _new_estop(self) -> EstopController:
@@ -155,13 +245,14 @@ class ControlService:
     def telemetry_snapshot(self) -> dict:
         """Non-blocking snapshot from the telemetry cache (no UDP round-trip)."""
         joints = []
-        for i, name in enumerate(self.contract.joint_order):
-            limit = {"min": float(self.contract.pos_limit_lower[i]),
-                     "max": float(self.contract.pos_limit_upper[i])}
+        for i, name in enumerate(self._joints):
+            lo, hi = self._limits[name]
+            limit = {"min": lo, "max": hi}
+            limb = self._layout.limb_of(name)
             target, target_age = self._last_target(name)
             st = self.client.get_cached_joint_state(name)
             if st is None:
-                joints.append({"index": i, "name": name, "online": False,
+                joints.append({"index": i, "name": name, "limb": limb, "online": False,
                                "calibrated": self._calibrated.get(name, False), "limit": limit,
                                "target": target, "target_age_s": target_age})
                 continue
@@ -169,6 +260,7 @@ class ControlService:
             joints.append({
                 "index": i,
                 "name": name,
+                "limb": limb,
                 "online": state not in (None, "OFFLINE"),
                 "state": state,
                 "mode": st.get("mode"),
@@ -191,6 +283,12 @@ class ControlService:
         return {
             "daemon_alive": self.client.is_running(),
             "config_present": self.config_present,
+            "layout": {
+                "enabled": list(self._layout.enabled),
+                "imu_expected": self._layout.imu_expected,
+                "describe": self._layout.describe(),
+                "has_both_legs": self._layout.has_both_legs,
+            },
             "state": self._state.value,
             "armed": self._armed,
             "selected": self._selected.get("kind"),   # gamepad deadman kind: hold|policy|manual
@@ -298,7 +396,9 @@ class ControlService:
                 except Exception as exc:
                     _log.warning("clear_error %s on connect failed: %s", n, exc)
         time.sleep(0.3)
-        self.legs.check_health()   # raises if any leg offline/faulted (errors now cleared)
+        # Health-check the CONFIGURED joints, not all 12 legs: with an arm on the bench and the
+        # legs unpowered, offline leg joints are the expected state, not a fault.
+        self.group.check_health()   # raises if any configured joint is offline/faulted
         # Read-only sanity net: since connect no longer configures the ESCs, confirm each is
         # actually configured (a blank/unconfigured motor reads kp or torque_limit == 0).
         unconfigured = self._verify_configured()
@@ -352,7 +452,7 @@ class ControlService:
         """Disconnect = motors → DISABLED (PWM off, silent)."""
         self.stop(wait=True)
         try:
-            self.legs.disable()
+            self.group.disable()
         except Exception as exc:
             _log.warning("disable on disconnect failed: %s", exc)
         self.client.clear_last_targets()   # nothing is commanding the robot any more
@@ -435,9 +535,7 @@ class ControlService:
         lower, upper = cap.get("lower"), cap.get("upper")
         if lower is None or upper is None:
             raise ControlError("Capture both lower and upper hardstops first.", 409)
-        i = self.contract.index_of(joint)
-        min_rad = float(self.contract.pos_limit_lower[i])
-        max_rad = float(self.contract.pos_limit_upper[i])
+        min_rad, max_rad = self._limits[joint]
         res = compute_offset(lower, upper, min_rad, max_rad)
         if res["flipped"]:
             raise ControlError(
@@ -466,12 +564,11 @@ class ControlService:
         """Return the joints whose live position is OUTSIDE their configured limits (or offline).
         Empty list ⇒ every joint's ESC offset looks valid."""
         bad: list[dict] = []
-        for i, name in enumerate(self.contract.joint_order):
+        for name in self._joints:
             st = self.client.get_cached_joint_state(name)
             state = (st or {}).get("state") or (st or {}).get("joint_state")
             pos = (st or {}).get("position")
-            lo = float(self.contract.pos_limit_lower[i])
-            hi = float(self.contract.pos_limit_upper[i])
+            lo, hi = self._limits[name]
             if st is None or state in (None, "OFFLINE") or pos is None:
                 bad.append({"joint": name, "reason": "offline", "position": None, "min": lo, "max": hi})
             elif pos < lo - self._CAL_LIMIT_TOL or pos > hi + self._CAL_LIMIT_TOL:
@@ -524,6 +621,9 @@ class ControlService:
 
     # ── motion sessions ──────────────────────────────────────────────────────
     def start_hold(self, *, ramp: float = 5.0, seconds: float | None = None) -> None:
+        # Layout gate BEFORE the calibration gate: on an arm-only layout there is no amount of
+        # calibrating that would make this work, so "calibrate first" would be a dead end.
+        self._require_motion_capable()
         # ZeroPolicy ramps to the CALIBRATED-frame default_pose — requires calibration.
         self._require_calibrated()
         self._start_session("hold", ZeroPolicy(self.contract.num_joints),
@@ -531,6 +631,7 @@ class ControlService:
 
     def start_policy(self, *, checkpoint: str, command=None,
                      ramp: float = 5.0, seconds: float | None = None) -> None:
+        self._require_motion_capable()
         # The learned policy commands CALIBRATED-frame targets — requires calibration.
         self._require_calibrated()
         policy = load_policy(checkpoint, num_actions=self.contract.num_joints)
@@ -538,10 +639,21 @@ class ControlService:
         self._start_session("policy", policy, command=cmd, ramp=ramp, seconds=seconds,
                             checkpoint=checkpoint)
 
+    def _require_motion_capable(self) -> None:
+        """Every motion path in this runtime commands the 12 contract leg joints, so motion
+        needs both legs configured. An arm-only layout is a read/calibrate configuration: it
+        can watch and zero the arm, but nothing here knows how to drive it yet."""
+        if not self._layout.has_both_legs:
+            raise ControlError(
+                f"Layout is '{self._layout.describe()}' — motion needs both legs configured. "
+                "Arm motion is not implemented yet; use the Robot tab to observe and the "
+                "Calibration tab to zero the arm.", 409)
+
     def _preflight_motion(self) -> None:
         """Common gate for any motion session (caller holds self._lock). Calibration is NOT
         checked here — it is enforced only by the motions that command a calibrated-frame target
         (start_hold / start_policy); manual capture-and-hold intentionally runs uncalibrated."""
+        self._require_motion_capable()
         if self._state != SessionState.CONNECTED:
             raise ControlError(
                 f"Cannot start motion from {self._state.value}; connect + arm first.", 409)
@@ -671,6 +783,7 @@ class ControlService:
         Requires CONNECTED + a live controller (deadman); all joints calibrated UNLESS the
         selected session is 'manual' (capture-and-hold the live pose — no calibration needed)."""
         with self._lock:
+            self._require_motion_capable()
             if self._state != SessionState.CONNECTED:
                 raise ControlError(f"Cannot arm from {self._state.value}; connect first.", 409)
             if self.estop.fired:
@@ -817,23 +930,23 @@ class ControlService:
                 _log.warning("position_limits write %s failed: %s", name, exc)
 
     def _widen_position_limits(self) -> None:
+        # Scoped to the joints manual hold actually commands (the contract legs). Dropping the
+        # firmware clamp on an arm we are not driving would remove a safety net for no benefit.
         w = self._MANUAL_WIDE_LIMIT_RAD
-        self._write_position_limits({n: (-w, w) for n in self._joints})
+        self._write_position_limits({n: (-w, w) for n in self.contract.joint_order})
         _log.warning("MANUAL hold: ESC soft position limits widened to ±%.1f rad "
                      "(firmware clamp disabled — holds any hand-set pose).", w)
 
     def _restore_position_limits(self) -> None:
-        bounds = {n: (float(self.contract.pos_limit_lower[i]),
-                      float(self.contract.pos_limit_upper[i]))
-                  for i, n in enumerate(self.contract.joint_order)}
-        self._write_position_limits(bounds)
+        self._write_position_limits({n: self._limits[n] for n in self._joints})
         _log.info("MANUAL hold: ESC soft position limits restored to configured range.")
 
     # ── manual control (capture-and-hold / go-to-pose) ───────────────────────
     def current_pose_rad(self) -> dict[str, float]:
-        """Live position (rad) of every joint, canonical order. Raises if any is offline."""
+        """Live position (rad) of every configured joint, in layout order. Raises if any is
+        offline — a partial pose would silently mean something different from what it says."""
         out: dict[str, float] = {}
-        for name in self.contract.joint_order:
+        for name in self._joints:
             st = self.client.get_cached_joint_state(name)
             state = (st or {}).get("state") or (st or {}).get("joint_state")
             if st is None or state in (None, "OFFLINE") or st.get("position") is None:
@@ -853,10 +966,18 @@ class ControlService:
         holds the RAW reading, even if a (possibly uncalibrated) encoder value is outside its
         limits: the robot stays exactly where it is instead of being forced into range. Out-of-
         limit joints are logged as a warning, not corrected."""
-        targets_rad = {n: float(v) for n, v in (targets_rad or {}).items()
-                       if n in self.contract.joint_order}
+        # Only the contract's leg joints are commandable here. If the caller handed us arm
+        # joints (a whole-robot capture-and-hold, say), say so rather than dropping them
+        # silently — a "hold" that quietly leaves half the robot free is a safety surprise.
+        commandable = set(self.contract.joint_order)
+        dropped = sorted(n for n in (targets_rad or {}) if n not in commandable)
+        targets_rad = {n: float(v) for n, v in (targets_rad or {}).items() if n in commandable}
         if not targets_rad:
             raise ControlError("No valid target joints to hold.", 400)
+        if dropped:
+            _log.warning("manual hold: %d non-leg joint(s) left uncommanded (arm motion is not "
+                         "implemented): %s", len(dropped),
+                         ", ".join(n.replace("_joint", "") for n in dropped))
         with self._lock:
             self._preflight_motion()
             self._stop_evt.clear()

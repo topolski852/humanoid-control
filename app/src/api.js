@@ -52,6 +52,13 @@ export const api = {
   // Frame-critical contract constants for the robot visualizer (sign map, default_pose,
   // device-frame limits). Fetched live rather than bundled — see app/src/viz/useContract.js.
   getContract: () => request('/api/contract'),
+  // Which limbs are attached to this machine (persisted in a machine-local file).
+  getLayout: () => request('/api/layout'),
+  setLayout: (enabled, imuExpected = true) =>
+    request('/api/layout', {
+      method: 'PUT',
+      body: JSON.stringify({ enabled, imu_expected: imuExpected }),
+    }),
 
   // connection lifecycle
   connect: () => request('/api/connect', { method: 'POST' }),

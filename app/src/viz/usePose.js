@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 
-// Turn a telemetry snapshot into the (12,) device-frame vectors the wireframe draws.
+// Turn a telemetry snapshot into the (N,) device-frame vectors the wireframe draws, where N is
+// however many joints the layout has configured — 12 legs, 5 for a bench arm, 22 for the lot.
 //
 // Two things the raw snapshot does not give us:
 //
@@ -11,15 +12,16 @@ import { useEffect, useRef, useState } from 'react'
 //  - Pausing. The browser may be running on the onboard PC, so freezing the render has to be
 //    possible without tearing down the telemetry socket everything else depends on.
 
-const N = 12
-
 /**
- * @param joints  telemetry `joints[]`, canonical order
+ * @param joints  telemetry `joints[]`, in the configured layout order
  * @param opts.paused  freeze the returned pose at its current value
  * @returns {{pose: number[], target: (number|null)[], missing: string[], hasTarget: boolean}}
  */
 export function useDevicePose(joints, { paused = false } = {}) {
-  const lastGood = useRef(new Array(N).fill(0))
+  const N = joints?.length ?? 0
+  // Keyed by joint NAME, not index: a layout change reorders the array, and holding a stale
+  // angle from whatever used to sit at index i would draw a limb that never existed.
+  const lastGood = useRef(new Map())
   const frozen = useRef(null)
   const [, bump] = useState(0)
 
@@ -43,9 +45,9 @@ export function useDevicePose(joints, { paused = false } = {}) {
     const p = j?.position
     if (typeof p === 'number' && Number.isFinite(p)) {
       pose[i] = p
-      lastGood.current[i] = p
+      if (j?.name) lastGood.current.set(j.name, p)
     } else {
-      pose[i] = lastGood.current[i]
+      pose[i] = (j?.name ? lastGood.current.get(j.name) : undefined) ?? 0
       if (j) missing.push(j.name)
     }
     const t = j?.target

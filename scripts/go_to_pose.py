@@ -22,7 +22,7 @@ import time
 
 import numpy as np
 
-from humanoid_control import LIVE_ROBOT_CONFIG_PATH, EstopController, ramp_to_pose, reconcile_firmware_limits
+from humanoid_control import LIVE_ROBOT_CONFIG_PATH, resolve_robot_config_path, EstopController, ramp_to_pose, reconcile_firmware_limits
 from humanoid_control.daemon import DaemonClient, RobotConfig
 from humanoid_control.poses import DEG, LEG_JOINTS, load_poses, pose_names, resolve_pose
 
@@ -41,7 +41,7 @@ async def main() -> int:
     ap.add_argument("--pose", help="pose name from configs/poses.json")
     ap.add_argument("--list", action="store_true", help="list poses and exit")
     ap.add_argument("--poses-file", default=None, help="override poses json path")
-    ap.add_argument("--config", default=str(LIVE_ROBOT_CONFIG_PATH))
+    ap.add_argument("--config", default=str(resolve_robot_config_path() or LIVE_ROBOT_CONFIG_PATH))
     ap.add_argument("--i-am-present", action="store_true")
     ap.add_argument("--seconds", type=float, default=0.0, help="hold duration; 0 = until E-stop")
     ap.add_argument("--ramp", type=float, default=4.0)

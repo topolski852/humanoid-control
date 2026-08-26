@@ -32,7 +32,7 @@ export default function Header({ deadmanConnected }) {
         <span className="text-lg">🤖</span>
         <div>
           <div className="font-semibold text-white leading-tight">Humanoid Control</div>
-          <div className="data-label">Berkeley Humanoid Lite · legs</div>
+          <div className="data-label">Berkeley Humanoid Lite · {t.layout?.describe || '…'}</div>
         </div>
       </div>
 

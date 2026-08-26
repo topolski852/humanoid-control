@@ -24,7 +24,7 @@ import os
 import sys
 from pathlib import Path
 
-from humanoid_control import LIVE_ROBOT_CONFIG_PATH
+from humanoid_control import LIVE_ROBOT_CONFIG_PATH, resolve_robot_config_path
 from humanoid_control.daemon import DaemonClient, DaemonError, RobotConfig
 
 # Trained-policy bundles: this repo's self-hosted policies/ dir (NOT the sibling humanoid-policy
@@ -63,7 +63,7 @@ async def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--policy", required=True, help="bundle name (walk|standup|squat), dir, or contract json")
-    ap.add_argument("--config", default=str(LIVE_ROBOT_CONFIG_PATH), help="studio config (joint set)")
+    ap.add_argument("--config", default=str(resolve_robot_config_path() or LIVE_ROBOT_CONFIG_PATH), help="studio config (joint set)")
     ap.add_argument("--yes", action="store_true", help="REQUIRED to actually write to the ESCs")
     ap.add_argument("--dry-run", action="store_true", help="show the before→after plan, write nothing")
     ap.add_argument("--wake", action="store_true", help="set mode IDLE first to wake boot-silent motors")

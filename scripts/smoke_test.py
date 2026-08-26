@@ -13,13 +13,13 @@ import argparse
 import asyncio
 import sys
 
-from humanoid_control import LegPolicyContract, LIVE_ROBOT_CONFIG_PATH
+from humanoid_control import LegPolicyContract, LIVE_ROBOT_CONFIG_PATH, resolve_robot_config_path
 from humanoid_control.daemon import DaemonClient, RobotConfig
 
 
 async def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--config", default=str(LIVE_ROBOT_CONFIG_PATH))
+    ap.add_argument("--config", default=str(resolve_robot_config_path() or LIVE_ROBOT_CONFIG_PATH))
     ap.add_argument("--connect", action="store_true",
                     help="wake joints to IDLE (apply_all_configs) — zero torque, no motion")
     ap.add_argument("--hz", type=float, default=50.0)
