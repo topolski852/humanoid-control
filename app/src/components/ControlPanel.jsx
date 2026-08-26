@@ -4,7 +4,7 @@ import { useTelemetry } from '../context/TelemetryContext'
 
 // The command surface. Every mutating call funnels through here; buttons enable/disable off the
 // live session state so you can only take a legal next step (connect → arm → hold/run → stop).
-export default function ControlPanel({ deadmanConnected }) {
+export default function ControlPanel({ deadmanConnected, size = 'full' }) {
   const t = useTelemetry()
   const [busy, setBusy] = useState(null)      // name of the in-flight action
   const [error, setError] = useState(null)
@@ -54,9 +54,41 @@ export default function ControlPanel({ deadmanConnected }) {
   }, [checkpoint, t.state])
 
   const deadmanWarn = (t.armed || motion) && !(deadmanConnected && t.deadman_ok)
+  const compact = size !== 'full'
+
+  // MINI — a status read-out with no controls at all. For driving entirely from the gamepad,
+  // where the screen is a glance rather than an input. Deliberately keeps E-STOP reachable:
+  // the header's E-STOP is always on screen, so this card omitting buttons never removes the
+  // ability to stop the robot.
+  if (size === 'mini') {
+    const tone = t.estop ? 'text-danger'
+      : motion ? 'text-online'
+      : t.armed ? 'text-warn'
+      : isConnected ? 'text-gray-200' : 'text-gray-500'
+    const label = t.estop ? 'E-STOP' : (t.state || 'DISCONNECTED')
+    return (
+      <div className="card p-3 h-full flex flex-col justify-center gap-2">
+        <div className="flex items-baseline justify-between">
+          <span className="data-label">State</span>
+          <span className={`font-mono text-sm ${tone}`}>{label}</span>
+        </div>
+        <div className="grid grid-cols-3 gap-1.5 text-center">
+          <Chip on={isConnected} label="conn" />
+          <Chip on={t.armed} label="armed" tone="text-warn" />
+          <Chip on={t.all_calibrated} label="cal" tone="text-online" />
+        </div>
+        {deadmanWarn && <div className="text-[10px] text-warn text-center">⚠ no deadman</div>}
+        {(error || t.last_error) && (
+          <div className="text-[10px] text-danger truncate" title={error || t.last_error}>
+            {error || t.last_error}
+          </div>
+        )}
+      </div>
+    )
+  }
 
   return (
-    <div className="card p-4 space-y-4">
+    <div className={`card p-4 ${compact ? 'space-y-2' : 'space-y-4'}`}>
       <div className="flex items-center justify-between">
         <span className="data-label">Control</span>
         {!t.config_present && <span className="text-[10px] text-warn">no robot config loaded</span>}
@@ -90,7 +122,7 @@ export default function ControlPanel({ deadmanConnected }) {
           {t.armed ? 'ARMED' : 'not armed'}
         </span>
       </Section>
-      {isConnected && !t.all_calibrated && (
+      {!compact && isConnected && !t.all_calibrated && (
         <div className="text-xs text-warn bg-warn/10 border border-warn/30 rounded-lg px-3 py-2">
           ⚠ Joints not calibrated — calibrate every joint (<b>Calibration</b> tab) to arm here and
           run policy / ramp-to-pose Hold. To just hold the current pose without calibrating, use the
@@ -99,7 +131,16 @@ export default function ControlPanel({ deadmanConnected }) {
       )}
 
       {/* 3 · Motion — Ramp-to-pose Hold and Run policy command the calibrated default_pose
-          frame, so both require calibration (manual capture-hold does not; see Manual tab). */}
+          frame, so both require calibration (manual capture-hold does not; see Manual tab).
+          Dropped in compact mode: connection and arming are the things you need at a glance,
+          motion is a deliberate act you would open the full card for. Stop is kept regardless —
+          removing a way to stop a moving robot to save space is never the right trade. */}
+      {compact ? (
+        motion && (
+          <button className="btn-ghost w-full" disabled={busy}
+            onClick={() => run('stop', () => api.stop())}>Stop</button>
+        )
+      ) : (
       <Section step="3" title="Motion">
         <button className="btn-primary" disabled={busy || t.state !== 'CONNECTED' || !t.armed || !t.all_calibrated}
           onClick={() => run('hold', () => api.hold())}>
@@ -121,9 +162,10 @@ export default function ControlPanel({ deadmanConnected }) {
         </span>
         <button className="btn-ghost" disabled={busy || !motion}
           onClick={() => run('stop', () => api.stop())}>Stop</button>
-      </Section>
+        </Section>
+      )}
 
-      {deadmanWarn && (
+      {!compact && deadmanWarn && (
         <div className="text-xs text-warn bg-warn/10 border border-warn/30 rounded-lg px-3 py-2">
           ⚠ No live deadman connection. Keep this page open and focused — motion auto-E-STOPs if
           the heartbeat is lost.
@@ -134,6 +176,15 @@ export default function ControlPanel({ deadmanConnected }) {
           {error || t.last_error}
         </div>
       )}
+    </div>
+  )
+}
+
+function Chip({ on, label, tone = 'text-gray-200' }) {
+  return (
+    <div className={`rounded-md border px-1 py-1 text-[10px] font-mono ${
+      on ? `border-current/40 bg-current/10 ${tone}` : 'border-surface-3 text-gray-600'}`}>
+      {label}
     </div>
   )
 }

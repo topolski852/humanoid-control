@@ -1,3 +1,5 @@
+@import 'react-grid-layout/css/styles.css';
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -27,3 +29,48 @@
   .btn-danger { @apply btn bg-danger/20 text-danger border border-danger/30 hover:bg-danger/30; }
   .btn-success { @apply btn bg-online/20 text-online border border-online/30 hover:bg-online/30; }
 }
+
+/* --- dashboard grid -------------------------------------------------------
+   react-grid-layout ships light-theme affordances: a faint grey resize triangle
+   and a light placeholder. Both are effectively invisible here, so restyle them
+   rather than leaving the operator guessing where the handles are. */
+/* Handles exist only in edit mode. Scoped to .is-editing so nothing is grabbable when the
+   dashboard is locked. */
+.react-grid-item > .react-resizable-handle { display: none; }
+.layout.is-editing .react-grid-item > .react-resizable-handle {
+  display: block;
+  opacity: 0.55;
+  transition: opacity 120ms ease;
+}
+.react-grid-item > .react-resizable-handle::after {
+  border-right: 2px solid rgba(59, 130, 246, 0.9);
+  border-bottom: 2px solid rgba(59, 130, 246, 0.9);
+  width: 8px;
+  height: 8px;
+  right: 4px;
+  bottom: 4px;
+}
+.layout.is-editing .react-grid-item:hover > .react-resizable-handle { opacity: 1; }
+
+/* Where the card will land when dropped. */
+.react-grid-item.react-grid-placeholder {
+  background: rgba(59, 130, 246, 0.18);
+  border: 1px dashed rgba(59, 130, 246, 0.55);
+  border-radius: 0.75rem;
+  opacity: 1;
+}
+
+/* A dragged card floats above the rest. */
+.react-grid-item.react-draggable-dragging {
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.55);
+}
+
+/* Cards fill their grid cell so a resize actually changes the visible card, and scroll
+   internally rather than overflowing the cell. The inner `.card` a component renders is
+   stretched too, otherwise resizing a card taller just adds empty space beneath it. */
+.react-grid-item > div { height: 100%; }
+.card-fill > .card { height: 100%; }
+
+/* Container queries let a card's contents scale with the CARD rather than the viewport —
+   used by the single-joint card so its number grows as you make the card bigger. */
+.card { container-type: inline-size; }
