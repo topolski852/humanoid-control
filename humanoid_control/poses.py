@@ -1,11 +1,16 @@
 """
-Named leg poses loaded from ``configs/poses.json`` (values in degrees).
+Named poses loaded from ``configs/poses.json`` (values in degrees).
 
-A pose maps joints → target angles. Keys may be a joint **type** ("hip_pitch" → both legs)
-or a full **joint_name** ("left_hip_pitch_joint" or shorthand "left_hip_pitch" → that joint
-only, overriding the type). Any leg joint not named in the pose is **skipped** (left
-uncommanded). Joints/types in ``_meta.always_skip`` are skipped in every pose (e.g. the
-broken ``ankle_roll``).
+A pose maps joints → target angles. Keys may be a joint **type** ("hip_pitch" → both legs,
+"elbow_pitch" → both arms) or a full **joint_name** ("left_hip_pitch_joint" or shorthand
+"left_hip_pitch" → that joint only, overriding the type). Any joint not named in the pose is
+**skipped** (left uncommanded). Joints/types in ``_meta.always_skip`` are skipped in every pose
+(e.g. the broken ``ankle_roll``).
+
+``resolve_pose`` takes the joint set to resolve against, so the same file serves a legs-only
+gantry, a bench arm, or the whole robot — pass the configured joints from
+:class:`~humanoid_control.layout.RobotLayout`. It defaults to the legs for backwards
+compatibility with the CLI scripts.
 """
 from __future__ import annotations
 
@@ -21,6 +26,9 @@ DEFAULT_POSES_PATH = REPO_ROOT / "configs" / "poses.json"
 _SIDES = ("left", "right")
 _TYPES = ("hip_roll", "hip_yaw", "hip_pitch", "knee_pitch", "ankle_pitch", "ankle_roll")
 LEG_JOINTS = tuple(f"{s}_{t}_joint" for s in _SIDES for t in _TYPES)
+
+_ARM_TYPES = ("shoulder_pitch", "shoulder_roll", "shoulder_yaw", "elbow_pitch", "wrist_yaw")
+ARM_JOINTS = tuple(f"{s}_{t}_joint" for s in _SIDES for t in _ARM_TYPES)
 
 
 def _split(joint_name: str) -> tuple[str, str]:
@@ -69,8 +77,14 @@ def pose_names(data: dict) -> list[str]:
     return list(data.get("poses", {}).keys())
 
 
-def resolve_pose(data: dict, name: str) -> tuple[dict[str, float], list[str]]:
+def resolve_pose(data: dict, name: str,
+                 joints: tuple[str, ...] | list[str] | None = None,
+                 ) -> tuple[dict[str, float], list[str]]:
     """Return (targets_rad {joint_name: rad}, skipped [joint_name]) for pose ``name``.
+
+    ``joints`` is the joint set to resolve against — pass the configured joints so an arm-only
+    machine does not come back with a pile of "skipped" leg joints it was never going to drive.
+    Defaults to the legs.
 
     Lookup per joint: full joint_name → shorthand 'side_type' → type. Not found → skipped.
     Values in the file are degrees; returned targets are radians.
@@ -82,7 +96,7 @@ def resolve_pose(data: dict, name: str) -> tuple[dict[str, float], list[str]]:
 
     targets: dict[str, float] = {}
     skipped: list[str] = []
-    for jn in LEG_JOINTS:
+    for jn in (joints if joints is not None else LEG_JOINTS):
         side, jtype = _split(jn)
         if jn in always_skip or jtype in always_skip or f"{side}_{jtype}" in always_skip:
             skipped.append(jn)

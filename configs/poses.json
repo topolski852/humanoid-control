@@ -1,14 +1,19 @@
 {
   "_meta": {
     "units": "degrees",
-    "note": "Named leg poses. Each key may be a joint TYPE (e.g. 'hip_pitch' -> both legs) or a full joint_name (e.g. 'left_hip_pitch' -> that joint only, overrides the type). Any leg joint NOT named in a pose is SKIPPED (left uncommanded/DISABLED). Joints/types in 'always_skip' are skipped in every pose. knee 0deg is a hardstop -- keep it a few degrees positive.",
+    "note": "Named poses. Each key may be a joint TYPE (e.g. 'hip_pitch' -> both legs, 'elbow_pitch' -> both arms) or a full joint_name (e.g. 'left_hip_pitch' -> that joint only, overrides the type). Any configured joint NOT named in a pose is SKIPPED (left uncommanded). Joints/types in 'always_skip' are skipped in every pose. knee 0deg is a hardstop -- keep it a few degrees positive. ARM angles are URDF frame: elbow 0=straight/+90=bent, shoulder_roll -15=hanging/+75=out to the side.",
     "joint_types": [
       "hip_roll",
       "hip_yaw",
       "hip_pitch",
       "knee_pitch",
       "ankle_pitch",
-      "ankle_roll"
+      "ankle_roll",
+      "shoulder_pitch",
+      "shoulder_roll",
+      "shoulder_yaw",
+      "elbow_pitch",
+      "wrist_yaw"
     ],
     "always_skip": []
   },
@@ -29,6 +34,38 @@
       "ankle_pitch": -35,
       "ankle_roll": 0,
       "_comment": "Tune for your robot; free-standing balance still needs the IMU/policy."
+    },
+    "arm_rest": {
+      "shoulder_pitch": 0,
+      "shoulder_roll": -10,
+      "shoulder_yaw": 0,
+      "elbow_pitch": 10,
+      "wrist_yaw": 0,
+      "_comment": "Arm hanging at the side, elbow just off straight. Low torque everywhere."
+    },
+    "arm_tpose": {
+      "shoulder_pitch": 0,
+      "shoulder_roll": 70,
+      "shoulder_yaw": 0,
+      "elbow_pitch": 0,
+      "wrist_yaw": 0,
+      "_comment": "The calibration reference pose, a few degrees inside the +75 limit."
+    },
+    "arm_bent": {
+      "shoulder_pitch": 0,
+      "shoulder_roll": -10,
+      "shoulder_yaw": 0,
+      "elbow_pitch": 80,
+      "wrist_yaw": 0,
+      "_comment": "Hanging upper arm, forearm up. Shows the elbow clearly; near-zero shoulder load."
+    },
+    "arm_forward": {
+      "shoulder_pitch": -70,
+      "shoulder_roll": -10,
+      "shoulder_yaw": 0,
+      "elbow_pitch": 45,
+      "wrist_yaw": 0,
+      "_comment": "Reaching forward with a bent elbow. Elbow bend keeps the shoulder torque down."
     }
   }
 }

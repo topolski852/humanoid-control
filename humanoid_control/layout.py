@@ -91,6 +91,47 @@ class RobotLayout:
         """True when the 12-joint leg policy can run at all."""
         return "left_leg" in self.enabled and "right_leg" in self.enabled
 
+    @property
+    def arms(self) -> tuple[str, ...]:
+        """Configured arm limbs, in LIMB_ORDER. Empty when none are attached."""
+        return tuple(l for l in self.enabled if l.endswith("_arm"))
+
+    @property
+    def legs(self) -> tuple[str, ...]:
+        return tuple(l for l in self.enabled if l.endswith("_leg"))
+
+    def joints_of(self, limb: str) -> tuple[str, ...]:
+        """The joints of one limb, or () when that limb is not configured."""
+        return LIMB_JOINTS[limb] if limb in self.enabled else ()
+
+    # --- capabilities --------------------------------------------------
+    # What this machine can be asked to do, derived from what is attached. Callers gate on
+    # these rather than on limb names, so adding a limb to the config changes behaviour
+    # without changing code.
+    @property
+    def capabilities(self) -> tuple[str, ...]:
+        caps = []
+        if self.has_both_legs:
+            caps.append("walk")          # the trained 12-joint leg policy
+        if self.arms:
+            caps.append("arm_teleop")    # direct arm control, one session per configured arm
+        if self.enabled:
+            caps.append("pose")          # ramp any configured joints to named targets
+        return tuple(caps)
+
+    def can(self, capability: str) -> bool:
+        return capability in self.capabilities
+
+    def why_not(self, capability: str) -> str:
+        """Human-readable reason a capability is unavailable, for error messages."""
+        reasons = {
+            "walk": "the leg policy needs both legs configured",
+            "arm_teleop": "no arm is configured",
+            "pose": "no limbs are configured",
+        }
+        return (f"Layout is '{self.describe()}' — "
+                f"{reasons.get(capability, f'{capability} is unavailable')}.")
+
     def is_enabled(self, limb: str) -> bool:
         return limb in self.enabled
 

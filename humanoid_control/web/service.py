@@ -28,7 +28,7 @@ from enum import Enum
 import numpy as np
 
 from ..calibration import compute_offset
-from ..config import LegPolicyContract
+from ..config import LegPolicyContract, REPO_ROOT
 from ..interface import JointGroupInterface, LegInterface
 from ..layout import RobotLayout
 from ..policy import ZeroPolicy, load_policy
@@ -113,7 +113,12 @@ class ControlService:
         self._run_gate = threading.Event()
         self._command_lock = threading.Lock()
         self._command = np.zeros(3, dtype=np.float32)
-        self._selected = {"kind": "hold", "checkpoint": None}
+        self._arm_command = np.zeros(4, dtype=np.float32)   # raw sticks: lx, ly, ry, rx
+        self._selected = {"kind": "hold", "checkpoint": None, "limb": None}
+        # Which set of things the sticks drive, and how fast. Seeded from the layout so a
+        # bench arm comes up in arm mode without anyone pressing Select.
+        self._control_mode = "arm" if self._layout.arms else "leg"
+        self._speed_mode = "normal"
 
         # Gamepad presence for the UI (updated by GamepadDeadman). "enabled" reflects whether the
         # gamepad deadman thread is running at all (HUMANOID_GAMEPAD_ENABLE).
@@ -122,6 +127,12 @@ class ControlService:
             "connected": False,
             "name": None,
         }
+        self._gamepad_input: dict = {}
+        # Set the moment any configured joint is seen OFFLINE. A joint dropping is the only
+        # thing that can invalidate a calibration mid-session (it means the ESC lost power or
+        # reset, and single-turn encoders cannot recover their multi-turn zero). Cleared when
+        # calibration is (re)established.
+        self._joints_dropped_since_cal = True
         self._last_autowake = 0.0   # rate-limits ESC-reset auto-recovery
 
         # Joint set, per-joint limits and the calibration bookkeeping all follow the layout.
@@ -297,7 +308,17 @@ class ControlService:
             "control_clients": self._control_clients,
             "last_error": self._last_error,
             "all_calibrated": self.all_calibrated(),
-            "gamepad": {**self._gamepad, "run_gate": self._run_gate.is_set()},
+            "gamepad": {**self._gamepad, "run_gate": self._run_gate.is_set(),
+                        "input": self._gamepad_input},
+            "control": {
+                "mode": self._control_mode,
+                "modes": self.available_control_modes(),
+                "speed": self._speed_mode,
+                "limb": self._selected.get("limb"),
+                "arms": list(self._layout.arms),
+                "capabilities": list(self._layout.capabilities),
+                "sessions": self.available_sessions(),
+            },
             "joints": joints,
             "buses": buses,
             # IMU base block the policy actually consumes (quaternion / angular_velocity /
@@ -323,6 +344,11 @@ class ControlService:
         with self._lock:
             self._gamepad = {"enabled": True, "connected": True, "name": name}
 
+    def set_gamepad_input(self, state: dict) -> None:
+        """Raw controller state for the UI's live input view. Diagnostic only — nothing in the
+        control path reads this."""
+        self._gamepad_input = state
+
     def set_gamepad_disconnected(self) -> None:
         with self._lock:
             self._gamepad = {**self._gamepad, "connected": False, "name": None}
@@ -335,6 +361,16 @@ class ControlService:
             self._control_clients > 0
             and (time.monotonic() - self._last_heartbeat) < _DEADMAN_TIMEOUT_S
         )
+
+    def watch_joint_dropouts(self) -> None:
+        """Watchdog hook: notice any configured joint reading OFFLINE. Cheap — reads only the
+        telemetry cache, no UDP round-trip."""
+        for name in self._joints:
+            st = self.client.get_cached_joint_state(name)
+            state = (st or {}).get("state") or (st or {}).get("joint_state")
+            if st is None or state in (None, "OFFLINE"):
+                self.note_joint_dropout()
+                return
 
     def check_offline_recovery(self) -> None:
         """Auto-recover an ESC brownout/reset: firmware v3.2.0 boots DISABLED-silent, so a reset
@@ -410,8 +446,18 @@ class ControlService:
                 + ", ".join(n.replace("_joint", "") for n in unconfigured)
             ) if unconfigured else None
             self._state = SessionState.CONNECTED
-            # Fresh power-up ⇒ every joint's zero is stale ⇒ mark all uncalibrated.
-            self._calibrated = {n: False for n in self._joints}
+            # Calibration does NOT survive a power cycle, and flashing the offset does not
+            # change that. The AS5600 is SINGLE-TURN absolute: behind 15:1 gearing the encoder
+            # wraps every 1/15 of an output revolution, so on power-up the true joint angle is
+            # ambiguous by ~24 deg multiples no matter what offset is stored. A stored offset
+            # that still matches proves nothing about where the joint actually is.
+            #
+            # So: assume stale unless we have watched the joints stay online continuously since
+            # they were last marked calibrated (see _joints_dropped_since_cal), which is the
+            # only evidence that rules out a power cycle.
+            self._calibrated = ({n: True for n in self._joints}
+                                if self._calibration_still_valid() else
+                                {n: False for n in self._joints})
             self._cal_captures = {n: {"lower": None, "upper": None} for n in self._joints}
         if unconfigured:
             _log.warning("connected (read-only): joints look unconfigured: %s", unconfigured)
@@ -546,6 +592,8 @@ class ControlService:
         with self._lock:
             self._calibrated[joint] = True
             self._cal_captures[joint] = {"lower": None, "upper": None}
+            if all(self._calibrated.get(n, False) for n in self._joints):
+                self._joints_dropped_since_cal = False
         _log.info("cal apply %s: offset=%.5f range_ok=%s (err=%.4f rad)",
                   joint, res["position_offset"], res["range_ok"], res["range_error_rad"])
         return {"joint": joint, "calibrated": True, **res}
@@ -587,6 +635,7 @@ class ControlService:
             return {"marked": False, "out_of_limits": bad}
         with self._lock:
             self._calibrated = {n: True for n in self._joints}
+            self._joints_dropped_since_cal = False
         _log.info("calibration marked complete by operator override (all joints within limits).")
         return {"marked": True, "out_of_limits": []}
 
@@ -621,9 +670,9 @@ class ControlService:
 
     # ── motion sessions ──────────────────────────────────────────────────────
     def start_hold(self, *, ramp: float = 5.0, seconds: float | None = None) -> None:
-        # Layout gate BEFORE the calibration gate: on an arm-only layout there is no amount of
+        # Leg gate BEFORE the calibration gate: on an arm-only layout there is no amount of
         # calibrating that would make this work, so "calibrate first" would be a dead end.
-        self._require_motion_capable()
+        self._require_legs()
         # ZeroPolicy ramps to the CALIBRATED-frame default_pose — requires calibration.
         self._require_calibrated()
         self._start_session("hold", ZeroPolicy(self.contract.num_joints),
@@ -631,7 +680,7 @@ class ControlService:
 
     def start_policy(self, *, checkpoint: str, command=None,
                      ramp: float = 5.0, seconds: float | None = None) -> None:
-        self._require_motion_capable()
+        self._require_legs()
         # The learned policy commands CALIBRATED-frame targets — requires calibration.
         self._require_calibrated()
         policy = load_policy(checkpoint, num_actions=self.contract.num_joints)
@@ -639,21 +688,38 @@ class ControlService:
         self._start_session("policy", policy, command=cmd, ramp=ramp, seconds=seconds,
                             checkpoint=checkpoint)
 
-    def _require_motion_capable(self) -> None:
-        """Every motion path in this runtime commands the 12 contract leg joints, so motion
-        needs both legs configured. An arm-only layout is a read/calibrate configuration: it
-        can watch and zero the arm, but nothing here knows how to drive it yet."""
-        if not self._layout.has_both_legs:
-            raise ControlError(
-                f"Layout is '{self._layout.describe()}' — motion needs both legs configured. "
-                "Arm motion is not implemented yet; use the Robot tab to observe and the "
-                "Calibration tab to zero the arm.", 409)
+    def _require(self, capability: str) -> None:
+        """Gate a session on a layout CAPABILITY rather than on limb names.
+
+        The point is that adding a limb to the config changes what the robot will accept
+        without any code changing. 'walk' needs both legs because the policy is contract-bound
+        — it commands exactly the 12 leg joints with a 45-dim observation built from them, and
+        there is no partial version. 'arm_teleop' needs at least one arm. 'pose' needs anything
+        at all.
+        """
+        if not self._layout.can(capability):
+            raise ControlError(self._layout.why_not(capability), 409)
+
+    def _require_legs(self) -> None:
+        """Back-compat alias for the walk gate."""
+        self._require("walk")
+
+    # ── what this machine can currently be asked to do ───────────────────────
+    @property
+    def capabilities(self) -> tuple[str, ...]:
+        return self._layout.capabilities
+
+    def arm_targets(self) -> tuple[str, ...]:
+        """Arms available to teleop, in layout order. One entry per configured arm."""
+        return self._layout.arms
 
     def _preflight_motion(self) -> None:
         """Common gate for any motion session (caller holds self._lock). Calibration is NOT
         checked here — it is enforced only by the motions that command a calibrated-frame target
-        (start_hold / start_policy); manual capture-and-hold intentionally runs uncalibrated."""
-        self._require_motion_capable()
+        (start_hold / start_policy); manual capture-and-hold intentionally runs uncalibrated.
+
+        Note this does NOT require legs — pose motion drives whatever the layout says is
+        attached. The policy paths add _require_legs() on top."""
         if self._state != SessionState.CONNECTED:
             raise ControlError(
                 f"Cannot start motion from {self._state.value}; connect + arm first.", 409)
@@ -750,18 +816,47 @@ class ControlService:
     # live walk command) → release to DAMP → repeat. The gamepad is the deadman: losing the
     # controller (not merely releasing the trigger) E-STOPs via the presence watchdog.
 
-    def select_session(self, kind: str, checkpoint: str | None = None) -> None:
-        """Pick what a trigger-engage runs: 'hold' (ZeroPolicy → default_pose), 'policy'
-        (a learned checkpoint), or 'manual' (capture-and-hold the live pose — no calibration,
-        no ramp to default_pose, no limit clamp). Only settable while not in a live session."""
-        if kind not in ("hold", "policy", "manual"):
-            raise ControlError("kind must be 'hold', 'policy', or 'manual'.", 400)
+    # Session kind -> the layout capability it needs. Adding a limb to the config enables the
+    # matching kinds with no code change; that is the whole point of gating on capabilities.
+    SESSION_CAPABILITY = {
+        "hold": "walk",        # ZeroPolicy -> the contract default_pose
+        "policy": "walk",      # a learned leg checkpoint
+        "manual": "pose",      # capture-and-hold the live pose
+        "arm": "arm_teleop",   # direct arm control from the sticks
+    }
+
+    def available_sessions(self) -> list[str]:
+        """Session kinds this layout can actually run, for the UI to offer."""
+        return [k for k, cap in self.SESSION_CAPABILITY.items() if self._layout.can(cap)]
+
+    def select_session(self, kind: str, checkpoint: str | None = None,
+                       limb: str | None = None) -> None:
+        """Pick what a trigger-engage runs. Only settable while not in a live session.
+
+        'hold'   ZeroPolicy -> default_pose          (needs both legs)
+        'policy' a learned leg checkpoint            (needs both legs)
+        'manual' capture-and-hold the live pose      (needs any limb)
+        'arm'    direct arm control from the sticks  (needs an arm)
+
+        ``limb`` picks which arm an 'arm' session drives; defaults to the first configured arm,
+        which is the only one on a single-arm machine.
+        """
+        if kind not in self.SESSION_CAPABILITY:
+            raise ControlError(
+                f"kind must be one of {', '.join(sorted(self.SESSION_CAPABILITY))}.", 400)
+        self._require(self.SESSION_CAPABILITY[kind])
         if kind == "policy" and not checkpoint:
             raise ControlError("policy session needs a checkpoint.", 400)
+        if kind == "arm":
+            arms = self._layout.arms
+            limb = limb or arms[0]
+            if limb not in arms:
+                raise ControlError(
+                    f"{limb} is not configured — available: {', '.join(arms) or 'none'}", 400)
         with self._lock:
             if self._state in _ACTIVE_STATES:
                 raise ControlError("Disarm before changing the selected session.", 409)
-            self._selected = {"kind": kind, "checkpoint": checkpoint}
+            self._selected = {"kind": kind, "checkpoint": checkpoint, "limb": limb}
 
     def set_run_gate(self, active: bool) -> None:
         """Deadman trigger state from the gamepad: True = held (engage/run), False = released
@@ -770,6 +865,71 @@ class ControlService:
             self._run_gate.set()
         else:
             self._run_gate.clear()
+
+    # ── control mode / speed / limb selection (gamepad-facing) ───────────────
+    @property
+    def control_mode(self) -> str:
+        """'arm' or 'leg' — which set of things the sticks drive."""
+        return self._control_mode
+
+    @property
+    def speed_mode(self) -> str:
+        return self._speed_mode
+
+    def set_speed_mode(self, mode: str) -> None:
+        if mode not in ("normal", "creep"):
+            raise ControlError("speed mode must be 'normal' or 'creep'.", 400)
+        self._speed_mode = mode
+        _log.info("speed mode: %s", mode)
+
+    def available_control_modes(self) -> list[str]:
+        """Modes this layout supports. A machine with no legs never offers leg control."""
+        modes = []
+        if self._layout.can("arm_teleop"):
+            modes.append("arm")
+        if self._layout.can("walk"):
+            modes.append("leg")
+        return modes
+
+    def set_control_mode(self, mode: str) -> None:
+        modes = self.available_control_modes()
+        if mode not in modes:
+            raise ControlError(
+                f"{mode} control unavailable — layout is '{self._layout.describe()}' "
+                f"(available: {', '.join(modes) or 'none'}).", 409)
+        if self._state in _ACTIVE_STATES:
+            raise ControlError("Disarm before switching control mode.", 409)
+        self._control_mode = mode
+        _log.info("control mode: %s", mode)
+
+    def toggle_control_mode(self) -> None:
+        """Select's job. A no-op when the layout supports only one mode, which is the common
+        case on a single-limb bench setup."""
+        modes = self.available_control_modes()
+        if len(modes) < 2:
+            _log.info("control mode toggle ignored — only %s available",
+                      modes[0] if modes else "nothing")
+            return
+        self.set_control_mode(modes[(modes.index(self._control_mode) + 1) % len(modes)]
+                              if self._control_mode in modes else modes[0])
+
+    def select_arm(self, limb: str) -> None:
+        """Bumper's job: pick which arm the sticks drive. Ignored when that arm is not
+        configured, so LB on a right-arm-only machine does nothing rather than erroring."""
+        if limb not in self._layout.arms:
+            _log.info("select_arm(%s) ignored — not configured", limb)
+            return
+        if self._state in _ACTIVE_STATES and self._selected.get("limb") != limb:
+            raise ControlError("Disarm before switching arms.", 409)
+        self._selected["limb"] = limb
+        _log.info("arm selected: %s", limb)
+
+    def set_arm_command(self, left_x: float, left_y: float,
+                        right_y: float, right_x: float = 0.0) -> None:
+        """Raw stick quad in [-1,1], "up"/"right" positive. ArmTeleop decides what the axes mean
+        for the active frame, and owns the deadband and rate scaling, so each is applied once."""
+        with self._command_lock:
+            self._arm_command = np.array([left_x, left_y, right_y, right_x], dtype=np.float32)
 
     def set_walk_command(self, vx: float, vy: float, wz: float) -> None:
         """Live locomotion command (forward, lateral, yaw) from the gamepad sticks; consumed
@@ -783,17 +943,27 @@ class ControlService:
         Requires CONNECTED + a live controller (deadman); all joints calibrated UNLESS the
         selected session is 'manual' (capture-and-hold the live pose — no calibration needed)."""
         with self._lock:
-            self._require_motion_capable()
             if self._state != SessionState.CONNECTED:
                 raise ControlError(f"Cannot arm from {self._state.value}; connect first.", 409)
             if self.estop.fired:
                 raise ControlError("E-STOP is latched — reconnect to clear.", 409)
 
             # Resolve the session kind first — the calibration gate depends on it.
-            sel_kind = kind or self._selected["kind"]
+            # Default the session kind from the CONTROL MODE. Select switches arm/leg, so A
+            # must arm whatever that mode implies — otherwise an arm-only machine defaults to
+            # the leg 'hold' session and refuses to arm for lacking legs, which is confusing
+            # and looks like a dead button.
+            sel_kind = kind or self._default_session_kind()
             sel_ckpt = checkpoint if kind else self._selected["checkpoint"]
+            sel_limb = self._selected.get("limb")
             if kind:
-                self._selected = {"kind": sel_kind, "checkpoint": sel_ckpt}
+                self._selected = {"kind": sel_kind, "checkpoint": sel_ckpt, "limb": sel_limb}
+            # Gate on what the SELECTED kind needs, so a gamepad on an arm-only machine arms an
+            # arm session instead of being refused for lacking legs.
+            self._require(self.SESSION_CAPABILITY.get(sel_kind, "pose"))
+            if sel_kind == "arm" and not sel_limb:
+                sel_limb = self._layout.arms[0]
+                self._selected["limb"] = sel_limb
 
             if sel_kind != "manual":
                 uncal = [n for n in self._joints if not self._calibrated[n]]
@@ -830,6 +1000,35 @@ class ControlService:
         _log.info("ARMED deadman session (kind=%s, ramp=%.1fs) — legs DAMPING, hold a trigger to run.",
                   sel_kind, ramp)
 
+    def _calibration_still_valid(self) -> bool:
+        """True only if every configured joint has stayed online since calibration was set.
+
+        This is what lets a plain reconnect keep its calibration while a power cycle never
+        does. It is deliberately one-directional: any observed dropout invalidates, and only an
+        explicit (re)calibration clears it. Single-turn encoders mean a joint that lost power
+        cannot be trusted again without re-teaching, however briefly it was gone.
+        """
+        return not self._joints_dropped_since_cal and bool(self._calibrated) \
+            and all(self._calibrated.get(n, False) for n in self._joints)
+
+    def note_joint_dropout(self) -> None:
+        """Called from the watchdog when a configured joint reads OFFLINE."""
+        if not self._joints_dropped_since_cal:
+            _log.warning("a joint went offline — calibration is no longer trustworthy "
+                         "(single-turn encoders lose their zero on power loss).")
+        self._joints_dropped_since_cal = True
+
+    def _default_session_kind(self) -> str:
+        """What A arms, given the current control mode and what was last explicitly selected."""
+        if self._control_mode == "arm" and self._layout.can("arm_teleop"):
+            return "arm"
+        chosen = self._selected.get("kind") or "hold"
+        # A leg kind on a machine with no legs would refuse; fall back to something runnable.
+        if not self._layout.can(self.SESSION_CAPABILITY.get(chosen, "pose")):
+            runnable = self.available_sessions()
+            return runnable[0] if runnable else chosen
+        return chosen
+
     def disarm_deadman(self) -> None:
         """Leave the deadman session: stop the worker (legs → IDLE), back to CONNECTED."""
         self.stop(wait=True)
@@ -843,10 +1042,38 @@ class ControlService:
         on stop or E-STOP."""
         engaged = False
         manual = (kind == "manual")
+        arm_mode = (kind == "arm")
         dt = self.contract.policy_dt
         engaged_state = SessionState.RUNNING if kind == "policy" else SessionState.HOLDING
+
+        # Arm teleop drives only the selected arm's joints, so it gets its own interface and
+        # its own rest/engage handling. Everything else about the session — the trigger gate,
+        # the heartbeat, E-STOP, the finally-IDLE — is shared, which is the point: arm teleop
+        # inherits the safety envelope rather than reimplementing it.
+        limb = self._selected.get("limb")
+        group = self.group
+        teleop = None
+        recorder = None
+        if arm_mode:
+            from ..arm_kinematics import ArmChain
+            from ..arm_teleop import ArmTeleop
+            from ..recorder import ArmRunRecorder
+            arm_joints = list(self._layout.joints_of(limb))
+            group = JointGroupInterface(self.client, arm_joints)
+            teleop = ArmTeleop(ArmChain(arm_joints))
+            _log.info("arm teleop: driving %s (%d joints)", limb, len(arm_joints))
+            # Flight recorder for the whole armed session, engaged or not. Always on: the arm
+            # has no policy to fall back on, and "it did not move how I expected" is only
+            # answerable from the numbers afterwards.
+            try:
+                rec_dir = os.environ.get("HUMANOID_RECORD_DIR") or str(REPO_ROOT / "_arm_recording" / "runs")
+                recorder = ArmRunRecorder(rec_dir, limb, arm_joints, teleop.tuning)
+                _log.info("arm run log: %s", recorder.path)
+            except Exception as exc:
+                _log.warning("arm run log unavailable (%s) — continuing without it.", exc)
+
         try:
-            self.legs.idle()   # ARMED rest = IDLE (zero-torque). DAMPING faults the firmware
+            group.idle()   # ARMED rest = IDLE (zero-torque). DAMPING faults the firmware
             # watchdog in ~1s (not daemon-fed) — see notes; IDLE is dormant + safe.
             if manual:
                 # Disable the firmware position clamp for the whole armed session so a trigger-
@@ -858,7 +1085,15 @@ class ControlService:
                     if not engaged:
                         with self._lock:
                             self._state = engaged_state
-                        if manual:
+                        if arm_mode:
+                            # ARM ENGAGE: enable POSITION (the daemon seeds the firmware target
+                            # from the live measured position, so this is jerk-free) and seed the
+                            # teleop target at the hand's ACTUAL position. Seeding every engage
+                            # is what stops the arm jumping to wherever the target was left.
+                            group.enable_position()
+                            q_now, _ = group.read_states()
+                            teleop.reset(q_now)
+                        elif manual:
                             # MANUAL ENGAGE: enable POSITION and hold where the robot is. The
                             # daemon seeds the firmware target from the live measured position on
                             # the IDLE→POSITION change and streams it every tick, so we send NO
@@ -871,14 +1106,27 @@ class ControlService:
                                 should_abort=lambda: self._stop_evt.is_set() or not self._run_gate.is_set())
                             if not ok:
                                 if not (self.estop.fired or self._stop_evt.is_set()):
-                                    self.legs.idle()          # released mid-ramp → rest (IDLE, not DAMPING: watchdog)
+                                    group.idle()              # released mid-ramp → rest (IDLE, not DAMPING: watchdog)
                                     with self._lock:
                                         self._state = SessionState.ARMED
                                 continue
                         engaged = True
                         next_tick = time.monotonic()
-                    self.legs.check_health()              # raises on fault → finally IDLEs
-                    if not manual:
+                    group.check_health()                  # raises on fault → finally IDLEs
+                    if arm_mode:
+                        with self._command_lock:
+                            cmd = self._arm_command.copy()
+                        q_now, v_now = group.read_states()
+                        q_target, info = teleop.step(
+                            q_now, cmd, dt, creep=(self._speed_mode == "creep"))
+                        group.send_targets(q_target)
+                        self._arm_info = info
+                        if recorder is not None:
+                            recorder.record(engaged=True, run_gate=True, sticks=cmd,
+                                            joint_pos=q_now, joint_vel=v_now,
+                                            joint_target=q_target, info=info,
+                                            speed_mode=self._speed_mode)
+                    elif not manual:
                         with self._command_lock:
                             runner.command = self._command.copy()
                         runner.step()
@@ -891,11 +1139,21 @@ class ControlService:
                         next_tick = time.monotonic()
                 else:
                     if engaged:
-                        self.legs.idle()                  # trigger released → rest (IDLE, not DAMPING: watchdog)
+                        group.idle()                      # trigger released → rest (IDLE, not DAMPING: watchdog)
                         engaged = False
                         with self._lock:
                             self._state = SessionState.ARMED
                     else:
+                        if recorder is not None and arm_mode:
+                            try:
+                                with self._command_lock:
+                                    cmd = self._arm_command.copy()
+                                q_now, v_now = group.read_states(require_online=False)
+                                recorder.record(engaged=False, run_gate=False, sticks=cmd,
+                                                joint_pos=q_now, joint_vel=v_now,
+                                                speed_mode=self._speed_mode)
+                            except Exception:
+                                pass          # a log must never break the session
                         time.sleep(0.02)                  # idle damped, waiting for trigger
         except Exception as exc:
             _log.error("deadman session error: %s", exc)
@@ -904,11 +1162,14 @@ class ControlService:
             self.trigger_estop("deadman-fault")
         finally:
             try:
-                self.legs.idle()   # leaving the session → free (IDLE), disarmed
+                group.idle()   # leaving the session → free (IDLE), disarmed
             except Exception as exc:
                 _log.warning("idle after deadman session failed: %s", exc)
             if manual:
                 self._restore_position_limits()   # re-arm the firmware clamp
+            if recorder is not None:
+                recorder.close()
+                _log.info("arm run log written: %s", recorder.path)
             self._on_session_end()
             _log.info("deadman session ended.")
 
@@ -929,11 +1190,11 @@ class ControlService:
             except Exception as exc:
                 _log.warning("position_limits write %s failed: %s", name, exc)
 
-    def _widen_position_limits(self) -> None:
-        # Scoped to the joints manual hold actually commands (the contract legs). Dropping the
-        # firmware clamp on an arm we are not driving would remove a safety net for no benefit.
+    def _widen_position_limits(self, joints=None) -> None:
+        # Scoped to the joints being commanded: dropping the firmware clamp on a limb we are not
+        # driving would remove a safety net for no benefit.
         w = self._MANUAL_WIDE_LIMIT_RAD
-        self._write_position_limits({n: (-w, w) for n in self.contract.joint_order})
+        self._write_position_limits({n: (-w, w) for n in (joints or self._joints)})
         _log.warning("MANUAL hold: ESC soft position limits widened to ±%.1f rad "
                      "(firmware clamp disabled — holds any hand-set pose).", w)
 
@@ -966,17 +1227,17 @@ class ControlService:
         holds the RAW reading, even if a (possibly uncalibrated) encoder value is outside its
         limits: the robot stays exactly where it is instead of being forced into range. Out-of-
         limit joints are logged as a warning, not corrected."""
-        # Only the contract's leg joints are commandable here. If the caller handed us arm
-        # joints (a whole-robot capture-and-hold, say), say so rather than dropping them
-        # silently — a "hold" that quietly leaves half the robot free is a safety surprise.
-        commandable = set(self.contract.joint_order)
+        # Commandable = whatever the layout says is attached. Anything else is reported rather
+        # than dropped silently — a "hold" that quietly leaves part of the robot free is a
+        # safety surprise.
+        commandable = set(self._joints)
         dropped = sorted(n for n in (targets_rad or {}) if n not in commandable)
         targets_rad = {n: float(v) for n, v in (targets_rad or {}).items() if n in commandable}
         if not targets_rad:
             raise ControlError("No valid target joints to hold.", 400)
         if dropped:
-            _log.warning("manual hold: %d non-leg joint(s) left uncommanded (arm motion is not "
-                         "implemented): %s", len(dropped),
+            _log.warning("manual hold: %d joint(s) not in the current layout, left uncommanded: "
+                         "%s", len(dropped),
                          ", ".join(n.replace("_joint", "") for n in dropped))
         with self._lock:
             self._preflight_motion()
@@ -989,10 +1250,9 @@ class ControlService:
         _log.info("manual hold started: %d joints (ramp=%.1fs, clamp=%s).", len(targets_rad), ramp, clamp)
 
     def _manual_worker(self, targets: dict[str, float], ramp: float, seconds, clamp: bool = True) -> None:
-        joints = [n for n in self.contract.joint_order if n in targets]   # canonical order
-        idx = [self.contract.index_of(n) for n in joints]
-        lo = self.contract.pos_limit_lower[idx]
-        hi = self.contract.pos_limit_upper[idx]
+        joints = [n for n in self._joints if n in targets]   # layout order
+        lo = np.array([self._limits[n][0] for n in joints], dtype=np.float32)
+        hi = np.array([self._limits[n][1] for n in joints], dtype=np.float32)
         raw = np.array([targets[n] for n in joints], dtype=np.float32)
         # capture-and-hold (clamp=False) holds the raw reading; go-to-pose clamps to limits.
         goal = np.clip(raw, lo, hi) if clamp else raw
@@ -1019,7 +1279,7 @@ class ControlService:
 
         moved = False
         try:
-            self.legs.check_health()
+            self.group.check_health()
             start = read_current()
             if np.any(np.isnan(start)):
                 raise RuntimeError("could not read all joint positions")
@@ -1041,7 +1301,7 @@ class ControlService:
             while not abort():
                 if seconds is not None and (time.monotonic() - t0) >= seconds:
                     break
-                self.legs.check_health()
+                self.group.check_health()
                 send(goal)
                 time.sleep(0.1)
         except Exception as exc:

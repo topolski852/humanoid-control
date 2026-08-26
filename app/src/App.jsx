@@ -9,6 +9,7 @@ import ImuPanel from './components/ImuPanel'
 import CalibrationPanel from './components/CalibrationPanel'
 import ManualPanel from './components/ManualPanel'
 import SettingsPanel from './components/SettingsPanel'
+import GamepadPanel from './components/GamepadPanel'
 import { TelemetryProvider } from './context/TelemetryContext'
 import { useTelemetry } from './context/TelemetryContext'
 import { useDeadman } from './hooks/useDeadman'
@@ -18,6 +19,7 @@ function ControlView({ deadmanConnected }) {
     <div className="max-w-6xl mx-auto grid grid-cols-1 lg:grid-cols-3 gap-5">
       <div className="lg:col-span-1 space-y-5">
         <ControlPanel deadmanConnected={deadmanConnected} />
+        <GamepadPanel />
         <ImuPanel />
         <RobotMini />
       </div>

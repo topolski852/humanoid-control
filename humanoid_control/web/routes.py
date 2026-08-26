@@ -431,11 +431,14 @@ class GotoBody(BaseModel):
     seconds: float | None = None
 
 
-def _poses_payload() -> dict:
+def _poses_payload(svc: ControlService) -> dict:
+    """Poses resolved against the CONFIGURED joints, so an arm-only machine does not report a
+    pile of skipped leg joints it was never going to drive."""
     data = load_poses()
+    joints = tuple(svc.joints)
     out = []
     for name in pose_names(data):
-        targets, skipped = resolve_pose(data, name)                 # rad
+        targets, skipped = resolve_pose(data, name, joints)         # rad
         out.append({
             "name": name,
             "joints": {k: v for k, v in data["poses"][name].items() if not k.startswith("_")},
@@ -447,7 +450,7 @@ def _poses_payload() -> dict:
 
 @router.get("/api/poses", response_model=None)
 def get_poses(request: Request):
-    return _ok(_poses_payload())
+    return _ok(_poses_payload(_service(request)))
 
 
 @router.put("/api/poses/{name}", response_model=None)
@@ -456,7 +459,7 @@ def put_pose(request: Request, name: str, body: PoseBody):
         save_pose(name, body.joints)
     except ValueError as exc:
         return _err(str(exc), 400)
-    return _ok(_poses_payload())
+    return _ok(_poses_payload(_service(request)))
 
 
 @router.delete("/api/poses/{name}", response_model=None)
@@ -465,7 +468,7 @@ def del_pose(request: Request, name: str):
         delete_pose(name)
     except KeyError as exc:
         return _err(str(exc), 404)
-    return _ok(_poses_payload())
+    return _ok(_poses_payload(_service(request)))
 
 
 @router.get("/api/pose/current", response_model=None)
@@ -496,7 +499,7 @@ async def manual_goto(request: Request, body: GotoBody):
     svc = _service(request)
     if body.pose:
         try:
-            targets, _ = resolve_pose(load_poses(), body.pose)      # rad
+            targets, _ = resolve_pose(load_poses(), body.pose, tuple(svc.joints))   # rad
         except KeyError as exc:
             return _err(str(exc), 404)
     elif body.target:
