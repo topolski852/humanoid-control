@@ -32,7 +32,10 @@ class TeleopTuning:
     # gimbal for motions it can only approximate — from the hanging pose, world "up" costs
     # ~306 rad of joint motion per metre against ~44 for the identical-looking "raise", so the
     # arm stalls against its own geometry and feels blocked.
-    frame: str = "joint"              # "joint" | "cartesian" | "spherical"
+    # "pose" is the 6-DOF-tracker frame (Quest controller): the caller supplies an absolute
+    # hand displacement rather than a stick deflection, and ArmTeleop.step_pose is used
+    # instead of step. Position only — see step_pose on why orientation is not tracked.
+    frame: str = "joint"              # "joint" | "cartesian" | "spherical" | "pose"
 
     # JOINT mode: which joint each stick axis drives, indexed by stick in the order
     # (left_x, left_y, right_y, right_x). None leaves that axis unbound.
@@ -108,12 +111,16 @@ class ArmTeleop:
 
     target: np.ndarray | None = field(default=None, init=False)
     q_cmd: np.ndarray | None = field(default=None, init=False)
+    # Where the hand was when the clutch last engaged. The 'pose' frame maps operator
+    # displacement RELATIVE to this, so every engage re-anchors and the arm never jumps.
+    pose_anchor: np.ndarray | None = field(default=None, init=False)
     _clipped: bool = field(default=False, init=False)
 
     def reset(self, q: np.ndarray) -> None:
         """Seed the target at the hand's current position. Call on every engage — otherwise the
         arm jumps to wherever the target was left last time."""
         self.target = self.chain.tool(np.asarray(q, dtype=float)).copy()
+        self.pose_anchor = self.target.copy()
         # Commanded joint vector, integrated independently of the encoder. Seeded at the
         # measured pose on every engage so nothing jumps.
         self.q_cmd = np.asarray(q, dtype=float).copy()
@@ -154,8 +161,32 @@ class ArmTeleop:
             return 0.0
         return float(np.sign(v) * (a - deadband) / (1.0 - deadband))
 
+    def _clamp_to_shell(self, p: np.ndarray) -> tuple[np.ndarray, bool]:
+        """Pull a point inside the reachable shell about the shoulder.
+
+        Radii come from ``ArmChain.reach_bounds()`` — measured over the joint limits, because
+        the zero pose is NOT the extreme on this chain. Returns (point, was_clipped).
+        """
+        t = self.tuning
+        shoulder = self.chain.shoulder()
+        rmin, rmax = self.chain.reach_bounds()
+        rmin, rmax = rmin + t.reach_margin, rmax - t.reach_margin
+        r = p - shoulder
+        rn = float(np.linalg.norm(r))
+        if rn > rmax:
+            return shoulder + r * (rmax / rn), True
+        if rn < rmin:
+            return shoulder + (r / rn if rn > 1e-9 else np.array([1.0, 0, 0])) * rmin, True
+        return p, False
+
     def _leash(self, q: np.ndarray) -> None:
-        """Hold the target within `leash` of the hand, and inside the workspace shell."""
+        """Hold the target within `leash` of the hand, and inside the workspace shell.
+
+        Currently unused: the velocity frames solve for joint motion directly, so the
+        commanded point is achievable by construction and there is no free-running target to
+        leash (see :meth:`step`). Kept because it is the correct behaviour for any frame that
+        DOES chase an independently-moving target.
+        """
         t = self.tuning
         hand = self.chain.tool(q)
         d = self.target - hand
@@ -163,18 +194,99 @@ class ArmTeleop:
         if n > t.leash:
             self.target = hand + d * (t.leash / n)
             self._clipped = True
+        self.target, clipped = self._clamp_to_shell(self.target)
+        self._clipped = self._clipped or clipped
 
-        shoulder = self.chain.shoulder()
-        rmin, rmax = self.chain.reach_bounds()
-        rmin, rmax = rmin + t.reach_margin, rmax - t.reach_margin
-        r = self.target - shoulder
-        rn = float(np.linalg.norm(r))
-        if rn > rmax:
-            self.target = shoulder + r * (rmax / rn)
-            self._clipped = True
-        elif rn < rmin:
-            self.target = shoulder + (r / rn if rn > 1e-9 else np.array([1.0, 0, 0])) * rmin
-            self._clipped = True
+    def step_pose(self, q_measured, delta_m, dt: float, *, creep: bool = False):
+        """One teleop tick driven by a 6-DOF tracker (the Quest controller) instead of sticks.
+
+        ``delta_m`` is the operator's hand DISPLACEMENT since the clutch engaged, already in
+        robot frame (+X forward, +Y left, +Z up), already scaled. The absolute target is
+        ``pose_anchor + delta_m`` — so the two anchors meet on a displacement vector: the XR
+        side owns "where the controller was at the press", this side owns "where the arm's
+        hand was at the press". Neither needs to know the other's coordinate system, and a
+        missing or zero delta means HOLD, which is the safe default.
+
+        RELATIVE, NOT ABSOLUTE. A 29 cm arm bolted to a bench and a human arm do not share a
+        workspace, so an absolute map would put most of both out of reach. Anchoring on the
+        trigger press also gives a mouse-lift ratchet for free: release, reposition your hand,
+        press again, keep going — no extra button, and it reuses the engage-time
+        :meth:`reset` the deadman worker already performs.
+
+        NOT A VELOCITY INTEGRATOR, so there is nothing to wind up: ``delta_m`` is recomputed
+        from the live controller pose every tick rather than accumulated. Out-running the arm
+        therefore costs tracking error, not a stored-up lunge. That error is reported as
+        ``tracking_error_m`` and shown in the UI, because the failure it warns about is silent
+        otherwise: once the operator's hand is far past the workspace shell, small hand
+        motions produce no arm motion at all and the mapping feels dead. The fix is to release
+        and re-anchor, which is why the number needs to be visible.
+
+        Orientation is NOT tracked. The Jacobian is position-only and the tool is the wrist
+        pivot (see arm_kinematics), so a 5-joint arm whose last joint is an inline twist
+        cannot hold hand orientation. Reporting otherwise would be a lie.
+
+        Returns (joint_targets, info) — the same contract as :meth:`step`.
+        """
+        q = np.asarray(q_measured, dtype=float)
+        if self.target is None or self.pose_anchor is None:
+            self.reset(q)
+        t = self.tuning
+        hand = self.chain.tool(q)
+
+        delta = np.asarray(delta_m, dtype=float).reshape(3)
+        if not np.all(np.isfinite(delta)):
+            delta = np.zeros(3)          # a bad sample must HOLD, never fling the arm
+        p_desired, shell_clipped = self._clamp_to_shell(self.pose_anchor + delta)
+
+        # Per-tick motion is capped at the same hand speed the stick frames use, so "how fast
+        # may the hand move" stays one number regardless of what is driving. A fast operator
+        # gets a smooth lag, not a lunge.
+        speed = t.speed_creep if creep else t.speed_normal
+        to_go = p_desired - hand
+        dist = float(np.linalg.norm(to_go))
+        step_m = speed * dt
+        dx_des = to_go * (step_m / dist) if dist > step_m else to_go
+
+        dq = self.chain.ik_step(
+            q, dx_des,
+            damping=t.damping,
+            posture=self.posture,
+            posture_gain=t.posture_gain,
+            max_step=t.max_joint_rate * dt,
+        )
+        q_target = self.chain.clamp(q + dq)
+        self.target = self.chain.tool(q_target)
+
+        achieved = self.target - hand
+        want = float(np.linalg.norm(dx_des))
+        got = float(np.linalg.norm(achieved))
+        along = (float(np.dot(achieved, dx_des)) / (want * want)) if want > 1e-9 else 1.0
+
+        at_limit = [
+            self.chain.joint_names[i]
+            for i in range(self.chain.n)
+            if q_target[i] <= self.chain.limits_lower[i] + 1e-6
+            or q_target[i] >= self.chain.limits_upper[i] - 1e-6
+        ]
+        r2, e2, a2 = self._to_spherical(self.target)
+        return q_target, {
+            "target": self.target.copy(),
+            "hand": hand,
+            "desired": p_desired.copy(),
+            # How far the hand still is from where the operator is pointing. Grows while the
+            # arm is outrun or pinned at the shell; the cue to release and re-anchor.
+            "tracking_error_m": round(dist, 4),
+            "error_m": max(0.0, want - got),
+            "follow": round(along, 3),
+            "sliding": bool(want > 1e-9 and along < 0.8),
+            "clipped": bool(shell_clipped),
+            "frame": "pose",
+            "spherical": {"reach_m": round(r2, 4),
+                          "elevation_deg": round(float(np.degrees(e2)), 1),
+                          "azimuth_deg": round(float(np.degrees(a2)), 1)},
+            "at_limit": at_limit,
+            "commanding": bool(dist > 1e-4),
+        }
 
     def step(self, q_measured, command, dt: float, *, creep: bool = False):
         """One teleop tick.

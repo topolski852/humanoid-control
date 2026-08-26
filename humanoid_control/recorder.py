@@ -141,9 +141,14 @@ class ArmRunRecorder:
         self._f.write(json.dumps({"_meta": meta}) + "\n")
 
     def record(self, *, engaged: bool, run_gate: bool, sticks, joint_pos, joint_vel,
-               joint_target=None, info=None, speed_mode="normal") -> None:
+               joint_target=None, info=None, speed_mode="normal", xr=None) -> None:
         """Non-blocking. Records every tick, engaged or not — the pre-engage frames show what
-        the sticks were doing before motion started, which is where a surprise often begins."""
+        the sticks were doing before motion started, which is where a surprise often begins.
+
+        ``xr`` is the Quest link status when a 6-DOF tracker is driving. Recorded on EVERY
+        tick, because the questions that need it after the fact ("did it lag, or did the link
+        stall?", "was the clutch anchored when it lurched?") are only answerable if the link
+        state and the joint state are on the same timeline."""
         self._ticks += 1
         rec = {
             "t": round(time.monotonic() - self._t0, 4),
@@ -156,10 +161,21 @@ class ArmRunRecorder:
         }
         if joint_target is not None:
             rec["joint_target"] = _l(joint_target)
+        if xr and xr.get("connected"):
+            # Only the fields that answer "was the link healthy at this instant" — the whole
+            # status dict every tick would bloat the log with constants.
+            rec["xr"] = {k: xr.get(k) for k in
+                         ("seq", "hz", "age_ms", "tracked", "trigger", "anchored", "gate",
+                          "dropped", "reason")
+                         if xr.get(k) is not None}
         if info:
             self._engaged_ticks += 1
             rec["hand"] = _l(info.get("hand"))
             rec["target"] = _l(info.get("target"))
+            if info.get("desired") is not None:
+                rec["desired"] = _l(info.get("desired"))
+            if info.get("tracking_error_m") is not None:
+                rec["tracking_error_m"] = info.get("tracking_error_m")
             rec["error_m"] = info.get("error_m")
             rec["clipped"] = info.get("clipped")
             rec["commanding"] = info.get("commanding")

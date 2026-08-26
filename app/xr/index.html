@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Humanoid — Quest teleop</title>
+    <style>
+      :root { color-scheme: dark; }
+      body {
+        margin: 0; background: #0b0d10; color: #e5e7eb;
+        font: 15px/1.5 ui-sans-serif, system-ui, -apple-system, sans-serif;
+        display: flex; align-items: center; justify-content: center;
+        min-height: 100vh; padding: 1.5rem; box-sizing: border-box;
+      }
+      main { max-width: 34rem; width: 100%; }
+      h1 { font-size: 1.25rem; margin: 0 0 .25rem; }
+      .sub { color: #9ca3af; font-size: .875rem; margin: 0 0 1.5rem; }
+      button {
+        width: 100%; padding: 1rem; font-size: 1.05rem; font-weight: 600;
+        border: 0; border-radius: .75rem; background: #2563eb; color: #fff;
+        cursor: pointer;
+      }
+      button:disabled { background: #374151; color: #9ca3af; cursor: not-allowed; }
+      #status {
+        margin-top: 1.25rem; padding: .875rem 1rem; border-radius: .625rem;
+        background: #111827; border: 1px solid #1f2937;
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .8125rem;
+        white-space: pre-wrap; min-height: 4.5rem;
+      }
+      .warn { color: #fbbf24; }
+      .err  { color: #f87171; }
+      ul { color: #9ca3af; font-size: .8125rem; padding-left: 1.1rem; }
+      li { margin: .35rem 0; }
+      b { color: #e5e7eb; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Quest arm teleop</h1>
+      <p class="sub">Passthrough. A second person must be present before you enter.</p>
+      <button id="enter" disabled>Checking WebXR…</button>
+      <div id="status">not connected</div>
+      <ul>
+        <li><b>Trigger</b> — hold to drive, release to stop. Release also re-anchors, so you
+            can let go, reposition your hand, and carry on.</li>
+        <li><b>B / Y</b> (upper face, either controller) — <b>E-STOP</b>. Latched; clear it by
+            reconnecting from the control page.</li>
+        <li>The trigger is not a panic stop: under startle you will clench, not release. Use
+            B/Y.</li>
+      </ul>
+    </main>
+    <script type="module" src="./main.js"></script>
+  </body>
+</html>

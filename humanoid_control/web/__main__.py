@@ -4,7 +4,10 @@ Binds 0.0.0.0:8000 by default so the control page is reachable from any PC on th
 Override with HUMANOID_WEB_HOST / HUMANOID_WEB_PORT. Set HUMANOID_CONFIG to the robot's live
 config (defaults to LIVE_ROBOT_CONFIG_PATH), HUMANOID_WEB_PASSWORD to require a login,
 HUMANOID_POLICY_DIR for the checkpoint list, HUMANOID_GAMEPAD_ENABLE=1 for the (optional)
-robot-local gamepad deadman.
+robot-local gamepad deadman, HUMANOID_QUEST_ENABLE=1 for the Quest 3 WebXR bridge.
+
+The Quest needs HTTPS (WebXR only runs in a secure context); that second listener is started
+from inside the app's lifespan — see ``server.py`` — so plain HTTP on :8000 is untouched.
 """
 from __future__ import annotations
 

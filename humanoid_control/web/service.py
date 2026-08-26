@@ -137,6 +137,8 @@ class ControlService:
         self._command_lock = threading.Lock()
         self._command = np.zeros(3, dtype=np.float32)
         self._arm_command = np.zeros(4, dtype=np.float32)   # raw sticks: lx, ly, ry, rx
+        # 6-DOF-tracker command: (displacement-since-clutch metres in robot frame, seq).
+        self._arm_pose_command: tuple[np.ndarray, int] | None = None
         self._selected = {"kind": "hold", "checkpoint": None, "limb": None}
         # Which set of things the sticks drive, and how fast. Seeded from the layout so a
         # bench arm comes up in arm mode without anyone pressing Select.
@@ -158,6 +160,10 @@ class ControlService:
         # so behaviour is unchanged on a machine that only has the gamepad.
         self._input_source = "xbox" if self._gamepad["enabled"] else "web"
         self._ignored_writes: dict[str, int] = {}
+        # Quest bridge, attached by server.py when HUMANOID_QUEST_ENABLE is set. None means the
+        # runtime has no Quest support compiled in at all — which is the normal case and must
+        # stay a first-class configuration, not a degraded one.
+        self.quest = None
         # Set the moment any configured joint is seen OFFLINE. A joint dropping is the only
         # thing that can invalidate a calibration mid-session (it means the ESC lost power or
         # reset, and single-turn encoders cannot recover their multi-turn zero). Cleared when
@@ -342,6 +348,7 @@ class ControlService:
             "control_clients": self._control_clients,
             "last_error": self._last_error,
             "all_calibrated": self.all_calibrated(),
+            "quest": self._xr_status(),
             "gamepad": {**self._gamepad, "run_gate": self._run_gate.is_set(),
                         "input": self._gamepad_input},
             "control": {
@@ -395,6 +402,17 @@ class ControlService:
     def mark_heartbeat(self) -> None:
         """Browser heartbeat (kept as the name server.py already calls)."""
         self.mark_source_alive("web")
+
+    def _xr_status(self) -> dict:
+        """Quest link status for telemetry and the flight recorder. Never raises — a status
+        read must not be able to take down the session that is reading it."""
+        try:
+            if self.quest is None:
+                from .xr import disabled_status
+                return disabled_status()
+            return self.quest.status()
+        except Exception as exc:                     # noqa: BLE001
+            return {"enabled": True, "connected": False, "reason": f"status error: {exc}"}
 
     # ── per-source liveness ──────────────────────────────────────────────────
     def mark_source_alive(self, source: str) -> None:
@@ -1043,6 +1061,21 @@ class ControlService:
         with self._command_lock:
             self._arm_command = np.array([left_x, left_y, right_y, right_x], dtype=np.float32)
 
+    def set_arm_pose_command(self, delta_m, seq: int = 0, *, source: str = "web") -> None:
+        """Hand DISPLACEMENT since the clutch anchor, metres, robot frame — from a 6-DOF
+        tracker. Kept separate from `_arm_command` rather than overloading it: a stick quad is
+        a velocity and this is a position offset, and a stale value of one interpreted as the
+        other is precisely the confusion worth designing out."""
+        if not self._owns_input(source):
+            return
+        with self._command_lock:
+            self._arm_pose_command = (
+                np.asarray(delta_m, dtype=np.float32).reshape(3).copy(), int(seq))
+
+    def selected_limb(self) -> str | None:
+        """Which arm a teleop session drives (first configured arm when unset)."""
+        return self._selected.get("limb") or (self._layout.arms[0] if self._layout.arms else None)
+
     def set_walk_command(self, vx: float, vy: float, wz: float, *, source: str = "web") -> None:
         """Live locomotion command (forward, lateral, yaw) from the gamepad sticks; consumed
         by the running policy each tick. Ignored (harmless) for a 'hold' session."""
@@ -1182,12 +1215,18 @@ class ControlService:
         recorder = None
         if arm_mode:
             from ..arm_kinematics import ArmChain
-            from ..arm_teleop import ArmTeleop
+            from ..arm_teleop import ArmTeleop, TeleopTuning
             from ..recorder import ArmRunRecorder
             arm_joints = list(self._layout.joints_of(limb))
             group = JointGroupInterface(self.client, arm_joints)
-            teleop = ArmTeleop(ArmChain(arm_joints))
-            _log.info("arm teleop: driving %s (%d joints)", limb, len(arm_joints))
+            # A 6-DOF tracker supplies an absolute hand displacement, not stick deflections,
+            # so the teleop runs its 'pose' frame. Fixed at session start from the source that
+            # armed it — the input token cannot change mid-session anyway.
+            pose_mode = (self._session_deadman == "quest")
+            tuning = TeleopTuning(frame="pose") if pose_mode else TeleopTuning()
+            teleop = ArmTeleop(ArmChain(arm_joints), tuning=tuning)
+            _log.info("arm teleop: driving %s (%d joints) in '%s' frame",
+                      limb, len(arm_joints), tuning.frame)
             # Flight recorder for the whole armed session, engaged or not. Always on: the arm
             # has no policy to fall back on, and "it did not move how I expected" is only
             # answerable from the numbers afterwards.
@@ -1242,16 +1281,26 @@ class ControlService:
                     if arm_mode:
                         with self._command_lock:
                             cmd = self._arm_command.copy()
+                            pose_cmd = self._arm_pose_command
                         q_now, v_now = group.read_states()
-                        q_target, info = teleop.step(
-                            q_now, cmd, dt, creep=(self._speed_mode == "creep"))
+                        if pose_mode:
+                            # No fresh sample yet (or the source dropped it) means HOLD, not
+                            # "reuse the last displacement" — a stale offset would keep
+                            # driving the arm after the operator's link went quiet.
+                            delta = pose_cmd[0] if pose_cmd is not None else np.zeros(3)
+                            q_target, info = teleop.step_pose(
+                                q_now, delta, dt, creep=(self._speed_mode == "creep"))
+                        else:
+                            q_target, info = teleop.step(
+                                q_now, cmd, dt, creep=(self._speed_mode == "creep"))
                         group.send_targets(q_target)
                         self._arm_info = info
                         if recorder is not None:
                             recorder.record(engaged=True, run_gate=True, sticks=cmd,
                                             joint_pos=q_now, joint_vel=v_now,
                                             joint_target=q_target, info=info,
-                                            speed_mode=self._speed_mode)
+                                            speed_mode=self._speed_mode,
+                                            xr=self._xr_status())
                     elif not manual:
                         with self._command_lock:
                             runner.command = self._command.copy()
@@ -1277,7 +1326,8 @@ class ControlService:
                                 q_now, v_now = group.read_states(require_online=False)
                                 recorder.record(engaged=False, run_gate=False, sticks=cmd,
                                                 joint_pos=q_now, joint_vel=v_now,
-                                                speed_mode=self._speed_mode)
+                                                speed_mode=self._speed_mode,
+                                                xr=self._xr_status())
                             except Exception:
                                 pass          # a log must never break the session
                         time.sleep(0.02)                  # idle damped, waiting for trigger

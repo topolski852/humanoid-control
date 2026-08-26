@@ -14,6 +14,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import threading
 import time
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -39,6 +40,7 @@ _log = logging.getLogger(__name__)
 
 _TELEMETRY_HZ = 20
 _WATCHDOG_HZ = 5   # deadman watchdog poll rate
+_QUEST_WATCHDOG_HZ = 20   # must be well inside xr.STALL_S (200 ms) to catch a stall promptly
 
 # Built web UI (app/dist). Served at "/" when present so the app is reachable from any browser.
 _WEB_DIR = Path(__file__).resolve().parent.parent.parent / "app" / "dist"
@@ -88,6 +90,23 @@ async def lifespan(app: FastAPI):
         except Exception as exc:
             _log.error("gamepad deadman failed to start: %s", exc)
 
+    # Quest 3 WebXR bridge. OFF unless HUMANOID_QUEST_ENABLE is set, and the runtime is fully
+    # functional without it — the headset is an input device, not part of the robot.
+    quest_task, tls = None, None
+    if os.environ.get("HUMANOID_QUEST_ENABLE"):
+        try:
+            from .xr import QuestSource
+            service.quest = QuestSource(service)
+            quest_task = asyncio.create_task(_quest_loop(service))
+            # Started HERE, not in __main__, for two reasons: app.state.service is populated
+            # by the time it can serve a request, and it shares this app object so the
+            # lifespan does not run twice (which would build a second DaemonClient and a
+            # second gamepad thread fighting the first).
+            tls = _start_tls_listener(os.environ.get("HUMANOID_WEB_HOST", "0.0.0.0"))
+            _log.info("quest XR bridge enabled.")
+        except Exception as exc:
+            _log.error("quest bridge failed to start: %s", exc)
+
     _log.info("humanoid-control web up. contract: %d joints. config: %s. layout: %s (%d joints).",
               contract.num_joints, "loaded" if cfg else "MISSING",
               robot_layout.describe(), len(robot_layout.joint_order))
@@ -95,6 +114,10 @@ async def lifespan(app: FastAPI):
         yield
     finally:
         watchdog.cancel()
+        if quest_task is not None:
+            quest_task.cancel()
+        if tls is not None:
+            tls.should_exit = True
         if gamepad is not None:
             gamepad.stop()
         service.shutdown()
@@ -108,6 +131,66 @@ async def _watchdog_loop(service: ControlService) -> None:
             service.check_deadman_watchdog()
             service.watch_joint_dropouts()   # a dropout invalidates calibration
             service.check_offline_recovery()   # auto re-wake ESCs after a brownout/reset (idle only)
+            await asyncio.sleep(interval)
+    except asyncio.CancelledError:
+        pass
+
+
+def _quest_cert_paths() -> tuple[Path, Path]:
+    base = Path(os.environ.get("XDG_CONFIG_HOME") or "~/.config").expanduser() / "humanoid-control"
+    cert = Path(os.environ.get("HUMANOID_QUEST_CERT") or base / "cert.pem").expanduser()
+    key = Path(os.environ.get("HUMANOID_QUEST_KEY") or base / "key.pem").expanduser()
+    return cert, key
+
+
+def _start_tls_listener(host: str):
+    """A SECOND uvicorn Server on this same app object, over TLS, for the Quest.
+
+    WebXR only runs in a secure context, so the headset needs HTTPS. Moving the whole app to
+    TLS would break every existing bookmark and the deploy/ unit, so :8000 stays plain HTTP
+    and the headset uses https://<robot>:8443/xr instead.
+
+    ``lifespan="off"`` is essential: the primary server already ran it, and running it again
+    would construct a second DaemonClient, a second ControlService and a second gamepad
+    thread — two runtimes fighting over one robot.
+
+    Generate the cert once::
+
+        openssl req -x509 -nodes -days 3650 -newkey rsa:2048 \\
+            -keyout ~/.config/humanoid-control/key.pem \\
+            -out    ~/.config/humanoid-control/cert.pem -subj "/CN=humanoid"
+    """
+    import uvicorn
+
+    cert, key = _quest_cert_paths()
+    if not (cert.is_file() and key.is_file()):
+        _log.error("HUMANOID_QUEST_ENABLE is set but no TLS cert/key at %s / %s — the Quest "
+                   "page will NOT be reachable. Generate one (see _start_tls_listener) or "
+                   "unset HUMANOID_QUEST_ENABLE.", cert, key)
+        return None
+    port = int(os.environ.get("HUMANOID_QUEST_TLS_PORT", "8443"))
+    server = uvicorn.Server(uvicorn.Config(
+        app, host=host, port=port, log_level="warning", lifespan="off",
+        ssl_certfile=str(cert), ssl_keyfile=str(key),
+    ))
+    threading.Thread(target=server.run, name="tls-listener", daemon=True).start()
+    _log.info("TLS listener on https://%s:%d — open /xr on the Quest.", host, port)
+    return server
+
+
+async def _quest_loop(service: ControlService) -> None:
+    """Notice Quest SILENCE. The websocket handler only runs when frames arrive, so a link
+    that goes quiet is invisible from the receive path — which is the whole failure this
+    bridge exists to detect. Polled well inside the 200 ms stall threshold so the arm stops
+    within roughly one threshold, not two."""
+    interval = 1.0 / _QUEST_WATCHDOG_HZ
+    try:
+        while True:
+            try:
+                if service.quest is not None:
+                    service.quest.tick()
+            except Exception:
+                _log.exception("quest watchdog tick failed")   # never kill the watchdog
             await asyncio.sleep(interval)
     except asyncio.CancelledError:
         pass
@@ -202,6 +285,37 @@ async def ws_control(ws: WebSocket) -> None:
         pass
     finally:
         service.control_client_disconnected()
+
+
+@app.websocket("/ws/xr")
+async def ws_xr(ws: WebSocket) -> None:
+    """The Quest link. The headset sends one JSON frame per XR render frame (~60 Hz); each
+    carries a monotonic `seq` that IS the liveness signal — an open socket carrying nothing
+    is exactly the failure a timestamp-free transport cannot see.
+
+    Closing this socket while the Quest is the deadman of record for a live session is
+    controller loss and E-STOPs, the same as unplugging the gamepad."""
+    if not _ws_authed(ws):
+        await ws.close(code=1008)
+        return
+    service: ControlService = ws.app.state.service
+    if service.quest is None:
+        await ws.close(code=1011)      # bridge not enabled — don't accept and look healthy
+        return
+    await ws.accept()
+    service.quest.attach()
+    try:
+        while True:
+            msg = await ws.receive_json()
+            service.quest.on_frame(msg)
+    except WebSocketDisconnect:
+        pass
+    except Exception:
+        # A malformed payload that breaks receive_json must not look like a clean close:
+        # fall through to detach(), which E-STOPs if a live session depended on this link.
+        _log.warning("quest: websocket error — treating as disconnect.", exc_info=True)
+    finally:
+        service.quest.detach()
 
 
 # ── static web UI (mounted last so API/WS win) ───────────────────────────────
