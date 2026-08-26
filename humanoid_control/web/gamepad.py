@@ -69,6 +69,11 @@ _BTN_RT = "BTN_TR2"
 _LOOP_S = 0.02              # command/heartbeat refresh cadence (50 Hz)
 _RECONNECT_S = 2.0         # retry cadence when no controller is found
 
+# This module's identity in the service's input-source arbitration. When another source holds
+# the token (e.g. the Quest), the pad keeps reporting its raw state to the UI but commands
+# nothing and E-STOPs nothing — it is a diagnostic, not a controller.
+_SOURCE = "xbox"
+
 # Sign conventions mapping stick → base frame (x-forward, y-left, z-up). Flip a sign here if
 # a field test shows an axis reversed. evdev sticks: up and left read NEGATIVE by convention.
 _VX_SIGN = -1.0   # stick up (negative)   → +forward
@@ -146,12 +151,18 @@ class GamepadDeadman:
         while not self._stop.is_set():
             dev = self._find_device()
             if dev is None:
-                if self.service.state.name in ("ARMED", "HOLDING", "RUNNING"):
+                # E-STOP on absence ONLY while the gamepad is the deadman of record. It used
+                # to fire for any live session, which meant a pad switched off in a drawer
+                # would kill a session driven by something else entirely — and with the
+                # headset on, the pad being off is the normal case, not a fault.
+                if (self.service.state.name in ("ARMED", "HOLDING", "RUNNING")
+                        and self.service.deadman_source() == _SOURCE):
                     self.service.trigger_estop("gamepad-absent")
+                self.service.drop_source(_SOURCE)
                 self._stop.wait(_RECONNECT_S)
                 continue
             _log.info("gamepad: connected to %s", dev.name)
-            self.service.control_client_connected()   # presence → deadman heartbeat source
+            self.service.mark_source_alive(_SOURCE)        # presence → this source's heartbeat
             self.service.set_gamepad_connected(dev.name)   # surface to the UI
             try:
                 self._device_loop(dev, ecodes)
@@ -164,8 +175,10 @@ class GamepadDeadman:
                 # defect is visible rather than presenting as a controller that went quiet.
                 _log.exception("gamepad: loop failed — treating as disconnect and retrying.")
             finally:
-                # Controller lost (unplug / receiver drop) → deadman lost → E-STOP if live.
-                self.service.control_client_disconnected()
+                # Controller lost (unplug / receiver drop). The source goes not-alive at once;
+                # if it was the deadman of record for a live session, the presence watchdog
+                # E-STOPs on the next poll.
+                self.service.drop_source(_SOURCE)
                 self.service.set_gamepad_disconnected()
                 try:
                     dev.close()
@@ -275,12 +288,16 @@ class GamepadDeadman:
         rt_btn = getattr(ecodes, _BTN_RT)
 
         while not self._stop.is_set():
+            # Does this pad currently drive the robot? Re-read every loop so switching the
+            # control method in the UI takes effect immediately, with no thread restart.
+            active = self.service.input_source == _SOURCE
+
             r, _, _ = select.select([dev.fd], [], [], _LOOP_S)
             if r:
                 try:
                     for event in dev.read():
                         if event.type == ecodes.EV_KEY and event.value in (0, 1):
-                            self._on_button(event.code, event.value == 1, codes)
+                            self._on_button(event.code, event.value == 1, codes, active)
                 except BlockingIOError:
                     pass
 
@@ -289,25 +306,27 @@ class GamepadDeadman:
             lt = norm(AX_LT, False) if has_lt_axis else (1.0 if lt_btn in active_keys else 0.0)
             rt = norm(AX_RT, False) if has_rt_axis else (1.0 if rt_btn in active_keys else 0.0)
             gate = (lt >= self.trig_thresh) or (rt >= self.trig_thresh)
-            self.service.set_run_gate(gate)
 
-            # Sticks mean different things per mode. Raw deflection is sent for ARM mode — the
-            # teleop layer owns the deadband and the metres/second scaling, so the deadband is
-            # applied exactly once and in the place that integrates it.
-            if self.service.control_mode == "arm":
-                # Send the RAW sticks, sign-corrected so "up" is positive. What each axis means
-                # belongs to ArmTeleop — the input layer should not know or care whether the
-                # active frame is spherical or Cartesian.
-                lx = -norm(ecodes.ABS_X, True)              # stick right -> +
-                ly = -norm(ecodes.ABS_Y, True)              # stick up    -> +
-                ry = -norm(AX_RIGHT_Y, True)                # stick up    -> +
-                rx = -norm(AX_RIGHT_X, True)                # stick right -> +
-                self.service.set_arm_command(lx, ly, ry, rx)
-            else:
-                vx = _VX_SIGN * self._deadband(norm(ecodes.ABS_Y, True)) * self.vx_max
-                vy = _VY_SIGN * self._deadband(norm(ecodes.ABS_X, True)) * self.vy_max
-                wz = _WZ_SIGN * self._deadband(norm(AX_RIGHT_X, True)) * self.wz_max
-                self.service.set_walk_command(vx, vy, wz)
+            if active:
+                self.service.set_run_gate(gate, source=_SOURCE)
+
+                # Sticks mean different things per mode. Raw deflection is sent for ARM mode —
+                # the teleop layer owns the deadband and the metres/second scaling, so the
+                # deadband is applied exactly once and in the place that integrates it.
+                if self.service.control_mode == "arm":
+                    # Send the RAW sticks, sign-corrected so "up" is positive. What each axis
+                    # means belongs to ArmTeleop — the input layer should not know or care
+                    # whether the active frame is spherical or Cartesian.
+                    lx = -norm(ecodes.ABS_X, True)              # stick right -> +
+                    ly = -norm(ecodes.ABS_Y, True)              # stick up    -> +
+                    ry = -norm(AX_RIGHT_Y, True)                # stick up    -> +
+                    rx = -norm(AX_RIGHT_X, True)                # stick right -> +
+                    self.service.set_arm_command(lx, ly, ry, rx, source=_SOURCE)
+                else:
+                    vx = _VX_SIGN * self._deadband(norm(ecodes.ABS_Y, True)) * self.vx_max
+                    vy = _VY_SIGN * self._deadband(norm(ecodes.ABS_X, True)) * self.vy_max
+                    wz = _WZ_SIGN * self._deadband(norm(AX_RIGHT_X, True)) * self.wz_max
+                    self.service.set_walk_command(vx, vy, wz, source=_SOURCE)
 
             # Raw input snapshot for the UI. Reports EVERY button the device advertises, not
             # just the bound ones — the point is to see what the hardware actually sends, so a
@@ -327,17 +346,24 @@ class GamepadDeadman:
                 "layout": "bluetooth-hid" if bt_layout else "xpad",
                 "deadband": self.deadband,
                 "trigger_threshold": self.trig_thresh,
+                "active": active,
             })
 
-            # Heartbeat: controller is alive this loop.
-            self.service.mark_heartbeat()
+            # Heartbeat: this source is alive this loop. Sent even when the pad holds no
+            # authority, so the UI can distinguish "connected but standing down" from "gone".
+            self.service.mark_source_alive(_SOURCE)
 
-    def _on_button(self, code, pressed, codes) -> None:
+    def _on_button(self, code, pressed, codes, active: bool = True) -> None:
         if not pressed:
             return
         # E-STOP first and unconditionally — it must never be gated behind state checks.
+        # Deliberately NOT gated on `active` either: any connected source may always stop the
+        # robot, even one that is not currently allowed to drive it.
         if code == codes["estop"]:
             self.service.trigger_estop("gamepad-button")
+            return
+        # Every other button commands the robot, so it belongs to whoever holds the token.
+        if not active:
             return
         try:
             if code == codes["arm"]:

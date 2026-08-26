@@ -42,6 +42,18 @@ _log = logging.getLogger(__name__)
 # Deadman: motion requires a control heartbeat at least this fresh.
 _DEADMAN_TIMEOUT_S = 1.0
 
+
+def _arm_hz() -> float:
+    """Arm teleop loop rate. Deliberately independent of the leg policy's 25 Hz."""
+    try:
+        hz = float(os.environ.get("HUMANOID_ARM_HZ", 50.0))
+    except (TypeError, ValueError):
+        return 50.0
+    return hz if 5.0 <= hz <= 200.0 else 50.0
+
+
+_ARM_HZ = _arm_hz()
+
 # A commanded position older than this is no longer treated as a live target in telemetry.
 # Generous relative to the 50 Hz policy loop: a finished ramp legitimately stops resending
 # while the robot still holds that pose, and that hold IS the current command.
@@ -102,9 +114,20 @@ class ControlService:
         # Rebuilt on every connect so a prior latched E-STOP is cleared.
         self.estop = self._new_estop()
 
-        # Deadman: how many /ws/control clients are attached and the last heartbeat time.
+        # Deadman: how many /ws/control clients are attached, and PER-SOURCE liveness.
+        #
+        # The heartbeat is per input source ("web" = the browser control page, "xbox" = the
+        # gamepad thread, "quest" = the XR bridge) rather than one global timestamp. A single
+        # shared timestamp meant any live source vouched for every other one: with the browser
+        # page open, a gamepad that stopped beating still read as a healthy deadman. That is
+        # harmless today only because gamepad loss happens to be caught by a SEPARATE path
+        # (GamepadDeadman's gamepad-absent check) — a second mechanism, not this one working.
+        # A network source has no such backstop, so it must be checkable on its own.
         self._control_clients = 0
-        self._last_heartbeat = 0.0
+        self._sources: dict[str, float] = {}     # source -> last monotonic heartbeat
+        # Which source is the deadman of record for the LIVE session. Set when a session
+        # starts, cleared when it ends; falls back to the active input source when idle.
+        self._session_deadman: str | None = None
 
         # Gamepad deadman session: the run-gate (set while a trigger is held), the live walk
         # command (vx, vy, wz) written by the gamepad sticks, and the selected session to run
@@ -128,6 +151,13 @@ class ControlService:
             "name": None,
         }
         self._gamepad_input: dict = {}
+
+        # Which input source may drive the robot. Exactly one holds the token; writes from any
+        # other are dropped and COUNTED (a silently ignored controller is a support call, an
+        # ignored-and-reported one is a glance at the UI). Seeded from what is actually enabled
+        # so behaviour is unchanged on a machine that only has the gamepad.
+        self._input_source = "xbox" if self._gamepad["enabled"] else "web"
+        self._ignored_writes: dict[str, int] = {}
         # Set the moment any configured joint is seen OFFLINE. A joint dropping is the only
         # thing that can invalidate a calibration mid-session (it means the ESC lost power or
         # reset, and single-turn encoders cannot recover their multi-turn zero). Cleared when
@@ -305,6 +335,10 @@ class ControlService:
             "selected": self._selected.get("kind"),   # gamepad deadman kind: hold|policy|manual
             "estop": self.estop.fired,
             "deadman_ok": self.deadman_ok(),
+            "deadman_source": self.deadman_source(),
+            "input_source": self._input_source,
+            "input_sources": self.available_input_sources(),
+            "ignored_writes": dict(self._ignored_writes),
             "control_clients": self._control_clients,
             "last_error": self._last_error,
             "all_calibrated": self.all_calibrated(),
@@ -328,17 +362,22 @@ class ControlService:
 
     # ── deadman ──────────────────────────────────────────────────────────────
     def control_client_connected(self) -> None:
+        """A browser /ws/control client attached. The browser is the 'web' deadman source."""
         with self._lock:
             self._control_clients += 1
-        self.mark_heartbeat()
+        self.mark_source_alive("web")
 
     def control_client_disconnected(self) -> None:
         with self._lock:
             self._control_clients = max(0, self._control_clients - 1)
-        # Losing the controller (deadman) while a deadman session is live — even damped-and-
-        # armed — is an immediate E-STOP: we can no longer trust a release vs a dropout.
-        if self._control_clients == 0 and self._state in _ACTIVE_STATES:
-            self.trigger_estop("deadman-disconnect")
+        if self._control_clients == 0:
+            self.drop_source("web")
+            # Losing the deadman while a session it is responsible for is live — even damped-
+            # and-armed — is an immediate E-STOP: we can no longer trust a release vs a
+            # dropout. Scoped to sessions the BROWSER is the deadman for; closing a spectator
+            # tab must not kill a gamepad- or Quest-driven run.
+            if self._state in _ACTIVE_STATES and self.deadman_source() == "web":
+                self.trigger_estop("deadman-disconnect")
 
     def set_gamepad_connected(self, name: str) -> None:
         with self._lock:
@@ -354,13 +393,31 @@ class ControlService:
             self._gamepad = {**self._gamepad, "connected": False, "name": None}
 
     def mark_heartbeat(self) -> None:
-        self._last_heartbeat = time.monotonic()
+        """Browser heartbeat (kept as the name server.py already calls)."""
+        self.mark_source_alive("web")
+
+    # ── per-source liveness ──────────────────────────────────────────────────
+    def mark_source_alive(self, source: str) -> None:
+        """One input source says it is alive. Called every loop by whatever is driving."""
+        self._sources[source] = time.monotonic()
+
+    def drop_source(self, source: str) -> None:
+        """Source is gone (socket closed, device unplugged). Immediately not-alive."""
+        self._sources.pop(source, None)
+
+    def source_alive(self, source: str) -> bool:
+        t = self._sources.get(source)
+        return t is not None and (time.monotonic() - t) < _DEADMAN_TIMEOUT_S
+
+    def deadman_source(self) -> str:
+        """Who the deadman of record is right now: the live session's source, else the token
+        holder. A session must keep being judged by the source that armed it, even if the
+        token is somehow changed underneath it."""
+        return self._session_deadman or self._input_source
 
     def deadman_ok(self) -> bool:
-        return (
-            self._control_clients > 0
-            and (time.monotonic() - self._last_heartbeat) < _DEADMAN_TIMEOUT_S
-        )
+        """Is the deadman of record for the current (or next) session alive?"""
+        return self.source_alive(self.deadman_source())
 
     def watch_joint_dropouts(self) -> None:
         """Watchdog hook: notice any configured joint reading OFFLINE. Cheap — reads only the
@@ -729,7 +786,11 @@ class ControlService:
             raise ControlError("E-STOP is latched — reconnect to clear.", 409)
         if not self.client.is_running():
             raise ControlError("Daemon not running — no telemetry.", 503)
-        if not self.deadman_ok():
+        # Web-driven motion (hold / run_policy) is supervised from the PAGE, so it is the
+        # browser that must be live — checked by name rather than via deadman_ok(), which
+        # answers about the active input source and would otherwise let a gamepad vouch for
+        # a closed browser tab (or refuse a browser-only run because a pad is switched off).
+        if not (self._control_clients > 0 and self.source_alive("web")):
             raise ControlError(
                 "No live deadman connection — open the control page and keep it focused.", 409)
         if self._session_thread and self._session_thread.is_alive():
@@ -747,6 +808,8 @@ class ControlService:
             # left False so an IMU hiccup can't hard-crash a live motion session — the
             # human + deadman remain the safety of record). Flip to True once the
             # balance loop is trusted unsupported.
+            # Web-driven session: the browser is the deadman of record for its whole life.
+            self._session_deadman = "web"
             runner = PolicyRunner(
                 self.client, self.contract, policy,
                 base_source=TelemetryBaseState(lambda: {"base": self.client.latest_base()}),
@@ -804,6 +867,7 @@ class ControlService:
         with self._lock:
             self._armed = False    # require an explicit re-arm before the next motion
             self._run_gate.clear()
+            self._session_deadman = None   # back to judging by the active input source
             if self.estop.fired:
                 self._state = SessionState.ESTOPPED
             elif self._state in _ACTIVE_STATES:
@@ -858,13 +922,59 @@ class ControlService:
                 raise ControlError("Disarm before changing the selected session.", 409)
             self._selected = {"kind": kind, "checkpoint": checkpoint, "limb": limb}
 
-    def set_run_gate(self, active: bool) -> None:
-        """Deadman trigger state from the gamepad: True = held (engage/run), False = released
-        (damp). Distinct from the heartbeat — a release damps; a controller loss E-STOPs."""
+    def set_run_gate(self, active: bool, *, source: str = "web") -> None:
+        """Deadman trigger state from the active input source: True = held (engage/run), False
+        = released (damp). Distinct from the heartbeat — a release damps; a controller loss
+        E-STOPs. Ignored (and counted) from a source that does not hold the input token."""
+        if not self._owns_input(source):
+            return
         if active:
             self._run_gate.set()
         else:
             self._run_gate.clear()
+
+    # ── input source arbitration ─────────────────────────────────────────────
+    #
+    # Exactly ONE source drives the robot at a time. This is a token, not a preference: two
+    # live sources both believing they are driving is the failure this exists to prevent.
+    # E-STOP is deliberately NOT gated by it — any source may always stop the robot.
+
+    INPUT_SOURCES = ("xbox", "quest", "web")
+
+    @property
+    def input_source(self) -> str:
+        return self._input_source
+
+    def _owns_input(self, source: str) -> bool:
+        """True if `source` may command. Otherwise counts the ignored write, so a controller
+        that is being deliberately ignored shows up in the UI instead of just feeling dead."""
+        if source == self._input_source:
+            return True
+        self._ignored_writes[source] = self._ignored_writes.get(source, 0) + 1
+        return False
+
+    def available_input_sources(self) -> list[str]:
+        """Sources this machine can actually be driven by, for the UI to offer."""
+        out = ["web"]
+        if self._gamepad["enabled"]:
+            out.insert(0, "xbox")
+        if os.environ.get("HUMANOID_QUEST_ENABLE"):
+            out.insert(0, "quest")
+        return out
+
+    def set_input_source(self, source: str) -> None:
+        """Pick what drives the robot. Refused mid-session for the same reason
+        set_control_mode is: handing authority over while the robot is moving is exactly the
+        transition nobody can supervise."""
+        avail = self.available_input_sources()
+        if source not in avail:
+            raise ControlError(
+                f"{source} input unavailable (available: {', '.join(avail)}).", 409)
+        if self._state in _ACTIVE_STATES:
+            raise ControlError("Disarm before switching control method.", 409)
+        self._input_source = source
+        self._ignored_writes.clear()
+        _log.info("input source: %s", source)
 
     # ── control mode / speed / limb selection (gamepad-facing) ───────────────
     @property
@@ -925,15 +1035,19 @@ class ControlService:
         _log.info("arm selected: %s", limb)
 
     def set_arm_command(self, left_x: float, left_y: float,
-                        right_y: float, right_x: float = 0.0) -> None:
+                        right_y: float, right_x: float = 0.0, *, source: str = "web") -> None:
         """Raw stick quad in [-1,1], "up"/"right" positive. ArmTeleop decides what the axes mean
         for the active frame, and owns the deadband and rate scaling, so each is applied once."""
+        if not self._owns_input(source):
+            return
         with self._command_lock:
             self._arm_command = np.array([left_x, left_y, right_y, right_x], dtype=np.float32)
 
-    def set_walk_command(self, vx: float, vy: float, wz: float) -> None:
+    def set_walk_command(self, vx: float, vy: float, wz: float, *, source: str = "web") -> None:
         """Live locomotion command (forward, lateral, yaw) from the gamepad sticks; consumed
         by the running policy each tick. Ignored (harmless) for a 'hold' session."""
+        if not self._owns_input(source):
+            return
         with self._command_lock:
             self._command = np.array([vx, vy, wz], dtype=np.float32)
 
@@ -972,8 +1086,11 @@ class ControlService:
                         f"Calibrate all joints before arming — {len(uncal)} uncalibrated.", 409)
             if not self.client.is_running():
                 raise ControlError("Daemon not running — no telemetry.", 503)
-            if not self.deadman_ok():
-                raise ControlError("No live controller — connect the gamepad deadman first.", 409)
+            # The deadman of record is whatever holds the input token — checked by name so a
+            # live browser tab cannot vouch for a controller that is switched off.
+            if not self.source_alive(self._input_source):
+                raise ControlError(
+                    f"No live {self._input_source} controller — connect it first.", 409)
             if self._session_thread and self._session_thread.is_alive():
                 raise ControlError("A session is already active.", 409)
 
@@ -992,6 +1109,9 @@ class ControlService:
             self._armed = True
             self._stop_evt.clear()
             self._run_gate.clear()
+            # This session is judged by the source that armed it for its whole life, even if
+            # the token were somehow changed underneath it.
+            self._session_deadman = self._input_source
             self._state = SessionState.ARMED
             t = threading.Thread(target=self._deadman_worker, args=(runner, sel_kind),
                                  name=f"deadman-{sel_kind}", daemon=True)
@@ -1043,7 +1163,13 @@ class ControlService:
         engaged = False
         manual = (kind == "manual")
         arm_mode = (kind == "arm")
-        dt = self.contract.policy_dt
+        # Arm teleop gets its OWN rate. policy_dt (25 Hz) is the leg policy's tick, inherited
+        # here for no arm-specific reason; at 40 ms a 6-DOF pose input is visibly staircased.
+        # Safe to raise: TeleopTuning.max_joint_rate is rad/SECOND multiplied by the real dt,
+        # and the leash / reach clamps are rate-correct, so the tuning constants still hold.
+        dt = (1.0 / _ARM_HZ) if arm_mode else self.contract.policy_dt
+        if arm_mode:
+            _log.info("arm teleop tick: %.0f Hz (dt=%.4fs)", _ARM_HZ, dt)
         engaged_state = SessionState.RUNNING if kind == "policy" else SessionState.HOLDING
 
         # Arm teleop drives only the selected arm's joints, so it gets its own interface and

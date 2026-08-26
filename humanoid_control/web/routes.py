@@ -81,6 +81,10 @@ class SelectBody(BaseModel):
     checkpoint: str | None = None
 
 
+class InputSourceBody(BaseModel):
+    source: str                        # "xbox" | "quest" | "web"
+
+
 class DeadmanArmBody(BaseModel):
     kind: str | None = None            # None → use the previously selected session
     checkpoint: str | None = None
@@ -286,6 +290,16 @@ def disarm(request: Request):
 def deadman_select(request: Request, body: SelectBody):
     try:
         _service(request).select_session(body.kind, body.checkpoint)
+    except ControlError as exc:
+        return _err(str(exc), exc.status)
+    return _ok(_service(request).telemetry_snapshot())
+
+
+@router.post("/api/input_source", response_model=None)
+def set_input_source(request: Request, body: InputSourceBody):
+    """Pick what drives the robot (the Control method card). Refused mid-session."""
+    try:
+        _service(request).set_input_source(body.source)
     except ControlError as exc:
         return _err(str(exc), exc.status)
     return _ok(_service(request).telemetry_snapshot())
