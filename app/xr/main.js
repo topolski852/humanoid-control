@@ -120,12 +120,32 @@ async function start() {
   let session;
   try {
     // immersive-ar = passthrough on Quest 3: the operator sees the real arm through the
-    // headset cameras, which is the whole safety model here. No scene, nothing rendered.
+    // headset cameras, which is the whole safety model here.
     session = await navigator.xr.requestSession('immersive-ar', {
       optionalFeatures: ['local-floor'],
     });
   } catch (e) {
     show(`could not start XR: ${e.message || e}`, 'err');
+    $enter.disabled = false;
+    return;
+  }
+
+  // A SESSION WITH NO baseLayer COMPOSITES NOTHING, and the headset shows solid black rather
+  // than passthrough. We draw no scene at all — the operator is looking at the real arm — but
+  // WebXR still requires a render layer to exist, and the frame loop must clear it to
+  // TRANSPARENT every frame so the camera feed shows through. Clearing to opaque black (the
+  // GL default) produces exactly the same black screen as having no layer.
+  let gl = null;
+  try {
+    const canvas = document.createElement('canvas');
+    gl = canvas.getContext('webgl2', { xrCompatible: true, alpha: true })
+      || canvas.getContext('webgl', { xrCompatible: true, alpha: true });
+    if (!gl) throw new Error('no WebGL context');
+    await gl.makeXRCompatible();
+    session.updateRenderState({ baseLayer: new XRWebGLLayer(session, gl) });
+  } catch (e) {
+    show(`could not set up the XR render layer: ${e.message || e}`, 'err');
+    try { await session.end(); } catch { /* already gone */ }
     $enter.disabled = false;
     return;
   }
@@ -156,6 +176,17 @@ async function start() {
 
   const onFrame = (t, frame) => {
     session.requestAnimationFrame(onFrame);
+
+    // Clear the XR framebuffer to FULLY TRANSPARENT so the passthrough camera feed shows
+    // through. This runs every frame, before the send throttle — skipping it on throttled
+    // frames would flicker the view.
+    const layer = session.renderState.baseLayer;
+    if (gl && layer) {
+      gl.bindFramebuffer(gl.FRAMEBUFFER, layer.framebuffer);
+      gl.clearColor(0, 0, 0, 0);
+      gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+    }
+
     if (t - lastTx < 1000 / TX_HZ) return;
     lastTx = t;
 

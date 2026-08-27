@@ -141,6 +141,55 @@ def main() -> int:
     check("step() cartesian frame still moves the hand",
           float(np.linalg.norm(chain.tool(q2) - hand0)) > 1e-5, info2["frame"])
 
+    print("\n── the command must lead the encoder enough to LIFT the arm ─────")
+    # THE REGRESSION THAT COST THREE WRONG DIAGNOSES. Every other check here uses a chain
+    # that follows its target perfectly, so a command that leads by a hair still "works".
+    # The real arm does not: a joint moves only if the commanded lead produces more torque
+    # than its gravity load. Integrating the target from the ENCODER pinned that lead at
+    # ~0.25 deg = 0.19 Nm against a ~2.8 Nm load, so the shoulder never moved and only the
+    # elbow (carrying just the forearm) did. Simulation could not show it; the flight
+    # recorder could, and did.
+    KP, GRAVITY_NM = 45.0, 2.8      # position_kp from the ESCs; load from the wiki
+
+    def drive_with_stiction(tuning, ticks=400):
+        chain = ArmChain(list(LIMB_JOINTS["left_arm"]))
+        tel = ArmTeleop(chain, tuning=tuning)
+        q0 = np.radians([0.1, -10.3, 0.0, 39.0, 0.0])   # the real logged hanging pose
+        q = q0.copy(); tel.reset(q)
+        need = np.array([GRAVITY_NM, GRAVITY_NM, GRAVITY_NM * 0.6, GRAVITY_NM * 0.25, 0.05])
+        for _ in range(ticks):
+            qt, _ = tel.step_pose(q, np.array([0.0, 0.15, 0.10]), DT)
+            lead = qt - q
+            q = np.where(np.abs(lead) * KP > need, q + lead * 0.35, q)
+        return np.degrees(q - q0)
+
+    stalled = drive_with_stiction(TeleopTuning(frame="pose", pose_leash_deg=0.25))
+    check("a one-tick leash cannot lift the arm (reproduces the original bug)",
+          abs(stalled[1]) < 1.0, f"shoulder_roll moved {stalled[1]:+.2f}°")
+
+    moved = drive_with_stiction(TeleopTuning(frame="pose"))
+    check("the default leash DOES lift the shoulder against gravity",
+          abs(moved[1]) > 10.0, f"shoulder_roll moved only {moved[1]:+.2f}°")
+    check("lateral motion is served, not starved by the elbow",
+          abs(moved[1]) > abs(moved[3]), f"roll {moved[1]:+.1f}° vs elbow {moved[3]:+.1f}°")
+
+    tun = TeleopTuning(frame="pose")
+    check("default leash commands more torque than the arm's gravity load",
+          np.radians(tun.pose_leash_deg) * KP > GRAVITY_NM,
+          f"{np.radians(tun.pose_leash_deg)*KP:.2f} Nm vs {GRAVITY_NM} Nm needed")
+
+    print("\n── the leash still bounds a blocked joint ──────────────────────")
+    chain = ArmChain(list(LIMB_JOINTS["left_arm"]))
+    tel = ArmTeleop(chain, tuning=TeleopTuning(frame="pose"))
+    qb = np.radians([0.1, -10.3, 0.0, 39.0, 0.0]); tel.reset(qb)
+    for _ in range(600):                       # joint completely blocked: q never changes
+        qt, info = tel.step_pose(qb, np.array([0.0, 0.5, 0.0]), DT)
+    lead = np.degrees(np.abs(qt - qb)).max()
+    check("a fully blocked joint is held at the leash, not wound up",
+          lead <= TeleopTuning().pose_leash_deg + 1e-6, f"lead reached {lead:.2f}°")
+    check("info reports the per-joint lead for diagnosis",
+          isinstance(info.get("lead_deg"), list) and len(info["lead_deg"]) == chain.n)
+
     print(f"\n{len(PASS)} passed, {len(FAIL)} failed")
     if FAIL:
         print("FAILED: " + ", ".join(FAIL))

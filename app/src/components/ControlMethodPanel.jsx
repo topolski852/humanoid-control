@@ -192,16 +192,27 @@ function QuestMethod({ t, xrUrl }) {
           set with the bumpers or <span className="font-mono">HUMANOID_QUEST_HAND</span>.
         </p>
       )}
-      <div className="bg-surface-2/50 rounded-lg px-3 py-2 space-y-1">
+      <div className="bg-surface-2/50 rounded-lg px-3 py-2 space-y-1.5">
         <div className="data-label">Open on the headset</div>
-        <code className="text-[11px] text-accent break-all">{xrUrl}</code>
+        <code className="text-[11px] text-accent break-all">http://localhost:8000/xr/</code>
         <p className="text-[10px] text-gray-500 leading-relaxed">
-          WebXR needs a <b>secure context</b>. A self-signed certificate is not enough on its
-          own — if the headset reports “WebXR unavailable”, run
-          <span className="font-mono"> adb reverse tcp:8000 tcp:8000</span> and open
-          <span className="font-mono"> http://localhost:8000/xr/</span> instead, which Chromium
-          trusts without any certificate.
+          Requires <span className="font-mono">adb reverse tcp:8000 tcp:8000</span> with the
+          headset in developer mode over USB. WebXR only runs in a <b>secure context</b>, and
+          Chromium trusts <span className="font-mono">localhost</span> as one with no
+          certificate at all.
         </p>
+        <details className="text-[10px] text-gray-600">
+          <summary className="cursor-pointer hover:text-gray-400">
+            Why not the LAN address?
+          </summary>
+          <p className="pt-1 leading-relaxed">
+            <code className="break-all">{xrUrl}</code> serves the same page over TLS, but the
+            certificate is self-signed. Chromium keeps flagging an origin whose certificate you
+            clicked through and withholds WebXR from it, so the page loads and then reports
+            “WebXR unavailable”. A trusted certificate would fix it — the robot has no public
+            DNS name to get one for.
+          </p>
+        </details>
       </div>
       <p className="text-[10px] text-gray-500">
         Scale, yaw and hand are env vars (<span className="font-mono">HUMANOID_QUEST_*</span>) —

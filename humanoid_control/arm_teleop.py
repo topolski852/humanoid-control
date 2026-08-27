@@ -91,6 +91,33 @@ class TeleopTuning:
     # far inside those bounds the target must stay.
     reach_margin: float = 0.02
 
+    # POSE frame (6-DOF tracker). The desired point is converted to the arm's OWN coordinates
+    # — elevation / azimuth / reach about the shoulder — and each axis is servoed like a stick
+    # deflection proportional to its error, saturating at these values.
+    #
+    # Why not just chase the point in world XYZ: measured on this arm at the hanging pose, the
+    # position Jacobian's singular values are 0.30 / 0.28 / 0.037, with the weak direction
+    # almost exactly world-up. Vertical therefore costs ~8x the joint motion per metre, so a
+    # Cartesian chase accumulates its error fastest in the direction it serves worst, the
+    # commanded unit vector rotates to point that way, and the whole per-tick budget goes into
+    # the stiffest axis — the elbow does everything while roll and pitch starve. This is the
+    # same geometry the `spherical` stick frame exists to respect.
+    pose_ang_full_deg: float = 20.0   # elevation/azimuth error giving full commanded rate
+    pose_reach_full_m: float = 0.05   # reach error giving full commanded speed
+
+    # How far the commanded joint position may lead the measured one in POSE mode, degrees.
+    # This is the same idea as joint_leash_deg, and it is kept separate because in pose mode
+    # it sets something safety-relevant and easy to miss: the MAXIMUM TORQUE the arm will
+    # apply while chasing a target. With position_kp = 45 Nm/rad, a lead of L degrees asks for
+    # radians(L) * 45 Nm, so:
+    #
+    #     0.25 deg ->  0.19 Nm     (what integrating from the encoder produced: nothing moved)
+    #     8.0  deg ->  6.28 Nm     (comfortably above this arm's ~2.8 Nm gravity load)
+    #
+    # Raising it makes the arm push harder against a blockage; lowering it makes the shoulder
+    # unable to lift itself again. Measured on the real arm, not guessed — see step_pose.
+    pose_leash_deg: float = 8.0
+
     posture_gain: float = 0.05
     damping: float = 0.01
 
@@ -207,6 +234,15 @@ class ArmTeleop:
         hand was at the press". Neither needs to know the other's coordinate system, and a
         missing or zero delta means HOLD, which is the safe default.
 
+        SERVOED IN THE ARM'S OWN COORDINATES, not world XYZ. The desired point is converted to
+        elevation / azimuth / reach about the shoulder and each is driven in proportion to its
+        error, reusing the `spherical` frame's velocity construction. Chasing the point in
+        Cartesian XYZ instead was measured to fail on this arm exactly as the spherical stick
+        frame's docstring predicts: the position Jacobian's singular values at the hanging pose
+        are 0.30 / 0.28 / 0.037 with the weak axis pointing up, so error accumulates fastest in
+        the direction the arm serves worst, the commanded unit vector swings to point that way,
+        and the elbow does all the work while the shoulder starves.
+
         RELATIVE, NOT ABSOLUTE. A 29 cm arm bolted to a bench and a human arm do not share a
         workspace, so an absolute map would put most of both out of reach. Anchoring on the
         trigger press also gives a mouse-lift ratchet for free: release, reposition your hand,
@@ -238,15 +274,45 @@ class ArmTeleop:
             delta = np.zeros(3)          # a bad sample must HOLD, never fling the arm
         p_desired, shell_clipped = self._clamp_to_shell(self.pose_anchor + delta)
 
-        # Per-tick motion is capped at the same hand speed the stick frames use, so "how fast
-        # may the hand move" stays one number regardless of what is driving. A fast operator
-        # gets a smooth lag, not a lunge.
         speed = t.speed_creep if creep else t.speed_normal
         to_go = p_desired - hand
         dist = float(np.linalg.norm(to_go))
-        step_m = speed * dt
-        dx_des = to_go * (step_m / dist) if dist > step_m else to_go
 
+        # Express the error in the ARM'S OWN coordinates and drive each one like a stick that
+        # is deflected in proportion to how far off it is. This is the same velocity
+        # construction the `spherical` stick frame uses — the point is that every axis it
+        # commands is one the shoulder gimbal can actually produce, so no axis can starve
+        # because another is stiff. See TeleopTuning.pose_ang_full_deg for the measurement.
+        r_h, e_h, a_h = self._to_spherical(hand)
+        r_d, e_d, a_d = self._to_spherical(p_desired)
+        ang_full = np.radians(t.pose_ang_full_deg)
+        # Azimuth wraps: take the shortest way round rather than the long way.
+        d_azim = float(np.arctan2(np.sin(a_d - a_h), np.cos(a_d - a_h)))
+        k_elev = float(np.clip((e_d - e_h) / ang_full, -1.0, 1.0))
+        k_azim = float(np.clip(d_azim / ang_full, -1.0, 1.0))
+        k_reach = float(np.clip((r_d - r_h) / t.pose_reach_full_m, -1.0, 1.0))
+
+        # Aiming rate derived from hand speed (w = v / reach), exactly as the spherical frame
+        # does — a fixed angular rate would make hand speed depend on how far the arm is out.
+        rate = min(speed / max(r_h, 1e-3), np.radians(t.rate_cap_deg))
+        eps = 1e-4
+        d_e = (self._from_spherical(r_h, e_h + eps, a_h) - hand) / eps
+        d_a = (self._from_spherical(r_h, e_h, a_h + eps) - hand) / eps
+        d_r = (self._from_spherical(r_h + eps, e_h, a_h) - hand) / eps
+        v_des = k_elev * rate * d_e + k_azim * rate * d_a + k_reach * speed * d_r
+
+        # Cap the COMBINED hand speed. The three terms are summed vectorially, so all three
+        # saturating at once would otherwise exceed `speed` by up to ~sqrt(3)x — and unlike a
+        # human on sticks, this controller saturates by itself whenever the operator is far
+        # ahead, which is most of the time. "How fast may the hand move" has to stay one
+        # number, or it is not a limit.
+        v_mag = float(np.linalg.norm(v_des))
+        if v_mag > speed:
+            v_des = v_des * (speed / v_mag)
+        dx_des = v_des * dt
+
+        # Jacobian at the MEASURED pose — the solve should reflect where the arm physically is,
+        # not where we wish it were.
         dq = self.chain.ik_step(
             q, dx_des,
             damping=t.damping,
@@ -254,7 +320,27 @@ class ArmTeleop:
             posture_gain=t.posture_gain,
             max_step=t.max_joint_rate * dt,
         )
-        q_target = self.chain.clamp(q + dq)
+
+        # INTEGRATE THE COMMAND, NOT THE ENCODER. This was the bug that made only the elbow
+        # move: `q_target = q_measured + dq` can never lead the encoder by more than one tick,
+        # so the position error pins at ~0.25 deg, which at kp=45 is 0.19 Nm — nowhere near
+        # the ~2.8 Nm needed to lift the arm against gravity. The elbow moved because it only
+        # carries the forearm and a fraction of a Nm gets it going; once it moved, the encoder
+        # followed and it walked along. The shoulder could never take that first step, so it
+        # sat at one tick of error forever.
+        #
+        # Integrating q_cmd from its own last value lets the error grow until the joint breaks
+        # free, and the leash is what stops that becoming a wind-up: a genuinely blocked joint
+        # is held `pose_leash_deg` ahead and no further, so it pushes with a bounded torque
+        # instead of storing energy that discharges when the obstruction clears.
+        #
+        # This is exactly what the `joint` frame does (see joint_leash_deg) — that comment
+        # describes this failure precisely, and pose mode should never have differed.
+        if self.q_cmd is None:
+            self.q_cmd = q.copy()
+        leash = np.radians(t.pose_leash_deg)
+        self.q_cmd = self.chain.clamp(np.clip(self.q_cmd + dq, q - leash, q + leash))
+        q_target = self.q_cmd.copy()
         self.target = self.chain.tool(q_target)
 
         achieved = self.target - hand
@@ -276,6 +362,14 @@ class ArmTeleop:
             # How far the hand still is from where the operator is pointing. Grows while the
             # arm is outrun or pinned at the shell; the cue to release and re-anchor.
             "tracking_error_m": round(dist, 4),
+            # How far each command leads its encoder, degrees — i.e. how hard the arm is
+            # pushing. A joint stuck near 0 here is being asked for almost no torque and will
+            # not move; one pinned at pose_leash_deg is blocked and shoving at the cap. This
+            # is the readout that distinguishes "the solver wants nothing" from "the joint
+            # cannot deliver", which is precisely the confusion that hid the encoder-
+            # integration bug behind three wrong diagnoses.
+            "lead_deg": [round(float(np.degrees(a - b)), 3)
+                         for a, b in zip(q_target, q)],
             "error_m": max(0.0, want - got),
             "follow": round(along, 3),
             "sliding": bool(want > 1e-9 and along < 0.8),

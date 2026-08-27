@@ -176,6 +176,10 @@ class ArmRunRecorder:
                 rec["desired"] = _l(info.get("desired"))
             if info.get("tracking_error_m") is not None:
                 rec["tracking_error_m"] = info.get("tracking_error_m")
+            if info.get("lead_deg") is not None:
+                # Per-joint command-minus-encoder. Proportional to commanded torque, so this
+                # is what tells you a joint is being asked to move but physically cannot.
+                rec["lead_deg"] = info["lead_deg"]
             rec["error_m"] = info.get("error_m")
             rec["clipped"] = info.get("clipped")
             rec["commanding"] = info.get("commanding")

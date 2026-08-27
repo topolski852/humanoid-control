@@ -20,7 +20,7 @@ import numpy as np                                              # noqa: E402
 from humanoid_control.config import LegPolicyContract           # noqa: E402
 from humanoid_control.layout import RobotLayout                 # noqa: E402
 from humanoid_control.web import xr as xr_mod                   # noqa: E402
-from humanoid_control.web.service import ControlService, SessionState  # noqa: E402
+from humanoid_control.web.service import ControlError, ControlService, SessionState  # noqa: E402
 
 PASS, FAIL = [], []
 
@@ -81,13 +81,18 @@ def build(live_session: bool = False):
 
 
 def frame(seq, *, p=(0.0, 0.0, 0.0), trigger=0.0, tracked=True, b=False,
-          session="s1", side="left"):
+          session="s1", side="left", right_a=False, right_b=False):
+    """One XR frame. `b` is the DRIVING controller's upper button — Y when driving left, which
+    is E-STOP. `right_a`/`right_b` are A (arm) and B (disarm) on the right controller."""
     f = {"seq": seq, "t": float(seq), "session": session,
          "head": {"p": [0, 1.6, 0], "q": [0, 0, 0, 1], "tracked": True}}
     f[side] = {"p": list(p), "q": [0, 0, 0, 1], "tracked": tracked,
                "trigger": trigger, "squeeze": 0.0, "stick": [0, 0],
                "a": False, "b": b, "stickPress": False}
-    f["right" if side == "left" else "left"] = None
+    other = "right" if side == "left" else "left"
+    f[other] = {"p": [0.3, 1.0, -0.2], "q": [0, 0, 0, 1], "tracked": True,
+                "trigger": 0.0, "squeeze": 0.0, "stick": [0, 0],
+                "a": right_a, "b": right_b, "stickPress": False}
     return f
 
 
@@ -259,22 +264,74 @@ def main() -> int:
     q.detach()
     check("closing the link while idle does NOT E-STOP", svc.estop.fired is False)
 
-    print("\n── E-STOP button (B/Y), unconditional ───────────────────────────")
+    print("\n── E-STOP button (Y, left upper), unconditional ─────────────────")
     svc, q = build()
     q.on_frame(frame(1, p=(0, 0, 0), trigger=0.0, b=True))
-    check("B/Y E-STOPs even with the trigger released", svc.estop.fired is True)
+    check("Y E-STOPs even with the trigger released", svc.estop.fired is True)
 
     svc, q = build()
     svc._input_source = "xbox"          # Quest does NOT hold the token
     q.on_frame(frame(1, p=(0, 0, 0), trigger=0.9, b=True))
-    check("B/Y E-STOPs even when the Quest holds no input token",
+    check("Y E-STOPs even when the Quest holds no input token",
           svc.estop.fired is True)
     check("a non-owner's pose command is still dropped",
           svc._arm_pose_command is None)
 
     svc, q = build()
     q.on_frame(frame(1, p=(0, 0, 0), trigger=0.0, b=True, tracked=False))
-    check("B/Y E-STOPs even when the controller is untracked", svc.estop.fired is True)
+    check("Y E-STOPs even when the controller is untracked", svc.estop.fired is True)
+
+    svc, q = build()
+    q.on_frame(frame(1, p=(0, 0, 0), trigger=0.0, b=True))
+    fired_at = svc.estop.fired
+    q.on_frame(frame(2, p=(0, 0, 0), trigger=0.0, b=True))   # still held
+    check("E-STOP is edge-triggered (a held button fires once)",
+          fired_at is True and svc.estop.fired is True)
+
+    print("\n── A = arm, B = disarm (right controller) ───────────────────────")
+    svc, q = build()
+    calls = []
+    svc.arm_deadman = lambda *a, **k: calls.append("arm")
+    svc.disarm_deadman = lambda *a, **k: calls.append("disarm")
+
+    q.on_frame(frame(1, p=(0, 0, 0), right_a=True))
+    check("A arms", calls == ["arm"], str(calls))
+    q.on_frame(frame(2, p=(0, 0, 0), right_a=True))          # still held
+    check("A is edge-triggered (held does not re-arm)", calls == ["arm"], str(calls))
+    q.on_frame(frame(3, p=(0, 0, 0), right_a=False))
+    q.on_frame(frame(4, p=(0, 0, 0), right_a=True))
+    check("releasing and re-pressing A arms again",
+          calls == ["arm", "arm"], str(calls))
+
+    q.on_frame(frame(5, p=(0, 0, 0), right_b=True))
+    check("B disarms", calls[-1] == "disarm", str(calls))
+
+    # Arming a session this source cannot drive would strand the operator in ARMED with a
+    # trigger that does nothing.
+    svc, q = build()
+    svc._input_source = "xbox"
+    armed = []
+    svc.arm_deadman = lambda *a, **k: armed.append(1)
+    q.on_frame(frame(1, p=(0, 0, 0), right_a=True))
+    check("A does NOT arm when the Quest is not the active method", armed == [])
+
+    # Disarm is a stop, and stopping is never gated.
+    svc, q = build()
+    svc._input_source = "xbox"
+    disarmed = []
+    svc.disarm_deadman = lambda *a, **k: disarmed.append(1)
+    q.on_frame(frame(1, p=(0, 0, 0), right_b=True))
+    check("B disarms even when the Quest is not the active method",
+          disarmed == [1], str(disarmed))
+
+    # A refused arm (uncalibrated, wrong state) is operator feedback, not a crash.
+    svc, q = build()
+    def _refuse(*a, **k):
+        raise ControlError("Calibrate all joints before arming — 5 uncalibrated.", 409)
+    svc.arm_deadman = _refuse
+    q.on_frame(frame(1, p=(0, 0, 0), right_a=True))
+    check("a refused arm is reported, not raised",
+          "Calibrate" in q.status()["reason"], q.status()["reason"])
 
     print("\n── bad input is rejected, loudly ────────────────────────────────")
     svc, q = build()

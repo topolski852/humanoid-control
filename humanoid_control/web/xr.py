@@ -1,10 +1,15 @@
 """
 Meta Quest 3 controller → arm teleop, over a WebXR websocket.
 
-The Quest is a BROWSER CLIENT: it opens the page this server hosts at `/xr` (over TLS, since
-WebXR requires a secure context), enters immersive passthrough, and streams one JSON frame per
-XR render frame to `/ws/xr`. Nothing is installed on the headset and nothing XR-specific runs
-on the robot beyond this module.
+The Quest is a BROWSER CLIENT: it opens the page this server hosts at `/xr`, enters immersive
+passthrough, and streams one JSON frame per XR render frame to `/ws/xr`. Nothing is installed
+on the headset and nothing XR-specific runs on the robot beyond this module.
+
+WebXR only runs in a SECURE CONTEXT, and a self-signed certificate does not buy one: Chromium
+keeps flagging an origin whose certificate you clicked through and withholds WebXR from it.
+The route that works is `adb reverse tcp:8000 tcp:8000` and `http://localhost:8000/xr/`, which
+Chromium trusts with no certificate at all. The TLS listener on :8443 serves the same page and
+is kept for a future trusted certificate, but it is not the path to use.
 
 Why not `xr_teleoperate`/`televuer` (the obvious reuse)? It is a Vuer/WebXR stack aimed at
 Unitree robots, and three things ruled it out: it pins `numpy<2.0.0` (this runtime is on numpy
@@ -30,12 +35,24 @@ with all three read from the SAME frame. The trigger is never a latched boolean 
 across frames — that is the specific failure where a stale message leaves "trigger held" true
 after the operator has let go and walked away.
 
-E-STOP is the B/Y button (upper face) on EITHER controller, honoured unconditionally —
-regardless of gate state, tracking, or whether this source currently holds the input token.
-The Quest's Menu and System buttons are reserved by the runtime and never reach WebXR, so
-they are not candidates. Note that the trigger is NOT a panic stop: the human startle reflex
-is to clench, which holds a hold-to-run deadman ON. That is why a discrete E-STOP button and
-a second person both matter.
+BUTTONS. The Quest replaces the gamepad, so it carries the gamepad's lifecycle too. Note the
+face buttons are SPLIT ACROSS CONTROLLERS on a Quest, unlike an Xbox pad — A/B are on the
+right, X/Y on the left:
+
+    trigger  hold to drive (deadman + clutch); release → IDLE and re-anchor
+    Y (left, upper)    E-STOP — unconditional
+    A (right, lower)   arm the deadman session
+    B (right, upper)   disarm
+
+E-STOP is honoured regardless of gate state, tracking, or whether this source holds the input
+token; the Quest's Menu and System buttons are reserved by the runtime and never reach WebXR,
+so they were not candidates. Note the trigger is NOT a panic stop: the human startle reflex is
+to clench, which holds a hold-to-run deadman ON. That is why a discrete E-STOP button and a
+second person both matter.
+
+Because A/B live on the right controller and Y on the left, driving the LEFT arm puts E-STOP
+on the hand that is already holding the trigger and lifecycle on the otherwise-idle hand. The
+cost is that BOTH controllers must be tracked to have every function available.
 """
 from __future__ import annotations
 
@@ -107,7 +124,7 @@ class QuestSource:
         self._tracked = False
         self._trigger = 0.0
         self._anchor: np.ndarray | None = None
-        self._estop_latch = False       # B/Y edge detect
+        self._btn: dict[str, bool] = {}    # rising-edge state per bound button
         self._gate = False
         self._reason = ""
         self._dropped = 0
@@ -212,15 +229,21 @@ class QuestSource:
 
         side = self._drive_hand()
         ctrl = msg.get(side) or {}
-        other = msg.get("right" if side == "left" else "left") or {}
+        left = msg.get("left") or {}
+        right = msg.get("right") or {}
 
-        # E-STOP first and unconditionally, from EITHER controller, before any gating. Rising
-        # edge only, so holding the button does not spam the log.
-        estop_now = bool(ctrl.get("b")) or bool(other.get("b"))
-        if estop_now and not self._estop_latch:
-            _log.error("quest: B/Y pressed — E-STOP.")
-            self.service.trigger_estop("quest-estop")
-        self._estop_latch = estop_now
+        # ── lifecycle buttons ────────────────────────────────────────────────
+        # The Quest replaces the gamepad, so it needs the gamepad's lifecycle buttons. Note
+        # the face buttons are SPLIT ACROSS CONTROLLERS on a Quest, unlike an Xbox pad:
+        # A/B are on the right controller, X/Y on the left. So E-STOP (Y) sits on the hand
+        # that drives, and arm/disarm (A/B) on the hand that is otherwise idle.
+        #
+        # E-STOP first and unconditionally — before any gating, and deliberately NOT dependent
+        # on tracking, the run gate, or whether this source holds the input token. Rising edge
+        # only, so holding the button does not spam the log.
+        self._edge("estop", bool(left.get("b")), self._on_estop)
+        self._edge("arm", bool(right.get("a")), self._on_arm)
+        self._edge("disarm", bool(right.get("b")), self._on_disarm)
 
         self._tracked = bool(ctrl.get("tracked"))
         self._trigger = float(ctrl.get("trigger") or 0.0)
@@ -270,6 +293,42 @@ class QuestSource:
         self._gate = True
         self._reason = ""
         self.service.set_run_gate(True, source=SOURCE)
+
+    # ── buttons ─────────────────────────────────────────────────────────────
+    def _edge(self, name: str, pressed: bool, action) -> None:
+        """Fire `action` on the rising edge of a button. Edge-triggered so a held button acts
+        once, and so a repeated frame (a stuck sender) cannot re-fire it."""
+        if pressed and not self._btn.get(name):
+            try:
+                action()
+            except Exception as exc:                 # noqa: BLE001
+                # A refused action (uncalibrated, wrong state) is normal operator feedback,
+                # not a fault — surface it in the UI rather than killing the frame handler.
+                self._reason = str(exc)
+                _log.info("quest: %s refused (%s)", name, exc)
+        self._btn[name] = pressed
+
+    def _on_estop(self) -> None:
+        _log.error("quest: Y pressed — E-STOP.")
+        self.service.trigger_estop("quest-estop")
+
+    def _on_arm(self) -> None:
+        """A → arm the deadman session. Only when the Quest actually holds the input token:
+        arming a session this source cannot then drive would strand the operator in ARMED
+        with a trigger that does nothing."""
+        if not self._owns():
+            self._reason = "not the active control method"
+            return
+        _log.info("quest: A pressed — arming.")
+        self.service.arm_deadman()
+
+    def _on_disarm(self) -> None:
+        """B → disarm. Allowed regardless of the token: stopping is never gated."""
+        _log.info("quest: B pressed — disarming.")
+        self.service.disarm_deadman()
+
+    def _owns(self) -> bool:
+        return self.service.input_source == SOURCE
 
     # ── periodic ────────────────────────────────────────────────────────────
     def tick(self) -> None:
