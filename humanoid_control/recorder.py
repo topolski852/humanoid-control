@@ -141,7 +141,8 @@ class ArmRunRecorder:
         self._f.write(json.dumps({"_meta": meta}) + "\n")
 
     def record(self, *, engaged: bool, run_gate: bool, sticks, joint_pos, joint_vel,
-               joint_target=None, info=None, speed_mode="normal", xr=None) -> None:
+               joint_target=None, info=None, speed_mode="normal", xr=None,
+               human=None) -> None:
         """Non-blocking. Records every tick, engaged or not — the pre-engage frames show what
         the sticks were doing before motion started, which is where a surprise often begins.
 
@@ -161,6 +162,11 @@ class ArmRunRecorder:
         }
         if joint_target is not None:
             rec["joint_target"] = _l(joint_target)
+        if human:
+            # The OPERATOR's arm angles (shoulder pitch/roll/yaw, elbow, wrist) in degrees,
+            # on the same timeline as joint_pos. Mirroring is only verifiable by comparing
+            # the two directly.
+            rec["human_deg"] = human
         if xr and xr.get("connected"):
             # Only the fields that answer "was the link healthy at this instant" — the whole
             # status dict every tick would bloat the log with constants.

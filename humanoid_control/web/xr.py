@@ -63,6 +63,8 @@ import time
 
 import numpy as np
 
+from ..arm_retarget import human_angles
+
 _log = logging.getLogger(__name__)
 
 SOURCE = "quest"
@@ -125,6 +127,21 @@ class QuestSource:
         self._trigger = 0.0
         self._anchor: np.ndarray | None = None
         self._btn: dict[str, bool] = {}    # rising-edge state per bound button
+        # Body tracking — observation only at this stage (see _note_body).
+        self._body = None
+        self._body_avail = False
+        self._body_usable = False
+        self._body_frames = 0
+        self._body_usable_frames = 0
+        self._seg_upper = 0.0
+        self._seg_fore = 0.0
+        self._body_robot: dict = {}
+        self._human = None
+        self._calib = None          # active CalibrationRun, if any
+        self._profile = None        # operator calibration, loaded at attach
+
+        self._overlay = False       # dom-overlay granted by the headset?
+        self._ctrls: dict = {}      # per-hand tracked/trigger, for diagnosis
         self._gate = False
         self._reason = ""
         self._dropped = 0
@@ -137,8 +154,24 @@ class QuestSource:
     def attach(self) -> None:
         self._connected = True
         self._reset_link("connected")
+        self.reload_profile()
         _log.info("quest: client attached (scale=%.2f, yaw=%.0f deg, trigger>=%.2f)",
                   self.scale, math.degrees(self.yaw), self.trig_thresh)
+
+    def reload_profile(self) -> None:
+        """Pick up the operator profile from disk. Called on attach and after calibration."""
+        try:
+            from ..arm_profile import load
+            self._profile = load()
+            if self._profile is None:
+                _log.warning("quest: NO arm profile — angles carry the tracker's systematic "
+                             "offsets; run the calibration before mirroring.")
+            else:
+                _log.info("quest: arm profile %r loaded (captured %s)",
+                          self._profile.name, self._profile.captured_utc or "?")
+        except Exception as exc:                             # noqa: BLE001
+            self._profile = None
+            _log.error("quest: could not load arm profile (%s)", exc)
 
     def detach(self) -> None:
         """Socket closed. If this source was the deadman for a live session, that is
@@ -159,6 +192,9 @@ class QuestSource:
         self._anchor = None
         self._tracked = False
         self._trigger = 0.0
+        self._body = None
+        self._body_avail = False
+        self._body_usable = False
         self._reason = why
 
     def _release(self, why: str, *, reset_pose: bool = True) -> None:
@@ -245,6 +281,25 @@ class QuestSource:
         self._edge("arm", bool(right.get("a")), self._on_arm)
         self._edge("disarm", bool(right.get("b")), self._on_disarm)
 
+        # Body tracking — OBSERVE ONLY at this stage. Recorded and surfaced so we can
+        # measure what the headset actually delivers before any of it drives a joint;
+        # nothing below reads it for control.
+        self._note_body(msg.get("body"))
+
+        # Record BOTH controllers, not just the driving one. "controller not tracked" is
+        # ambiguous otherwise: it cannot distinguish "the hand you are using is untracked"
+        # from "you are holding the other one".
+        self._ctrls = {}
+        for h in ("left", "right"):
+            c = msg.get(h) or {}
+            self._ctrls[h] = {"tracked": bool(c.get("tracked")),
+                              "trigger": round(float(c.get("trigger") or 0.0), 2),
+                              "present": bool(c),
+                              "mode": c.get("mode"),
+                              "gamepad": c.get("hasGamepad"),
+                              "buttons": c.get("nButtons"),
+                              "hand": c.get("isHand")}
+        self._overlay = bool(msg.get("overlay"))
         self._tracked = bool(ctrl.get("tracked"))
         self._trigger = float(ctrl.get("trigger") or 0.0)
 
@@ -293,6 +348,104 @@ class QuestSource:
         self._gate = True
         self._reason = ""
         self.service.set_run_gate(True, source=SOURCE)
+
+    # ── body tracking (observation only for now) ────────────────────────────
+    # Joints the retargeter will need. Tracked here so "is body tracking good enough on
+    # this device" is answerable from data before any of it is wired to a motor.
+    BODY_REQUIRED = ("chest", "left-shoulder", "left-arm-upper", "left-arm-lower",
+                     "left-hand-wrist-twist", "left-hand-wrist")
+
+    def _note_body(self, body) -> None:
+        """Record body-tracking availability and quality. Never raises, never controls."""
+        if not body:
+            self._body_avail = False
+            self._body = None
+            # Clear the DERIVED values too. Leaving the last segment lengths and `usable`
+            # standing made a dead feed read as live data — status showed plausible 26 cm /
+            # 20 cm arm segments and usable=True while frame.body had been null throughout.
+            # A stale number that looks real is worse than no number.
+            self._body_usable = False
+            self._seg_upper = 0.0
+            self._seg_fore = 0.0
+            self._body_robot = {}
+            self._human = None
+            return
+        self._body_avail = True
+        self._body = body
+        joints = body.get("joints") or {}
+        # "usable" is stricter than "present": a joint the UA had to EMULATE is a guess,
+        # and the whole point of body tracking here is to stop guessing where the elbow is.
+        self._body_usable = all(
+            isinstance(joints.get(n), dict) and not joints[n].get("e")
+            for n in self.BODY_REQUIRED)
+        self._body_frames += 1
+        if self._body_usable:
+            self._body_usable_frames += 1
+        # Convert every joint into the ROBOT frame once, here, so nothing downstream has to
+        # remember which convention it is holding.
+        robot_joints = {}
+        for name, j in joints.items():
+            if isinstance(j, dict) and j.get("p") is not None:
+                try:
+                    robot_joints[name] = {"p": webxr_to_robot(j["p"]).tolist(),
+                                          "e": bool(j.get("e"))}
+                except Exception:                    # noqa: BLE001
+                    pass
+        self._body_robot = robot_joints
+
+        arm = human_angles(robot_joints, side=self._drive_hand())
+        self._human = arm
+        if self._calib is not None:
+            was_done = self._calib.done
+            self._calib.update(arm, robot_joints)
+            if self._calib.done and not was_done:
+                self.reload_profile()
+        if arm is not None:
+            self._seg_upper = arm.upper_len
+            self._seg_fore = arm.fore_len
+
+    # ── in-headset HUD ──────────────────────────────────────────────────────
+    def hud_frame(self) -> dict | None:
+        """What to show the operator inside the headset. ~8 Hz, pushed by server.py.
+
+        This is the ONLY feedback channel while the headset is on: passthrough cameras
+        cannot resolve monitor text, so anything printed to the desktop is invisible
+        exactly when it matters. Keep it short, high-contrast and unambiguous.
+        """
+        if not self._connected:
+            return None
+        if self._calib is not None:
+            return self._calib.hud(self)
+
+        a = self._human
+        if a is None:
+            return {"type": "hud", "tone": "warn",
+                    "instruction": "NO BODY TRACKING",
+                    "note": "enable 'WebXR Experiments' in chrome://flags, restart the browser"}
+        held = self._trigger >= self.trig_thresh
+        return {
+            "type": "hud",
+            "step": "DRIVING" if self._gate else "READY",
+            "instruction": "DRIVING" if self._gate else "hold the trigger",
+            "tone": "ok" if self._gate else "",
+            "live": (f"pitch {math.degrees(a.shoulder_pitch):+6.1f}   "
+                     f"roll {math.degrees(a.shoulder_roll):+6.1f}\n"
+                     f"yaw   {math.degrees(a.shoulder_yaw):+6.1f}   "
+                     f"elbow {math.degrees(a.elbow):5.1f}\n"
+                     f"wrist {math.degrees(a.wrist):+6.1f}"),
+            "progress": round(100.0 * min(self._trigger, 1.0), 0) if held else 0,
+            "note": self._reason or "",
+        }
+
+    def start_calibration(self, seq=None):
+        """Begin the guided calibration. Returns the sequencer."""
+        from .xr_calib import CalibrationRun
+        self._calib = CalibrationRun(seq) if seq else CalibrationRun()
+        _log.info("quest: calibration started")
+        return self._calib
+
+    def cancel_calibration(self) -> None:
+        self._calib = None
 
     # ── buttons ─────────────────────────────────────────────────────────────
     def _edge(self, name: str, pressed: bool, action) -> None:
@@ -386,6 +539,45 @@ class QuestSource:
             "scale": self.scale,
             "yaw_deg": round(math.degrees(self.yaw), 1),
             "dropped": self._dropped,
+            # Body tracking, observation only for now. `usable` means every joint the
+            # retargeter needs was present AND measured rather than emulated.
+            "body": {
+                "available": self._body_avail,
+                "usable": self._body_usable,
+                "present": (self._body or {}).get("present"),
+                "emulated": (self._body or {}).get("emulated"),
+                "usable_pct": (round(100.0 * self._body_usable_frames / self._body_frames, 1)
+                               if self._body_frames else None),
+                "upper_arm_m": round(self._seg_upper, 4) or None,
+                "forearm_m": round(self._seg_fore, 4) or None,
+                # Retargeted arm angles, degrees. OBSERVATION ONLY — nothing commands a
+                # joint from these yet. This is the number that decides whether mirroring
+                # is viable, because it is what a motor would actually receive.
+                # Raw robot-frame joint positions, for diagnosing the decomposition.
+                "raw": {k: [round(c, 4) for c in v["p"]]
+                        for k, v in (self._body_robot or {}).items()},
+                # Same angles the recorder stores, so a run log can be compared joint-for-joint
+            # against what the robot actually did — "how far off was each joint" is
+            # unanswerable otherwise.
+            "angles_deg": (None if self._human is None else {
+                    "shoulder_pitch": round(math.degrees(self._human.shoulder_pitch), 2),
+                    "shoulder_roll": round(math.degrees(self._human.shoulder_roll), 2),
+                    "shoulder_yaw": round(math.degrees(self._human.shoulder_yaw), 2),
+                    "elbow": round(math.degrees(self._human.elbow), 2),
+                    "wrist": round(math.degrees(self._human.wrist), 2),
+                }),
+            },
+            "overlay": self._overlay,
+            # Which operator profile is loaded. Without one the retargeted angles carry the
+            # tracker's systematic offsets (a straight arm reads ~21 deg of elbow bend), so
+            # the UI must be able to say "not calibrated" rather than quietly mis-mapping.
+            "profile": (None if self._profile is None else {
+                "name": self._profile.name,
+                "captured_utc": self._profile.captured_utc,
+                "upper_len_m": round(self._profile.upper_len_m, 3),
+                "fore_len_m": round(self._profile.fore_len_m, 3),
+            }),
+            "controllers": self._ctrls,
             "owns_input": self.service.input_source == SOURCE,
             "reason": self._reason,
         }

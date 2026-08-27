@@ -295,6 +295,61 @@ def deadman_select(request: Request, body: SelectBody):
     return _ok(_service(request).telemetry_snapshot())
 
 
+@router.get("/api/arm_profile", response_model=None)
+def get_arm_profiles(request: Request):
+    """List saved operator calibration profiles."""
+    from ..arm_profile import default_profile_path, load_all
+    profs = load_all()
+    return _ok({"path": str(default_profile_path()),
+                "profiles": {k: {"captured_utc": v.get("captured_utc"),
+                                 "upper_len_m": v.get("upper_len_m"),
+                                 "fore_len_m": v.get("fore_len_m")}
+                             for k, v in profs.items()}})
+
+
+@router.delete("/api/arm_profile/{name}", response_model=None)
+def del_arm_profile(request: Request, name: str):
+    from ..arm_profile import delete
+    if not delete(name):
+        return _err(f"no profile named {name!r}", 404)
+    return _ok({"deleted": name})
+
+
+@router.post("/api/quest/calibrate", response_model=None)
+def quest_calibrate(request: Request):
+    """Start the guided in-headset arm calibration. Prompts appear on the HUD."""
+    svc = _service(request)
+    if svc.quest is None:
+        return _err("Quest bridge not enabled (HUMANOID_QUEST_ENABLE).", 409)
+    if svc.is_motion_active():
+        return _err("Stop the current motion session before calibrating.", 409)
+    svc.quest.start_calibration()
+    return _ok(svc.telemetry_snapshot())
+
+
+@router.get("/api/quest/calibrate", response_model=None)
+def quest_calibrate_status(request: Request):
+    """Poll the calibration run: which pose, whether it finished, and the captures."""
+    svc = _service(request)
+    c = getattr(svc.quest, "_calib", None) if svc.quest else None
+    if c is None:
+        return _ok({"running": False})
+    return _ok({"running": True, "done": c.done,
+                "pose": (c.current.key if c.current else None),
+                "index": c.idx, "total": len(c.seq),
+                "captured": list(c.captured), "note": c.failed_note,
+                "profile": (c.profile() if c.done else None),
+                "summary": c.summary()})
+
+
+@router.delete("/api/quest/calibrate", response_model=None)
+def quest_calibrate_cancel(request: Request):
+    svc = _service(request)
+    if svc.quest is not None:
+        svc.quest.cancel_calibration()
+    return _ok({"running": False})
+
+
 @router.post("/api/input_source", response_model=None)
 def set_input_source(request: Request, body: InputSourceBody):
     """Pick what drives the robot (the Control method card). Refused mid-session."""

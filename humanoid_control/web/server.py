@@ -178,6 +178,38 @@ def _start_tls_listener(host: str):
     return server
 
 
+async def _quest_hud_loop(ws: WebSocket, service: ControlService) -> None:
+    """Push the in-headset HUD at ~8 Hz.
+
+    Separate from the receive loop on purpose: the receive loop feeds the deadman, and a
+    HUD send that blocks (congested link, headset throttling the tab) must never delay it.
+    A failed send ends this task quietly — losing the display is bad, losing the safety
+    path would be worse.
+    """
+    sent = 0
+    errs = 0
+    try:
+        while True:
+            try:
+                frame = service.quest.hud_frame()
+                if frame:
+                    await ws.send_json(frame)
+                    sent += 1
+                    if sent == 1:
+                        _log.info("quest: HUD push started")
+            except Exception as exc:
+                # Log and KEEP GOING. Returning here meant one transient error blanked the
+                # operator's only feedback channel for the rest of the session — which is
+                # exactly what a seq=None bug in the calibration did.
+                errs += 1
+                if errs in (1, 5) or errs % 100 == 0:
+                    _log.warning("quest: HUD push error #%d (%s: %s)",
+                                 errs, type(exc).__name__, exc)
+            await asyncio.sleep(0.125)
+    except asyncio.CancelledError:
+        pass
+
+
 async def _quest_loop(service: ControlService) -> None:
     """Notice Quest SILENCE. The websocket handler only runs when frames arrive, so a link
     that goes quiet is invisible from the receive path — which is the whole failure this
@@ -304,6 +336,10 @@ async def ws_xr(ws: WebSocket) -> None:
         return
     await ws.accept()
     service.quest.attach()
+    # The HUD is the operator's ONLY feedback channel once the headset is on — passthrough
+    # cameras cannot resolve monitor text. Pushed on its own task so a slow or wedged HUD
+    # send can never stall the frame-receive loop that the deadman depends on.
+    hud_task = asyncio.create_task(_quest_hud_loop(ws, service))
     try:
         while True:
             msg = await ws.receive_json()
@@ -315,6 +351,7 @@ async def ws_xr(ws: WebSocket) -> None:
         # fall through to detach(), which E-STOPs if a live session depended on this link.
         _log.warning("quest: websocket error — treating as disconnect.", exc_info=True)
     finally:
+        hud_task.cancel()
         service.quest.detach()
 
 

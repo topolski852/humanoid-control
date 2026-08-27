@@ -403,6 +403,21 @@ class ControlService:
         """Browser heartbeat (kept as the name server.py already calls)."""
         self.mark_source_alive("web")
 
+    def _human_angles(self):
+        """The operator's own arm angles this tick, degrees, or None.
+
+        Recorded alongside the robot's joints so a run log answers "did the robot match my
+        arm" directly, instead of us inferring it from hand positions.
+        """
+        try:
+            q = self.quest
+            a = getattr(q, "_human", None) if q is not None else None
+            if a is None:
+                return None
+            return [round(float(np.degrees(v)), 2) for v in a.as_array()]
+        except Exception:                                # noqa: BLE001
+            return None
+
     def _xr_status(self) -> dict:
         """Quest link status for telemetry and the flight recorder. Never raises — a status
         read must not be able to take down the session that is reading it."""
@@ -1420,7 +1435,8 @@ class ControlService:
                                             joint_pos=q_now, joint_vel=v_now,
                                             joint_target=q_target, info=info,
                                             speed_mode=self._speed_mode,
-                                            xr=self._xr_status())
+                                            xr=self._xr_status(),
+                                            human=self._human_angles())
                     elif not manual:
                         with self._command_lock:
                             runner.command = self._command.copy()
@@ -1447,7 +1463,8 @@ class ControlService:
                                 recorder.record(engaged=False, run_gate=False, sticks=cmd,
                                                 joint_pos=q_now, joint_vel=v_now,
                                                 speed_mode=self._speed_mode,
-                                                xr=self._xr_status())
+                                                xr=self._xr_status(),
+                                                human=self._human_angles())
                             except Exception:
                                 pass          # a log must never break the session
                         time.sleep(0.02)                  # idle damped, waiting for trigger

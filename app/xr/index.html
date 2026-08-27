@@ -50,6 +50,49 @@
             Use <b>Y</b>.</li>
       </ul>
     </main>
+    <!-- In-headset HUD. Rendered by WebXR's dom-overlay feature ON TOP of the passthrough
+         view, because the operator cannot read a monitor through the headset cameras — they
+         are not high enough resolution for text. Everything the operator needs while wearing
+         the headset has to live here. Big, high-contrast, few words. -->
+    <div id="hud" hidden>
+      <div id="hud-step"></div>
+      <div id="hud-instruction">—</div>
+      <div id="hud-count"></div>
+      <div id="hud-bar"><div id="hud-bar-fill"></div></div>
+      <div id="hud-live"></div>
+      <div id="hud-note"></div>
+    </div>
+    <style>
+      /* Sized for passthrough legibility, not for a desktop monitor. */
+      #hud {
+        position: fixed; inset: 0; pointer-events: none;
+        display: flex; flex-direction: column; align-items: center; justify-content: center;
+        gap: 1.5vh; font: 600 2.2vh/1.35 ui-sans-serif, system-ui, sans-serif;
+        text-align: center; color: #fff;
+        text-shadow: 0 2px 6px #000, 0 0 24px #000;
+      }
+      #hud-step { font-size: 2.4vh; color: #93c5fd; letter-spacing: .12em; }
+      #hud-instruction {
+        font-size: 6vh; font-weight: 800; max-width: 80vw; line-height: 1.15;
+        background: rgba(0,0,0,.55); padding: 2.5vh 4vw; border-radius: 2vh;
+        border: 2px solid rgba(255,255,255,.25);
+      }
+      #hud-count { font-size: 9vh; font-weight: 800; font-variant-numeric: tabular-nums; }
+      #hud-bar {
+        width: 56vw; height: 1.6vh; border-radius: 1vh; overflow: hidden;
+        background: rgba(255,255,255,.2); border: 1px solid rgba(255,255,255,.35);
+      }
+      #hud-bar-fill { height: 100%; width: 0%; background: #22c55e; transition: width .1s linear; }
+      #hud-live {
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 2.1vh;
+        background: rgba(0,0,0,.5); padding: 1.2vh 2vw; border-radius: 1vh; white-space: pre;
+      }
+      #hud-note { font-size: 2.1vh; color: #fbbf24; max-width: 70vw; }
+      #hud.ok    #hud-bar-fill { background: #22c55e; }
+      #hud.warn  #hud-bar-fill { background: #fbbf24; }
+      #hud.warn  #hud-instruction { border-color: #fbbf24; }
+      #hud.err   #hud-instruction { border-color: #f87171; }
+    </style>
     <script type="module" src="./main.js"></script>
   </body>
 </html>
