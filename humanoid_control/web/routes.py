@@ -356,7 +356,8 @@ class RestModeBody(BaseModel):
 
 @router.post("/api/rest_mode", response_model=None)
 def set_rest_mode(request: Request, body: RestModeBody):
-    """What the arm does when armed but not driving: 'damping' (default) or 'idle'.
+    """What the arm does when armed but not driving: 'damping' (default, powered braking)
+    or 'idle' (zero torque, limp — the arm will fall).
 
     Allowed mid-session on purpose. It changes nothing that is already resting and never
     touches a driving joint — it decides what the NEXT release does — so refusing it while

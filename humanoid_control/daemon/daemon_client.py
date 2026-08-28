@@ -253,7 +253,11 @@ class DaemonActuatorProxy:
         await loop.run_in_executor(None, self._client.apply_config, self._name, config_dict, 20.0)
 
     async def feed_watchdog(self) -> None:
-        """No-op — daemon feeds watchdogs from its 200 Hz control loop."""
+        """No-op — the daemon feeds ENABLED and DAMPING joints from its 200 Hz loop.
+
+        Nothing feeds IDLE, DISABLED or OFFLINE joints: IDLE is watchdog-dormant
+        (observed, never faults), the other two are unpowered.
+        """
 
     def get_cached_state(self) -> ActuatorState | None:
         """Return the latest telemetry-pushed state without a UDP round-trip.
@@ -904,7 +908,10 @@ class DaemonClient:
         }, timeout=2.0)
 
     def feed_watchdog_generic(self, channel: str, device_id: int) -> None:
-        """Send a heartbeat (watchdog feed) frame to any device_id."""
+        """Nudge a device with NMT IDLE. Named "watchdog" for historical reasons — the
+        daemon-side handler sends NMT MODE_IDLE, not a heartbeat, so this MOVES the
+        motor to IDLE rather than sustaining its current mode. Flash-Wizard only.
+        """
         self._send_command({
             "type": "FEED_WATCHDOG",
             "channel": channel,
@@ -987,7 +994,11 @@ class DaemonClient:
         return result
 
     async def feed_all_watchdogs(self) -> None:
-        """No-op — daemon feeds watchdogs from its 200 Hz control loop."""
+        """No-op — the daemon feeds ENABLED and DAMPING joints from its 200 Hz loop.
+
+        Nothing feeds IDLE, DISABLED or OFFLINE joints: IDLE is watchdog-dormant
+        (observed, never faults), the other two are unpowered.
+        """
 
     async def connect(self) -> None:
         """

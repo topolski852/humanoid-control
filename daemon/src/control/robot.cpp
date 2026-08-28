@@ -170,6 +170,17 @@ void Robot::stop() {
 
 void Robot::control_tick() {
     // 0. Instant E-Stop: checked before anything else in the tick.
+    //
+    // DAMPING, not IDLE. An emergency stop on a limb held out in front of the robot used to
+    // drop it — zero torque, full gravity — which damages the thing the stop was protecting.
+    // DAMPING removes all commanded motion just as completely; it only adds resistance.
+    //
+    // This is safe to depend on precisely because it is inside the control tick: the loop
+    // keeps running through an E-Stop, so tick() keeps feeding these joints (see
+    // Actuator::tick, DAMPING branch). And it fails in the right direction — if the daemon
+    // dies outright and the feed stops, the firmware watchdog expires and the joint ends up
+    // limp, which is exactly the behaviour this line used to have. There is no failure mode
+    // where E-Stop leaves a joint driving.
     if (estop_pending_.load(std::memory_order_acquire)) {
         estop_pending_.store(false, std::memory_order_release);
         for (auto& a : actuators_) {
@@ -177,10 +188,10 @@ void Robot::control_tick() {
             nmt.can_id  = make_arb_id(static_cast<uint8_t>(FuncCode::FUNC_NMT),
                                       static_cast<uint8_t>(a->device_id()));
             nmt.can_dlc = 2;
-            nmt.data[0] = static_cast<uint8_t>(MotorMode::MODE_IDLE);
+            nmt.data[0] = static_cast<uint8_t>(MotorMode::MODE_DAMPING);
             nmt.data[1] = static_cast<uint8_t>(a->device_id());
             bus_mgr_->send(a->can_channel(), nmt);
-            a->request_state(JointState::IDLE);
+            a->request_state(JointState::DAMPING);
         }
     }
 
@@ -781,11 +792,19 @@ std::string Robot::handle_command(const std::string& request) {
         if (device_id < 0 || device_id > 127)
             return error("invalid device_id");
 
-        // Send NMT IDLE instead of FUNC_HEARTBEAT.
-        // FUNC_HEARTBEAT (0x700+id) is the motor's OWN outgoing arb_id — sending on it
-        // from the host causes bus collisions.  NMT uses 0x000+id, which is safe.
-        // The firmware's watchdog only fires in motion modes (not IDLE/DAMPING/DISABLED),
-        // so a true watchdog feed is unnecessary here; NMT IDLE keeps the motor responsive.
+        // MISNOMER: this does not feed a watchdog. It sends NMT IDLE, which knocks the
+        // motor out of whatever mode it was in and into IDLE. It exists for the Flash
+        // Wizard, where "keep the motor responsive" is the actual requirement.
+        //
+        // FUNC_HEARTBEAT (0x700+id) is deliberately not used: that is the motor's OWN
+        // outgoing arb_id, and transmitting on it from the host causes bus collisions.
+        // NMT uses 0x000+id, which is safe.
+        //
+        // Do NOT reach for this to sustain a DAMPING joint. The watchdog DOES fire in
+        // DAMPING (measured; the old comment here claimed otherwise), and the real feed is
+        // the PDO2 that Actuator::tick sends to DAMPING joints. Calling this would idle the
+        // joint AND leave the daemon's own state stale, since it addresses a raw device_id
+        // and bypasses the Actuator state machine entirely.
         can_frame f{};
         f.can_id  = make_arb_id(FUNC_NMT, static_cast<uint8_t>(device_id));
         f.can_dlc = 2;

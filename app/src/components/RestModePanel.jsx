@@ -9,34 +9,30 @@ import { useTelemetry } from '../context/TelemetryContext'
 // which for a 5-DOF arm held out in front of a robot is not resting, it is falling.
 //
 // DAMPING is regenerative braking: the motor resists motion but holds no position target, so
-// the arm sinks slowly instead of dropping. It is the rest state this arm wants.
+// the arm sinks slowly instead of dropping. It is the default.
 //
-// It is NOT the default, and the card says so loudly. Measured on this hardware: with rest set
-// to DAMPING, every armed session E-STOPped within seconds on ERROR_WATCHDOG_TIMEOUT (0x0040)
-// across all five joints. The daemon's Actuator::tick() sends frames only to ENABLED joints, so
-// a damping joint receives nothing and the firmware watchdog expires. docs/HANDOFF.md and two
-// C++ comments claim the watchdog cannot fire in DAMPING; they are out of date, and the arm is
-// the authority.
+// It took a daemon change to become usable. Actuator::tick() used to send PDO2 only while a
+// joint was ENABLED, so a damping joint was fed by nothing and the firmware watchdog expired
+// after 1000 ms — every armed session E-STOPped within seconds on ERROR_WATCHDOG_TIMEOUT.
+// The daemon now feeds DAMPING joints; verified on the arm for 60 s across all five.
 //
-// So IDLE is the default by necessity rather than merit — a limp 5-DOF arm falls. The honest
-// thing is to show both, name what each actually does to this robot, and let the operator pick
-// with their eyes open. When the daemon feeds DAMPING, the default flips and this card keeps
-// working unchanged.
+// IDLE stays available because it is genuinely wanted — a damped joint is unpleasant to
+// back-drive, so hand-positioning the arm, checking free play and re-zeroing all want the
+// motors limp. The point of this card is that going limp is a deliberate choice made here,
+// rather than the default a released trigger silently drops you into.
 
 const MODES = [
   {
     id: 'damping',
     label: 'Damping',
-    blurb: 'Powered braking — the arm resists gravity instead of dropping. NOT USABLE YET on '
-         + 'this firmware: the watchdog trips (0x0040) within a second because the daemon '
-         + 'sends no frames to a damping joint, and the session E-STOPs.',
-    warn: true,
+    blurb: 'Powered braking — the arm resists gravity and sinks slowly instead of dropping. '
+         + 'Also where an E-STOP now leaves it.',
   },
   {
     id: 'idle',
     label: 'Idle',
-    blurb: 'Zero torque — limp and free to move by hand. The arm WILL fall under its own '
-         + 'weight on release. The only rest state this firmware currently sustains.',
+    blurb: 'Zero torque — limp and free to move by hand, and it WILL fall under its own '
+         + 'weight on release. For repositioning or re-zeroing, not for driving.',
   },
 ]
 
@@ -45,7 +41,7 @@ export default function RestModePanel() {
   const [busy, setBusy] = useState(null)
   const [error, setError] = useState(null)
 
-  const active = t.control?.rest || 'idle'   // matches the backend default
+  const active = t.control?.rest || 'damping'   // matches the backend default
   const connected = t.state && t.state !== 'DISCONNECTED'
   const driving = t.state === 'HOLDING' || t.state === 'RUNNING'
 
@@ -62,11 +58,6 @@ export default function RestModePanel() {
         {active === 'idle' && (
           <span className="text-[10px] text-warn" title="the arm is free to fall at rest">
             will fall
-          </span>
-        )}
-        {active === 'damping' && (
-          <span className="text-[10px] text-danger" title="watchdog trips; sessions E-STOP">
-            trips watchdog
           </span>
         )}
       </div>
@@ -105,14 +96,6 @@ export default function RestModePanel() {
         // is the moment the operator has stopped looking at this card.
         <div className="text-[11px] text-warn bg-surface-2/50 rounded-lg px-3 py-2">
           The arm will drop when you release the trigger, lose tracking, or end the session.
-        </div>
-      )}
-
-      {active === 'damping' && (
-        <div className="text-[11px] text-danger bg-surface-2/50 rounded-lg px-3 py-2">
-          Measured on this arm: every armed session E-STOPped within seconds on
-          ERROR_WATCHDOG_TIMEOUT, on all five joints. The daemon only sends frames to ENABLED
-          joints, so nothing feeds a damping one. Needs a daemon fix before this is usable.
         </div>
       )}
 

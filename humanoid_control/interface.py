@@ -90,10 +90,16 @@ class JointGroupInterface:
             self.client.set_mode(name, "IDLE")
 
     def damp(self) -> None:
-        """Set the group to DAMPING: powered viscous resistance — the motor fights
-        motion (hard to back-drive) but holds no position target. This is the 'armed but
-        deadman-released' rest state: safer than IDLE (which is free-to-move / zero torque),
-        without the active position hold of POSITION mode."""
+        """Set the group to DAMPING: powered viscous resistance — the motor fights motion
+        (hard to back-drive) but holds no position target. The default 'armed but
+        deadman-released' rest state, because IDLE is zero torque and a raised limb falls.
+
+        REQUIRES A DAEMON THAT FEEDS IT. The firmware watchdog runs in DAMPING; an unfed
+        joint faults ERROR_WATCHDOG_TIMEOUT (0x0040) in about a second and the session
+        E-STOPs. Actuator::tick() sends DAMPING joints a PDO2 every 10th tick for exactly
+        this reason. Against an older daemon build this method looks like it works and then
+        takes the session down a second later.
+        """
         for name in self.joints:
             self.client.set_mode(name, "DAMPING")
 

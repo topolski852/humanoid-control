@@ -20,7 +20,7 @@ import numpy as np
 class EstopController:
     """Single choke-point for stopping the robot.
 
-    ``trigger()`` fires the daemon priority E-stop (port 9002 → all joints IDLE at the
+    ``trigger()`` fires the daemon priority E-stop (port 9002 → all joints DAMPING at the
     next 200 Hz tick) and latches ``fired``. Optionally installs a SIGINT handler and a
     background keyboard listener so a human can kill motion instantly.
     """
@@ -46,7 +46,7 @@ class EstopController:
         if self._fired.is_set():
             return
         self._fired.set()
-        print(f"\n*** E-STOP ({reason}) → all joints IDLE ***", file=sys.stderr, flush=True)
+        print(f"\n*** E-STOP ({reason}) → all joints DAMPING ***", file=sys.stderr, flush=True)
         try:
             self._client.estop_all()
         except Exception as exc:  # never let estop path raise

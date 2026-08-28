@@ -74,13 +74,19 @@ sudo cp deploy/99-humanoid-input.rules /etc/udev/rules.d/
 sudo udevadm control --reload-rules && sudo udevadm trigger --subsystem-match=input
 sudo usermod -aG input nse          # service must read /dev/input/event*
 ```
-**Operating flow:** connect + calibrate in the web UI → **A** arms (legs → DAMPING, resistive) →
+**Operating flow:** connect + calibrate in the web UI → **A** arms (limbs → the rest state, DAMPING by default) →
 **hold LT or RT** to engage (ramp to default_pose, then run the selected session with the live
 walk command) → **release** to damp → repeat. **Left stick** = forward/left, **right stick X** =
 yaw (0.15 deadband). **B** = hard E-STOP (reconnect in the UI to clear). **Y** = disarm (→ IDLE).
-- **Two safety signals:** releasing a trigger → DAMPING (recoverable); losing the controller
-  entirely (unplug / receiver drop) → **E-STOP** any live session. Damping needs the daemon's
-  `SET_ALL_MODE DAMPING` (this repo's daemon build) — rebuild `daemon/` if you pull an older one.
+- **Two safety signals:** releasing a trigger → the configured **rest state** (recoverable);
+  losing the controller entirely (unplug / receiver drop) → **E-STOP** any live session.
+  E-STOP also lands in DAMPING, so a raised limb resists rather than dropping.
+- **Rest state is DAMPING by default**, selectable per-session on the *Rest state* card
+  (damping / idle). It needs a daemon that FEEDS the firmware watchdog while a joint is
+  damping — `Actuator::tick()` used to send frames only to `ENABLED` joints, and an unfed
+  damping joint faults `ERROR_WATCHDOG_TIMEOUT` (0x0040) within about a second, E-STOPping the
+  session. **Rebuild `daemon/` if you pull an older one**; a stale daemon makes the default
+  rest state unusable rather than merely different.
 - Keep the robot **supported** — the balance loop is unproven; the deadman is a safety, not a net.
 
 ## Notes

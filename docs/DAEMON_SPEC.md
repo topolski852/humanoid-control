@@ -120,16 +120,30 @@ Implemented by `ControlLoop` (`control/control_loop.hpp`), started from
    `on_rx_frame()`; also feed the `GenericListener` (for Flash-Wizard passthrough
    futures/sniffs).
 3. **Tick each actuator** (`Actuator::tick`): apply any pending state change (send
-   NMT), and for `ENABLED` joints send one PDO2 position command. `IDLE`/`OFFLINE`/
-   `CALIBRATING`/`FAULT`/`DISABLED` emit no motion frames.
+   NMT); for `ENABLED` joints send one PDO2 position command every tick; for `DAMPING`
+   joints send one PDO2 at the measured position every 10th tick, purely to feed the
+   firmware watchdog. `IDLE`/`OFFLINE`/`CALIBRATING`/`FAULT`/`DISABLED` emit no PDO —
+   though `IDLE` and `DAMPING` do also get slow-poll SDO telemetry reads.
 
-**Watchdog note (important, differs from earlier plans):** the daemon does **not**
-send `FUNC_HEARTBEAT` frames to IDLE joints. `FUNC_HEARTBEAT` (`0xE`, arb
+**Watchdog note (important, and corrected 2026-08-27 against hardware):** the daemon
+does **not** send `FUNC_HEARTBEAT` frames to any joint. `FUNC_HEARTBEAT` (`0xE`, arb
 `0x700+device_id`) is the *motor's own outgoing* broadcast arb-id; sending on it from
-the host causes bus collisions. The firmware watchdog only fires in motion modes, so
-IDLE joints need no feed. When a "feed" is required for a specific device (Flash
-Wizard), the daemon sends `NMT MODE_IDLE` on arb `0x000+id` instead (see
-`FEED_WATCHDOG`).
+the host causes bus collisions.
+
+This section used to say *"the firmware watchdog only fires in motion modes, so IDLE
+joints need no feed."* The conclusion about IDLE is right; the premise is **wrong** and
+was generalised to DAMPING with expensive results. **The watchdog fires in DAMPING**: an
+unfed DAMPING joint faults `ERROR_WATCHDOG_TIMEOUT` (0x0040) in about a second, measured
+twice on hardware.
+
+**Only a PDO feeds it.** DAMPING joints already receive an SDO read every 100 ms from
+slow-poll and faulted regardless — `FUNC_RECEIVE_SDO` does not reset the counter,
+`FUNC_RECEIVE_PDO_2` does. `Actuator::tick()` therefore sends PDO2 to `ENABLED` joints
+every tick and to `DAMPING` joints every 10th tick (50 ms, vs a 1000 ms timeout).
+
+`FEED_WATCHDOG` is a **misnomer**: it sends `NMT MODE_IDLE` on arb `0x000+id`, which
+knocks the joint out of whatever mode it was in. It is a Flash-Wizard nudge, not a feed,
+and must not be used to sustain DAMPING.
 
 **Slow-poll telemetry:** inside `tick()`, for `ENABLED`/`IDLE` joints the daemon
 round-robins one SDO read per phase across a 60-tick window (~3.3 Hz each at 200 Hz):
@@ -304,7 +318,9 @@ params, unknown command type, or a caught exception).
 | `SHUTDOWN` | — | `ACK`, then graceful stop ~100 ms later |
 
 **`mode` string mapping** (`SET_MODE` / `SET_ALL_MODE`): `"POSITION"` or `"ENABLED"`
-→ `ENABLED`; `"IDLE"` → `IDLE`; `"DISABLED"` → `DISABLED`. Any other value → `ERROR`.
+→ `ENABLED`; `"IDLE"` → `IDLE`; `"DAMPING"` → `DAMPING`; `"DISABLED"` → `DISABLED`. Any
+other value → `ERROR`. (`"DAMPING"` has always been accepted — `robot.cpp` `SET_MODE`
+and `SET_ALL_MODE` — this spec previously omitted it.)
 There is no `SET_TORQUE`/`SET_VELOCITY`/`CALIBRATE` joint-name command in the shipped
 daemon — velocity/torque control and calibration go through the generic passthrough
 commands (§5.3) keyed by `channel`+`device_id`.
@@ -494,9 +510,15 @@ encoder_position_offset, velocity_filter_alpha, watchdog_timeout, fast_frame_fre
   `127.0.0.1:<tel-port>`.
 
 **Graceful shutdown** (`Robot::stop()`): stop the control loop; send `NMT DAMPING` to
-every `ENABLED`/`CALIBRATING` joint; wait 500 ms; send `NMT IDLE` to all joints; wait
-200 ms; stop the UDP servers; join the telemetry thread. (A second signal during this
-window force-exits via `main.cpp`.)
+every `ENABLED`/`CALIBRATING` joint; wait 500 ms **while feeding those joints every
+50 ms**; send `NMT IDLE` to all joints; wait 200 ms; stop the UDP servers; join the
+telemetry thread. (A second signal during this window force-exits via `main.cpp`.)
+
+The feed is not optional. The control loop is stopped *first*, so `tick()` is no longer
+running — the settle wait used to be a bare 500 ms sleep that survived only because it
+was half the 1000 ms watchdog budget. Lengthening it to let a heavier limb come to rest
+would have faulted every joint on every clean shutdown. **The settle time is bounded
+above by `watchdog_timeout` unless it is fed.**
 
 ---
 
@@ -572,5 +594,6 @@ build-out, reframed as-built.
 - [x] Priority E-Stop on 9002 drives all joints IDLE at the next tick
 - [x] Generic passthrough (`GENERIC_SDO_*`, `SNIFF_BUS`, `CALIBRATE_DEVICE`, …) drives
       Flash Wizard commissioning
-- [x] `SIGINT` → DAMPING → IDLE graceful shutdown; second signal force-exits
+- [x] `SIGINT` → DAMPING (fed) → IDLE graceful shutdown; second signal force-exits
+      *(re-verified 2026-08-27: error registers read 0x0000 after shutdown+restart)*
 - [x] No Python-originated CAN frames during normal operation (daemon owns the bus)

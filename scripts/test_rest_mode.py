@@ -7,18 +7,18 @@ The arm rests far more often than it drives: every released trigger, every lost 
 every aborted ramp, every torn-down session. It used to rest in IDLE — zero torque — which
 for a 5-DOF arm is not resting, it is falling.
 
-DAMPING is the right rest state and is NOT yet the default, which needs explaining.
+DAMPING is now the default, and it took a daemon change to get there.
 
-docs/HANDOFF.md and two C++ comments all say the firmware watchdog does not fire in
-IDLE/DISABLED/DAMPING. On this hardware that is out of date. Measured: with rest set to
-DAMPING, every armed session E-STOPped within seconds on ERROR_WATCHDOG_TIMEOUT (0x0040)
-across all five joints. Reading the code rather than the comments says why —
-`Actuator::tick()` calls `send_pdo2` only in ENABLED, so a DAMPING joint receives no frames
-at all and nothing resets the watchdog counter.
+`Actuator::tick()` used to call `send_pdo2` only in ENABLED, so a DAMPING joint received no
+frames at all and the firmware watchdog expired after 1000 ms — every armed session E-STOPped
+within seconds on ERROR_WATCHDOG_TIMEOUT (0x0040), all five joints, twice measured. Polling
+was not the answer either: DAMPING was already in the slow-poll gate getting an SDO read every
+100 ms and faulted regardless, which is how we know only a PDO resets the counter. The daemon
+now feeds DAMPING joints; see scripts/verify_damping_feed.py for the hardware proof.
 
-So the default stays IDLE until the daemon feeds DAMPING, and these tests pin the parts that
-are already right: one code path for every rest transition, both modes reachable, bad input
-refused, and the choice never silently persisted across a restart.
+These tests cover the Python side, which cannot see any of that: one code path for every rest
+transition, both modes reachable, bad input refused, and the choice never silently persisted
+across a restart.
 """
 from __future__ import annotations
 
@@ -62,25 +62,23 @@ def build():
 
 
 def main() -> int:
-    print("\n── the default is the one the firmware can actually hold ───────")
-    # IDLE, and not because it is better — a limp arm falls. Because DAMPING trips
-    # ERROR_WATCHDOG_TIMEOUT on this firmware until the daemon feeds it. See the docstring.
+    print("\n── the default is the one that does not drop the arm ───────────")
     svc = build()
-    check("a fresh service rests in IDLE", svc.rest_mode == "idle", svc.rest_mode)
+    check("a fresh service rests in DAMPING", svc.rest_mode == "damping", svc.rest_mode)
 
     g = SpyGroup()
     svc._rest(g)
-    check("_rest idles by default", g.calls == ["idle"], str(g.calls))
+    check("_rest damps by default", g.calls == ["damp"], str(g.calls))
 
-    print("\n── DAMPING is reachable, for when the daemon feeds it ──────────")
-    svc.set_rest_mode("damping")
-    g = SpyGroup(); svc._rest(g)
-    check("choosing damping makes _rest damp", g.calls == ["damp"], str(g.calls))
-    check("rest_mode reports the choice", svc.rest_mode == "damping")
-
+    print("\n── IDLE is available, but only on request ──────────────────────")
     svc.set_rest_mode("idle")
     g = SpyGroup(); svc._rest(g)
-    check("switching back idles again", g.calls == ["idle"], str(g.calls))
+    check("choosing idle makes _rest go limp", g.calls == ["idle"], str(g.calls))
+    check("rest_mode reports the choice", svc.rest_mode == "idle")
+
+    svc.set_rest_mode("damping")
+    g = SpyGroup(); svc._rest(g)
+    check("switching back damps again", g.calls == ["damp"], str(g.calls))
 
     print("\n── bad input is refused, not coerced ───────────────────────────")
     for bad in ("DAMPING", "Idle", "brake", "", "none", "hold"):
@@ -89,28 +87,27 @@ def main() -> int:
             check(f"{bad!r} is refused", False, "accepted")
         except ControlError as exc:
             check(f"{bad!r} is refused", exc.status == 400, str(exc))
-    check("a refused change leaves the mode untouched", svc.rest_mode == "idle",
+    check("a refused change leaves the mode untouched", svc.rest_mode == "damping",
           svc.rest_mode)
 
     print("\n── it survives being set to what it already is ─────────────────")
-    svc.set_rest_mode("idle")
+    svc.set_rest_mode("damping")
     g = SpyGroup(); svc._rest(g)
-    check("setting the current mode is a no-op, not a reset", g.calls == ["idle"])
+    check("setting the current mode is a no-op, not a reset", g.calls == ["damp"])
 
     print("\n── the telemetry the UI card reads ─────────────────────────────")
     snap = svc.telemetry_snapshot()
     ctl = snap.get("control") or {}
-    check("control block carries 'rest'", ctl.get("rest") == "idle", str(ctl.get("rest")))
-    svc.set_rest_mode("damping")
+    check("control block carries 'rest'", ctl.get("rest") == "damping", str(ctl.get("rest")))
+    svc.set_rest_mode("idle")
     check("...and it tracks changes",
-          (svc.telemetry_snapshot().get("control") or {}).get("rest") == "damping")
+          (svc.telemetry_snapshot().get("control") or {}).get("rest") == "idle")
 
     print("\n── a restart returns to the default ────────────────────────────")
-    # Deliberately not persisted, in both directions. Right now that means a restart cannot
-    # leave you in the mode that E-STOPs; once the daemon feeds DAMPING and the default flips,
-    # it will mean a restart cannot leave you with an arm that falls.
-    svc.set_rest_mode("damping")
-    check("a new service does not inherit the last choice", build().rest_mode == "idle")
+    # Deliberately not persisted. An operator who went limp once to reposition the arm would
+    # otherwise get a falling arm on the next boot, with nothing on screen to explain why.
+    svc.set_rest_mode("idle")
+    check("a new service does not inherit the last choice", build().rest_mode == "damping")
 
     print("\n── the interface really has both, spelled as expected ──────────")
     from humanoid_control.interface import JointGroupInterface

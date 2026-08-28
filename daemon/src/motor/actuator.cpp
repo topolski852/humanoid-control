@@ -299,8 +299,11 @@ void Actuator::tick(CanBusManager& bus) {
                 nmt.data[1] = static_cast<uint8_t>(cfg_.device_id);
                 send_nmt = true;
             } else if (target == JointState::DAMPING) {
-                // Powered viscous damping. Firmware holds MODE_DAMPING autonomously until the
-                // next NMT, so (like IDLE) no per-tick frame is needed after this transition.
+                // Powered viscous damping. The firmware holds MODE_DAMPING until the next
+                // NMT, but NOT unattended: its watchdog runs in this mode, so tick() must
+                // keep feeding the joint a PDO2 or it faults ERROR_WATCHDOG_TIMEOUT in about
+                // a second. See the DAMPING branch further down. (This comment used to say
+                // no per-tick frame was needed; that was measured wrong, twice.)
                 // Reachable from ENABLED (deadman released) or IDLE (arm).
                 nmt.data[0] = static_cast<uint8_t>(MotorMode::MODE_DAMPING);
                 nmt.data[1] = static_cast<uint8_t>(cfg_.device_id);

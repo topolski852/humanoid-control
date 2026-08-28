@@ -147,19 +147,19 @@ class ControlService:
         # REST STATE when a session is armed but not driving: trigger released, tracking
         # lost, ramp aborted, session torn down.
         #
-        # IDLE, and NOT because it is the better rest state — it is not; a limp 5-DOF arm
-        # falls. It is because DAMPING is not usable on this firmware without a daemon-side
-        # change. MEASURED, not assumed: with rest set to DAMPING every armed session
-        # E-STOPped within seconds on ERROR_WATCHDOG_TIMEOUT (0x0040) across all five joints.
-        # The firmware watchdog DOES run in DAMPING here, and nothing feeds it — tick() emits
-        # frames only in ENABLED.
+        # DAMPING. A limp 5-DOF arm does not rest, it falls, and it rests far more often than
+        # it drives.
         #
-        # docs/HANDOFF.md and two C++ comments all state the watchdog does not fire in
-        # IDLE/DISABLED/DAMPING. They are out of date. The hardware is the authority.
+        # This required a daemon change to be possible at all: Actuator::tick() used to send
+        # PDO2 only while ENABLED, so a DAMPING joint was fed by nothing and the firmware
+        # watchdog expired after 1000 ms. Setting this to "damping" before that fix E-STOPped
+        # every armed session within seconds on ERROR_WATCHDOG_TIMEOUT (0x0040). The daemon
+        # now feeds DAMPING joints; verified on the arm with
+        # scripts/verify_damping_feed.py — 60 s, five joints, no errors, no state drift.
         #
-        # See set_rest_mode: DAMPING stays selectable, because it is exactly right the moment
-        # the daemon feeds it, and the operator may want it on a bench with the arm supported.
-        self._rest_mode = "idle"
+        # Deliberately NOT persisted: a restart returns to the safe choice rather than
+        # silently inheriting whatever the last operator picked.
+        self._rest_mode = "damping"
 
         # Gamepad presence for the UI (updated by GamepadDeadman). "enabled" reflects whether the
         # gamepad deadman thread is running at all (HUMANOID_GAMEPAD_ENABLE).
@@ -1170,8 +1170,9 @@ class ControlService:
         """What the arm does when armed but not driving.
 
         DAMPING is regenerative braking: the motor resists motion but holds no target. It is
-        the firmware's OWN fail-safe — the watchdog drops a motor into DAMPING when its
-        commands stop — so it is sustainable indefinitely and needs no feed.
+        sustainable only because the daemon feeds the firmware watchdog while a joint is in
+        it (Actuator::tick, DAMPING branch). It is NOT self-sustaining — an unfed DAMPING
+        joint faults ERROR_WATCHDOG_TIMEOUT in about a second.
 
         IDLE is zero torque. A 5-DOF arm in IDLE does not rest, it FALLS, at whatever speed
         gravity and its own inertia allow. That is fine for a leg sitting on a stand and
@@ -1460,12 +1461,11 @@ class ControlService:
         try:
             # ARMED rest. DAMPING by default: the arm holds itself instead of dropping.
             #
-            # The comment that used to sit here said DAMPING faults the firmware watchdog in
-            # ~1 s because it is not daemon-fed, and it had the relationship backwards. The
-            # watchdog does not fire in DAMPING — DAMPING is where the watchdog PUTS a motor
-            # when its commands stop (docs/HANDOFF.md: "the firmware drops to MODE_DAMPING
-            # and sets ERROR_WATCHDOG_TIMEOUT ... The watchdog does not fire in
-            # IDLE/DISABLED/DAMPING"). It needs no feed and holds indefinitely.
+            # Two wrong comments stood here before this one, in both directions, and the
+            # honest version is: the firmware watchdog DOES run in DAMPING, and the daemon
+            # feeds it (Actuator::tick). Neither half is optional. docs/HANDOFF.md still
+            # claims the watchdog cannot fire in DAMPING; that claim cost this repo the same
+            # bug twice, and the hardware is the authority.
             self._rest(group)
             if manual:
                 # Disable the firmware position clamp for the whole armed session so a trigger-
@@ -1527,7 +1527,7 @@ class ControlService:
                             # and the arm would oscillate IDLE<->POSITION at tick rate. This
                             # clear is the motor-side backstop for that, not the mechanism.
                             if self.quest.body_lost_too_long():
-                                _log.warning("arm teleop: body tracking lost — releasing to IDLE.")
+                                _log.warning("arm teleop: body tracking lost — releasing to rest.")
                                 self._run_gate.clear()
                         elif pose_mode:
                             # No fresh sample yet (or the source dropped it) means HOLD, not

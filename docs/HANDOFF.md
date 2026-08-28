@@ -1,5 +1,19 @@
 # Humanoid Studio — Technical Reference
 
+> **READ THIS FIRST.** This document was imported from the `humanoid-studio` project at
+> scaffold time and has been edited exactly once since (this note, plus the watchdog
+> corrections below). Treat it as a starting point, not as authority:
+>
+> * Paths it cites — `backend/`, `MEMORY.md`, `/home/nse/Recoil-Motor-Controller-BESC/` — do
+>   **not exist** in this repo. The live client is `humanoid_control/daemon/daemon_client.py`.
+> * Every *"Verified from: `motor_controller.c` / `app.c`"* note refers to firmware source that
+>   is **not in this repo or on this machine**. Those claims are unverifiable here, and at
+>   least one of them was flatly wrong (see Watchdog, below).
+> * **When this document and the hardware disagree, the hardware wins.** When it and the code
+>   disagree, the code wins. Believing this file over the arm has already cost the same bug
+>   twice.
+
+
 **Audience:** an engineer about to write **new robot-control code** (e.g. a learned-policy
 runner) against the Berkeley Humanoid Lite ESC firmware + control daemon in this repo.
 
@@ -93,7 +107,7 @@ Firmware source of record is the new repo **`humanoid-esc-firmware`**
 |---|---|---|
 | `MODE_DISABLED` | `0x00` | PWM off, motor coasts. **Boot default** (v3.2.0 boots DISABLED, silent — no heartbeat, no PDO4, watchdog off). Must be woken to IDLE before it will accept SDO writes or mode changes. |
 | `MODE_IDLE` | `0x01` | PWM enabled, zero torque, safe. Accepts SDO. |
-| `MODE_DAMPING` | `0x02` | Regenerative braking. The watchdog timeout drops the motor here. |
+| `MODE_DAMPING` | `0x02` | Regenerative braking. **The watchdog runs in this mode** — an unfed DAMPING joint faults `ERROR_WATCHDOG_TIMEOUT` in ~1 s. The daemon feeds it (`Actuator::tick`). |
 | `MODE_CALIBRATION` | `0x05` | Runs the autonomous encoder flux-offset sweep. |
 | `MODE_CURRENT` | `0x10` | Direct d/q current command. |
 | `MODE_TORQUE` | `0x11` | Direct torque command. |
@@ -166,11 +180,26 @@ The daemon decodes with `(fw>>24, fw>>16, fw>>8) & 0xFF`. Read via SDO param
 
 The firmware runs a safety watchdog timer (`htim2`, autoreload = `watchdog_timeout*10 − 1`;
 `watchdog_timeout` = **1000 ms** by default). Any of `FUNC_RECEIVE_PDO_1/2/3` (0x4/0x6/0x8)
-**or** `FUNC_HEARTBEAT` (0xE) resets the counter. If nothing arrives within the timeout **and
-the motor is in a motion mode**, the firmware drops to `MODE_DAMPING` and sets
-`ERROR_WATCHDOG_TIMEOUT`. The watchdog does **not** fire in IDLE/DISABLED/DAMPING.
-**Verified from:** `motor_controller.c` (htim2 setup + PDO/heartbeat `__HAL_TIM_SET_COUNTER`),
-`app.c` (`MODE_DAMPING` + `ERROR_WATCHDOG_TIMEOUT` on timeout).
+**or** `FUNC_HEARTBEAT` (0xE) resets the counter. If nothing arrives within the timeout the
+firmware sets `ERROR_WATCHDOG_TIMEOUT`.
+
+> **CORRECTED 2026-08-27, on hardware.** This section used to say *"the watchdog does not fire
+> in IDLE/DISABLED/DAMPING"* and that the timeout only applies *"in a motion mode"*. **The
+> watchdog DOES fire in DAMPING.** An unfed DAMPING joint faults `0x0040` in about a second —
+> measured twice on this robot, five joints, every time (2026-07-14 and 2026-08-27). That
+> sentence was quoted as the justification for a change that had to be reverted eight minutes
+> later; it has cost this repo the same bug twice. **Only IDLE is confirmed watchdog-dormant**,
+> and that by observation rather than by firmware source. DISABLED is untested.
+>
+> **A PDO is what feeds it — polling is not.** DAMPING joints already receive an SDO read every
+> 100 ms from the daemon's slow-poll and faulted anyway. `FUNC_RECEIVE_SDO` does not reset the
+> counter; `FUNC_RECEIVE_PDO_2` does.
+>
+> The daemon now feeds DAMPING joints (`Actuator::tick`, DAMPING branch), which is what makes
+> DAMPING usable as a rest state at all. See `scripts/verify_damping_feed.py`.
+
+**Claimed from** (NOT verifiable in this repo — see the header note): `motor_controller.c`
+(htim2 setup + PDO/heartbeat `__HAL_TIM_SET_COUNTER`), `app.c`.
 
 > When a joint is ENABLED, the daemon's 200 Hz tick sends a PDO2 every cycle, which feeds the
 > firmware watchdog for you. You never feed it manually.
@@ -408,7 +437,7 @@ response). Commands are UDP JSON with an added `"id"` for request/response match
 | `get_state(joint_name)` | `GET_STATE` | fresh state for one joint (`resp["state"]`) |
 | `get_all_states_raw()` | `GET_ALL_STATES` | all joints (`resp["states"]`) |
 | `get_cached_joint_state(name)` | — (reads telemetry cache) | no round-trip |
-| `set_mode(name, mode)` | `SET_MODE` | `mode` is a string: `"POSITION"`, `"IDLE"`, `"DISABLED"`, … |
+| `set_mode(name, mode)` | `SET_MODE` | `mode` is a string: `"POSITION"`, `"IDLE"`, `"DAMPING"`, `"DISABLED"`, … |
 | `set_all_mode(mode)` | `SET_ALL_MODE` | all joints |
 | `set_position(name, position_rad)` | `SET_POSITION` | display-frame rad target |
 | `clear_error(name)` | `CLEAR_ERROR` | zero the error register |
@@ -499,7 +528,7 @@ Notes:
 - `set_*` / `get_state` are **blocking** UDP calls; in a hot async loop prefer
   `get_cached_joint_state()` (reads the telemetry cache) and wrap blocking calls in
   `run_in_executor` if you need them.
-- You do not feed watchdogs; the daemon does while a joint is ENABLED.
+- You do not feed watchdogs; the daemon does, while a joint is **ENABLED or DAMPING**. Nothing feeds IDLE/DISABLED/OFFLINE — IDLE is watchdog-dormant, the others are unpowered.
 - To stop: `set_mode(..., "IDLE")` for a clean stop, or `estop_all()` for the priority path.
 
 ### 6.4 Actuator state machine (daemon-side)
@@ -521,7 +550,9 @@ OFFLINE ──(PDO4/heartbeat seen)──► IDLE ──(SET_MODE POSITION)─�
   enabling. Firmware silently drops SDO writes while DISABLED.
 - ENABLED sends a PDO2 every 200 Hz tick (position hold or your last `SET_POSITION`).
 - OFFLINE detection: no PDO4 **or** heartbeat for **1500 ms** (daemon side). The **firmware**
-  watchdog (→ DAMPING) is separate, at **1000 ms** of no PDO/heartbeat in a motion mode.
+  watchdog is separate, at **1000 ms** of no PDO — in **any powered mode including DAMPING**,
+  not only motion modes. Note the daemon-side OFFLINE timer does **not** exempt DAMPING, so a
+  joint dropped to OFFLINE stops being fed and will then genuinely fault.
 
 ### 6.5 Calibration workflow (three distinct offsets — don't conflate them)
 
