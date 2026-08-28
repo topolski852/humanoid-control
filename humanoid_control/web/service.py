@@ -144,6 +144,11 @@ class ControlService:
         # bench arm comes up in arm mode without anyone pressing Select.
         self._control_mode = "arm" if self._layout.arms else "leg"
         self._speed_mode = "normal"
+        # REST STATE when a session is armed but not driving: trigger released, tracking
+        # lost, ramp aborted, session torn down. DAMPING by default — see set_rest_mode.
+        # Deliberately NOT persisted: a restart returns to the safe choice rather than
+        # silently inheriting whatever the last operator picked.
+        self._rest_mode = "damping"
 
         # Gamepad presence for the UI (updated by GamepadDeadman). "enabled" reflects whether the
         # gamepad deadman thread is running at all (HUMANOID_GAMEPAD_ENABLE).
@@ -355,6 +360,7 @@ class ControlService:
                 "mode": self._control_mode,
                 "modes": self.available_control_modes(),
                 "speed": self._speed_mode,
+                "rest": self._rest_mode,
                 "limb": self._selected.get("limb"),
                 "arms": list(self._layout.arms),
                 "capabilities": list(self._layout.capabilities),
@@ -1145,6 +1151,47 @@ class ControlService:
         self._speed_mode = mode
         _log.info("speed mode: %s", mode)
 
+    @property
+    def rest_mode(self) -> str:
+        return self._rest_mode
+
+    def set_rest_mode(self, mode: str) -> None:
+        """What the arm does when armed but not driving.
+
+        DAMPING is regenerative braking: the motor resists motion but holds no target. It is
+        the firmware's OWN fail-safe — the watchdog drops a motor into DAMPING when its
+        commands stop — so it is sustainable indefinitely and needs no feed.
+
+        IDLE is zero torque. A 5-DOF arm in IDLE does not rest, it FALLS, at whatever speed
+        gravity and its own inertia allow. That is fine for a leg sitting on a stand and
+        actively bad for an arm held out in front of a robot.
+
+        This is settable rather than fixed because IDLE is genuinely wanted sometimes — you
+        cannot back-drive a damped joint comfortably, so hand-positioning the arm, checking
+        free play, or re-zeroing all want the motors limp. It is a deliberate choice made at
+        the console, not the default that a released trigger silently drops you into.
+
+        Takes effect at the next rest transition; it does not disturb a joint that is already
+        resting, and never touches a driving one.
+        """
+        if mode not in ("damping", "idle"):
+            raise ControlError("rest mode must be 'damping' or 'idle'.", 400)
+        if mode != self._rest_mode:
+            _log.info("rest mode: %s -> %s", self._rest_mode, mode)
+        self._rest_mode = mode
+
+    def _rest(self, group) -> None:
+        """Put a group into the configured rest state.
+
+        One place, so a released trigger, a lost tracker, an aborted ramp and a torn-down
+        session cannot drift apart. They were four separate `group.idle()` calls, and every
+        one of them carried the same wrong comment about the watchdog.
+        """
+        if self._rest_mode == "idle":
+            group.idle()
+        else:
+            group.damp()
+
     def available_control_modes(self) -> list[str]:
         """Modes this layout supports. A machine with no legs never offers leg control."""
         modes = []
@@ -1400,8 +1447,15 @@ class ControlService:
                 _log.warning("arm run log unavailable (%s) — continuing without it.", exc)
 
         try:
-            group.idle()   # ARMED rest = IDLE (zero-torque). DAMPING faults the firmware
-            # watchdog in ~1s (not daemon-fed) — see notes; IDLE is dormant + safe.
+            # ARMED rest. DAMPING by default: the arm holds itself instead of dropping.
+            #
+            # The comment that used to sit here said DAMPING faults the firmware watchdog in
+            # ~1 s because it is not daemon-fed, and it had the relationship backwards. The
+            # watchdog does not fire in DAMPING — DAMPING is where the watchdog PUTS a motor
+            # when its commands stop (docs/HANDOFF.md: "the firmware drops to MODE_DAMPING
+            # and sets ERROR_WATCHDOG_TIMEOUT ... The watchdog does not fire in
+            # IDLE/DISABLED/DAMPING"). It needs no feed and holds indefinitely.
+            self._rest(group)
             if manual:
                 # Disable the firmware position clamp for the whole armed session so a trigger-
                 # engage holds any hand-set pose (even outside soft limits). Restored in finally.
@@ -1433,7 +1487,7 @@ class ControlService:
                                 should_abort=lambda: self._stop_evt.is_set() or not self._run_gate.is_set())
                             if not ok:
                                 if not (self.estop.fired or self._stop_evt.is_set()):
-                                    group.idle()              # released mid-ramp → rest (IDLE, not DAMPING: watchdog)
+                                    self._rest(group)         # released mid-ramp → rest
                                     with self._lock:
                                         self._state = SessionState.ARMED
                                 continue
@@ -1496,7 +1550,7 @@ class ControlService:
                         next_tick = time.monotonic()
                 else:
                     if engaged:
-                        group.idle()                      # trigger released → rest (IDLE, not DAMPING: watchdog)
+                        self._rest(group)                 # trigger released → rest
                         engaged = False
                         with self._lock:
                             self._state = SessionState.ARMED
@@ -1521,9 +1575,12 @@ class ControlService:
             self.trigger_estop("deadman-fault")
         finally:
             try:
-                group.idle()   # leaving the session → free (IDLE), disarmed
+                # Leaving the session. Still the configured rest state: an arm that drops
+                # the moment you disarm is the same hazard as one that drops on a released
+                # trigger. Use the rest-mode control to go limp on purpose.
+                self._rest(group)
             except Exception as exc:
-                _log.warning("idle after deadman session failed: %s", exc)
+                _log.warning("rest after deadman session failed: %s", exc)
             if manual:
                 self._restore_position_limits()   # re-arm the firmware clamp
             if recorder is not None:

@@ -20,7 +20,7 @@ function read() {
     const raw = localStorage.getItem(KEY)
     if (raw) {
       const parsed = JSON.parse(raw)
-      if (parsed?.tabs?.length) return migrateV2(parsed)
+      if (parsed?.tabs?.length) return migrateV3(migrateV2(parsed))
     }
     const legacy = localStorage.getItem(LEGACY_KEY)
     if (legacy) return migrateV1(JSON.parse(legacy))
@@ -56,6 +56,27 @@ function migrateV1(old) {
   return next
 }
 
+/** INSERT a card directly below an existing one, preserving every other position.
+ *
+ *  Shared by the migrations because they all want the same thing: add a card without
+ *  rearranging a layout somebody chose. Anything lower IN THE SAME COLUMN is pushed down;
+ *  other columns are untouched. Returns false if the anchor is not on this tab, so the
+ *  caller can decide on a fallback rather than silently dropping the card.
+ */
+function insertBelow(tab, anchorType, card) {
+  const anchor = tab.cards.find((c) => c.type === anchorType)
+  if (!anchor) return false
+  if (tab.cards.some((c) => c.type === card.type)) return true   // already present
+  const y = anchor.y + anchor.h
+  for (const c of tab.cards) {
+    if (c !== anchor && c.y >= y && c.x < anchor.x + anchor.w && c.x + c.w > anchor.x) {
+      c.y += card.h
+    }
+  }
+  tab.cards.push({ ...card, x: anchor.x, y, w: anchor.w })
+  return true
+}
+
 /** v2 → v3: the Control card lost its motion section to the new Control method card.
  *
  *  Until now `version` was decorative — it was written and never read, so a saved layout came
@@ -73,22 +94,6 @@ function migrateV2(layout) {
   if ((layout.version ?? 2) >= 3) return layout
   const next = clone(layout)
   next.version = 3
-
-  const insertBelow = (tab, anchorType, card) => {
-    const anchor = tab.cards.find((c) => c.type === anchorType)
-    if (!anchor) return false
-    if (tab.cards.some((c) => c.type === card.type)) return true   // already present
-    const y = anchor.y + anchor.h
-    // Push down anything below the anchor IN THE SAME COLUMN. Cards in other columns keep
-    // their position — shifting the whole tab would rearrange a layout the user chose.
-    for (const c of tab.cards) {
-      if (c !== anchor && c.y >= y && c.x < anchor.x + anchor.w && c.x + c.w > anchor.x) {
-        c.y += card.h
-      }
-    }
-    tab.cards.push({ ...card, x: anchor.x, y, w: anchor.w })
-    return true
-  }
 
   let placedMethod = false
   for (const tab of next.tabs) {
@@ -108,6 +113,40 @@ function migrateV2(layout) {
       key: 'control-method#1', type: 'control-method', title: 'Control method',
       x: 0, y: maxY, w: 4, h: 8, props: {},
     })
+  }
+  return next
+}
+
+/** v3 → v4: the arm now rests in DAMPING, and the choice is the operator's.
+ *
+ *  Rest used to be IDLE — zero torque — on every released trigger, lost tracker and ended
+ *  session. For a 5-DOF arm that is not resting, it is falling. The default is now damped
+ *  braking, and IDLE moved behind a deliberate choice on the Rest state card.
+ *
+ *  The card has to be INSERTED into saved layouts rather than merely added to the catalog:
+ *  the backend default changed underneath everyone, so an operator who wants the old limp
+ *  behaviour back needs somewhere to ask for it. Leaving them with no card would mean a
+ *  behaviour change and no visible control over it.
+ */
+function migrateV3(layout) {
+  if ((layout.version ?? 3) >= 4) return layout
+  const next = clone(layout)
+  next.version = 4
+
+  const card = { key: 'rest-mode#1', type: 'rest-mode', title: 'Rest state', h: 6, props: {} }
+  let placed = false
+  for (const tab of next.tabs) {
+    if (!Array.isArray(tab.cards)) continue
+    // Below Control method where that exists, else below Control — both put it with the
+    // other things that decide what the robot does when you let go.
+    if (insertBelow(tab, 'control-method', { ...card })
+        || insertBelow(tab, 'control-panel', { ...card })) {
+      placed = true
+    }
+  }
+  if (!placed && next.tabs[0]?.cards) {
+    const maxY = next.tabs[0].cards.reduce((m, c) => Math.max(m, c.y + c.h), 0)
+    next.tabs[0].cards.push({ ...card, x: 0, y: maxY, w: 4 })
   }
   return next
 }

@@ -50,6 +50,37 @@ function migrateV2(layout) {
   return next
 }
 
+function migrateV3(layout) {
+  if ((layout.version ?? 3) >= 4) return layout
+  const next = clone(layout)
+  next.version = 4
+  const insertBelow = (tab, anchorType, card) => {
+    const anchor = tab.cards.find((c) => c.type === anchorType)
+    if (!anchor) return false
+    if (tab.cards.some((c) => c.type === card.type)) return true
+    const y = anchor.y + anchor.h
+    for (const c of tab.cards) {
+      if (c !== anchor && c.y >= y && c.x < anchor.x + anchor.w && c.x + c.w > anchor.x) {
+        c.y += card.h
+      }
+    }
+    tab.cards.push({ ...card, x: anchor.x, y, w: anchor.w })
+    return true
+  }
+  const card = { key: 'rest-mode#1', type: 'rest-mode', title: 'Rest state', h: 6, props: {} }
+  let placed = false
+  for (const tab of next.tabs) {
+    if (!Array.isArray(tab.cards)) continue
+    if (insertBelow(tab, 'control-method', { ...card })
+        || insertBelow(tab, 'control-panel', { ...card })) placed = true
+  }
+  if (!placed && next.tabs[0]?.cards) {
+    const maxY = next.tabs[0].cards.reduce((m, c) => Math.max(m, c.y + c.h), 0)
+    next.tabs[0].cards.push({ ...card, x: 0, y: maxY, w: 4 })
+  }
+  return next
+}
+
 const types = (tab) => tab.cards.map((c) => c.type)
 const byType = (tab, t) => tab.cards.find((c) => c.type === t)
 
@@ -160,6 +191,77 @@ check('a v2 layout with multiple tabs gets the card on the RIGHT tab', () => {
   const r = migrateV2(multi)
   assert.ok(!types(r.tabs[0]).includes('control-method'), 'placed on the wrong tab')
   assert.ok(types(r.tabs[1]).includes('control-method'))
+})
+
+
+console.log('\n── v3 → v4: the Rest state card ─────────────────────────────────')
+
+// The behaviour change this accompanies is invisible: the backend now damps at rest instead
+// of going limp. An operator who wants the old behaviour has no way to ask for it unless the
+// card actually lands in their saved layout, so "the card is present" is the real assertion.
+const v3in = migrateV2(v2)
+const v4 = migrateV3(v3in)
+const tab4 = v4.tabs[0]
+
+check('adds the Rest state card', () => assert.ok(types(tab4).includes('rest-mode')))
+check('stamps version 4', () => assert.equal(v4.version, 4))
+check('keeps every card v3 had', () =>
+  assert.ok(types(v3in.tabs[0]).every((t) => types(tab4).includes(t))))
+check('does not mutate the input', () =>
+  assert.ok(!types(v3in.tabs[0]).includes('rest-mode')))
+check('sits directly below Control method', () => {
+  const m = byType(tab4, 'control-method'), r = byType(tab4, 'rest-mode')
+  assert.equal(r.y, m.y + m.h)
+  assert.equal(r.x, m.x)
+})
+check('pushes the column below it down rather than overlapping', () => {
+  const r = byType(tab4, 'rest-mode'), g = byType(tab4, 'gamepad')
+  assert.ok(g.y >= r.y + r.h, `gamepad y=${g.y} vs rest bottom ${r.y + r.h}`)
+})
+check('a card in another column keeps its position', () => {
+  const j = byType(tab4, 'joint-table')
+  assert.equal(j.x, 4); assert.equal(j.y, 0)
+})
+check('no two cards in a column overlap', () => {
+  const col = tab4.cards.filter((c) => c.x === 0).sort((a, b) => a.y - b.y)
+  for (let i = 1; i < col.length; i++) {
+    assert.ok(col[i].y >= col[i - 1].y + col[i - 1].h,
+      `${col[i - 1].type} and ${col[i].type} overlap`)
+  }
+})
+check('running it twice changes nothing', () =>
+  assert.deepEqual(migrateV3(migrateV3(v3in)), v4))
+check('an already-v4 layout is returned untouched', () => {
+  const already = { version: 4, tabs: [{ id: 'x', cards: [] }] }
+  assert.equal(migrateV3(already), already)
+})
+check('falls back to Control when there is no Control method card', () => {
+  const noMethod = { version: 3, tabs: [{ id: 'c', cards: [
+    { key: 'control-panel#1', type: 'control-panel', x: 0, y: 0, w: 4, h: 8, props: {} },
+  ] }] }
+  const t = migrateV3(noMethod).tabs[0]
+  assert.ok(types(t).includes('rest-mode'))
+  assert.equal(byType(t, 'rest-mode').y, 8)
+})
+check('never leaves the card unreachable when neither anchor exists', () => {
+  const orphan = { version: 3, tabs: [{ id: 'c', cards: [
+    { key: 'imu#1', type: 'imu', x: 0, y: 0, w: 4, h: 4, props: {} },
+  ] }] }
+  assert.ok(types(migrateV3(orphan).tabs[0]).includes('rest-mode'))
+})
+check('does not duplicate a card that is already there', () => {
+  const twice = migrateV3({ ...clone(v4), version: 3 })
+  assert.equal(twice.tabs[0].cards.filter((c) => c.type === 'rest-mode').length, 1)
+})
+check('a tab with no cards array is skipped, not fatal', () => {
+  const odd = { version: 3, tabs: [{ id: 'a' }, { id: 'b', cards: [
+    { key: 'control-panel#1', type: 'control-panel', x: 0, y: 0, w: 4, h: 8, props: {} },
+  ] }] }
+  assert.ok(types(migrateV3(odd).tabs[1]).includes('rest-mode'))
+})
+check('card keys stay unique', () => {
+  const keys = tab4.cards.map((c) => c.key)
+  assert.equal(new Set(keys).size, keys.length)
 })
 
 console.log(`\n${n} passed, 0 failed`)

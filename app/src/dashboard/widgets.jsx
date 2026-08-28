@@ -1,5 +1,6 @@
 import ControlPanel from '../components/ControlPanel'
 import ControlMethodPanel from '../components/ControlMethodPanel'
+import RestModePanel from '../components/RestModePanel'
 import GamepadPanel from '../components/GamepadPanel'
 import QuestPanel from '../components/QuestPanel'
 import ImuPanel from '../components/ImuPanel'
@@ -64,6 +65,15 @@ export const WIDGETS = [
     defaultLayout: { w: 4, h: 8 },
     minW: 2, minH: 4,
     render: () => <ControlMethodPanel />,
+  },
+  {
+    id: 'rest-mode',
+    title: 'Rest state',
+    group: 'Control',
+    description: 'What the arm does when the trigger is released — damped (default) or limp.',
+    defaultLayout: { w: 4, h: 6 },
+    minW: 2, minH: 4,
+    render: () => <RestModePanel />,
   },
   {
     id: 'manual-panel',
@@ -216,17 +226,18 @@ export function settingsFor(widget) {
 // The shipped dashboard. Seeds first run and backs "Restore default layout". Kept identical to
 // the pre-configurable arrangement so an existing user sees no change until they edit something.
 export const DEFAULT_LAYOUT = {
-  version: 3,
+  version: 4,
   tabs: [
     {
       id: 'control', name: 'Control',
       cards: [
         { key: 'control-panel#1', type: 'control-panel', title: 'Control', x: 0, y: 0, w: 4, h: 6, props: {} },
         { key: 'control-method#1', type: 'control-method', title: 'Control method', x: 0, y: 6, w: 4, h: 8, props: {} },
-        { key: 'gamepad#1', type: 'gamepad', title: 'Xbox controller', x: 0, y: 14, w: 4, h: 11, props: {} },
-        { key: 'quest#1', type: 'quest', title: 'Quest', x: 0, y: 25, w: 4, h: 9, props: {} },
-        { key: 'imu#1', type: 'imu', title: 'IMU', x: 0, y: 34, w: 4, h: 4, props: {} },
-        { key: 'robot-mini#1', type: 'robot-mini', title: 'Robot pose', x: 0, y: 38, w: 4, h: 11, props: {} },
+        { key: 'rest-mode#1', type: 'rest-mode', title: 'Rest state', x: 0, y: 14, w: 4, h: 6, props: {} },
+        { key: 'gamepad#1', type: 'gamepad', title: 'Xbox controller', x: 0, y: 20, w: 4, h: 11, props: {} },
+        { key: 'quest#1', type: 'quest', title: 'Quest', x: 0, y: 31, w: 4, h: 9, props: {} },
+        { key: 'imu#1', type: 'imu', title: 'IMU', x: 0, y: 40, w: 4, h: 4, props: {} },
+        { key: 'robot-mini#1', type: 'robot-mini', title: 'Robot pose', x: 0, y: 44, w: 4, h: 11, props: {} },
         { key: 'joint-table#1', type: 'joint-table', title: 'Joints', x: 4, y: 0, w: 8, h: 9, props: {} },
       ],
     },

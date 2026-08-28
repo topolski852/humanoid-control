@@ -350,6 +350,25 @@ def quest_calibrate_cancel(request: Request):
     return _ok({"running": False})
 
 
+class RestModeBody(BaseModel):
+    mode: str
+
+
+@router.post("/api/rest_mode", response_model=None)
+def set_rest_mode(request: Request, body: RestModeBody):
+    """What the arm does when armed but not driving: 'damping' (default) or 'idle'.
+
+    Allowed mid-session on purpose. It changes nothing that is already resting and never
+    touches a driving joint — it decides what the NEXT release does — so refusing it while
+    armed would only stop the operator preparing the state they are about to want.
+    """
+    try:
+        _service(request).set_rest_mode(body.mode)
+    except ControlError as exc:
+        return _err(str(exc), exc.status)
+    return _ok(_service(request).telemetry_snapshot())
+
+
 @router.post("/api/input_source", response_model=None)
 def set_input_source(request: Request, body: InputSourceBody):
     """Pick what drives the robot (the Control method card). Refused mid-session."""

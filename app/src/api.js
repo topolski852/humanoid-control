@@ -77,6 +77,12 @@ export const api = {
   setInputSource: (source) =>
     request('/api/input_source', { method: 'POST', body: JSON.stringify({ source }) }),
 
+  // What the arm does when armed but not driving: 'damping' (powered braking, the default) or
+  // 'idle' (zero torque, limp). Allowed mid-session — it decides what the NEXT release does
+  // and never touches a driving joint.
+  setRestMode: (mode) =>
+    request('/api/rest_mode', { method: 'POST', body: JSON.stringify({ mode }) }),
+
   // motion
   hold: (ramp = 5.0, seconds = null) =>
     request('/api/hold', { method: 'POST', body: JSON.stringify({ ramp, seconds }) }),
