@@ -323,6 +323,7 @@ async function start() {
   });
 
   let viewerPose = null;
+  let hudDrawFailed = false;
   const onFrame = (t, frame) => {
     session.requestAnimationFrame(onFrame);
 
@@ -339,11 +340,24 @@ async function start() {
       // depth rather than sitting flat on one eye.
       viewerPose = frame.getViewerPose(refSpace);
       if (hud3d && viewerPose) {
-        for (const view of vp.views) {
-          const v = layer.getViewport(view);
-          if (!v) continue;
-          gl.viewport(v.x, v.y, v.width, v.height);
-          hud3d.draw(view, viewerPose);
+        // The HUD is COSMETIC; the frame stream below is not. An exception thrown while
+        // drawing must not escape, because everything that matters — the trigger, the pose,
+        // the liveness heartbeat the server's whole safety ladder is built on — is sent
+        // AFTER this block. A stray ReferenceError in here once silenced the control link
+        // completely while the session itself stayed perfectly healthy, which from the
+        // headset is indistinguishable from the server being down.
+        try {
+          for (const view of viewerPose.views) {
+            const v = layer.getViewport(view);
+            if (!v) continue;
+            gl.viewport(v.x, v.y, v.width, v.height);
+            hud3d.draw(view, viewerPose);
+          }
+        } catch (e) {
+          if (!hudDrawFailed) {
+            hudDrawFailed = true;      // report once, never per-frame
+            console.error('HUD draw failed — continuing to send frames', e);
+          }
         }
       }
     }
