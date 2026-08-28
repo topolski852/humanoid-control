@@ -24,11 +24,3 @@ recordings/
 .DS_Store
 # temporary arm frame-calibration recordings (scripts/tmp_record_arm.py)
 _arm_recording/
-
-# Local policy snapshots. /api/policies offers ANY directory under policies/ that contains a
-# policy.onnx, so these show up in the operator's dropdown alongside the live bundle. Keeping
-# them out of git means a robot checkout gets exactly one selectable policy instead of a menu
-# of historical ones that look equally current. Archived bundles that SHOULD ship belong in
-# policies/walk/archive/ with an ARCHIVE_NOTE.md, per humanoid-policy/deploy/README.md.
-policies/*_backup_*/
-policies/*backup*/

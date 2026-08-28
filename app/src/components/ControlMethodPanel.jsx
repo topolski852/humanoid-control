@@ -64,8 +64,10 @@ export default function ControlMethodPanel() {
 
   useEffect(() => {
     if (policies.length && !checkpoint) {
-      const def = policies.find((p) => p.name === defaultPolicy) || policies[0]
-      setCheckpoint(def.path)
+      // Never pre-select something the operator is not allowed to run.
+      const usable = policies.filter((p) => p.compatible !== false)
+      const def = usable.find((p) => p.name === defaultPolicy) || usable[0]
+      if (def) setCheckpoint(def.path)
     }
   }, [policies, defaultPolicy])
 
@@ -141,7 +143,15 @@ export default function ControlMethodPanel() {
             <select value={checkpoint} onChange={(e) => setCheckpoint(e.target.value)}
               className="bg-surface-2 border border-surface-3 rounded-lg px-2 py-2 text-xs text-gray-200 flex-1 min-w-0">
               {policies.length === 0 && <option value="">no checkpoints</option>}
-              {policies.map((p) => <option key={p.path} value={p.path}>{p.name}</option>)}
+              {/* INCOMPATIBLE BUNDLES ARE SHOWN BUT NOT SELECTABLE. Hiding them would raise
+                  "where did my policy go?"; disabling them with the reason answers it. The
+                  backend refuses them too — this is the convenience, not the safety. */}
+              {policies.map((p) => (
+                <option key={p.path} value={p.path} disabled={p.compatible === false}
+                        title={p.issues?.join(' · ') || ''}>
+                  {p.compatible === false ? `${p.name} — incompatible` : p.name}
+                </option>
+              ))}
             </select>
             <button className="btn-primary shrink-0"
               disabled={busy || !isConnected || !t.armed || !checkpoint || !t.all_calibrated}
@@ -157,6 +167,19 @@ export default function ControlMethodPanel() {
           {motion && (
             <button className="btn-ghost w-full" disabled={busy}
               onClick={() => run('stop', () => api.stop())}>Stop</button>
+          )}
+          {policies.some((p) => p.compatible === false) && (
+            // Switching policy switches the NETWORK only — gains, stand pose and timing keep
+            // coming from the runtime contract. A bundle trained at other gains would run
+            // against a robot it has never seen, so it is refused rather than offered.
+            <div className="text-[10px] text-warn bg-surface-2/50 rounded-lg px-3 py-2 space-y-1">
+              {policies.filter((p) => p.compatible === false).map((p) => (
+                <div key={p.path}>
+                  <span className="text-gray-300">{p.name}</span> is not selectable:{' '}
+                  {p.issues?.join('; ')}
+                </div>
+              ))}
+            </div>
           )}
           <p className="text-[10px] text-gray-500">
             Both command the calibrated <span className="font-mono">default_pose</span> frame, so

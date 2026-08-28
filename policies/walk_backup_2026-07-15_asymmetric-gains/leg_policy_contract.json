@@ -1,0 +1,163 @@
+{
+  "_meta": {
+    "source": "humanoid-policy trainer export (scripts/rsl_rl/play.py)",
+    "task": "Walk-Humanoid-Policy-Biped-v0",
+    "note": "Sim-side contract for humanoid-control; joint_order/obs/action match leg_policy_params.json."
+  },
+  "canonical_joint_order": [
+    "left_hip_roll_joint",
+    "left_hip_yaw_joint",
+    "left_hip_pitch_joint",
+    "left_knee_pitch_joint",
+    "left_ankle_pitch_joint",
+    "left_ankle_roll_joint",
+    "right_hip_roll_joint",
+    "right_hip_yaw_joint",
+    "right_hip_pitch_joint",
+    "right_knee_pitch_joint",
+    "right_ankle_pitch_joint",
+    "right_ankle_roll_joint"
+  ],
+  "control": {
+    "policy_dt": 0.04,
+    "control_dt": 0.004,
+    "action_scale": 0.25
+  },
+  "observation": {
+    "num_observations": 45,
+    "layout": [
+      "command(3)",
+      "base_ang_vel(3)",
+      "projected_gravity(3)",
+      "joint_pos_minus_default(12)",
+      "joint_vel(12)",
+      "prev_action(12)"
+    ]
+  },
+  "action": {
+    "num_actions": 12,
+    "formula": "target = clip(action)*action_scale + default_pose, then clamp to position limits"
+  },
+  "joints": [
+    {
+      "index": 0,
+      "joint_name": "left_hip_roll_joint",
+      "kp": 20.0,
+      "kd": 4.0,
+      "effort_limit": 6.0,
+      "position_limit_lower": -0.17453299462795258,
+      "position_limit_upper": 1.5707999467849731,
+      "default_pose": 0.10999999940395355
+    },
+    {
+      "index": 1,
+      "joint_name": "left_hip_yaw_joint",
+      "kp": 10.5,
+      "kd": 0.5,
+      "effort_limit": 12.0,
+      "position_limit_lower": -0.9817479252815247,
+      "position_limit_upper": 0.5890489220619202,
+      "default_pose": 0.0
+    },
+    {
+      "index": 2,
+      "joint_name": "left_hip_pitch_joint",
+      "kp": 68.4000015258789,
+      "kd": 9.800000190734863,
+      "effort_limit": 9.5,
+      "position_limit_lower": -1.8980498313903809,
+      "position_limit_upper": 0.9817479252815247,
+      "default_pose": -0.23999999463558197
+    },
+    {
+      "index": 3,
+      "joint_name": "left_knee_pitch_joint",
+      "kp": 27.0,
+      "kd": 2.450000047683716,
+      "effort_limit": 6.0,
+      "position_limit_lower": -2.771119651020365e-13,
+      "position_limit_upper": 2.443459987640381,
+      "default_pose": 0.8299999833106995
+    },
+    {
+      "index": 4,
+      "joint_name": "left_ankle_pitch_joint",
+      "kp": 18.0,
+      "kd": 2.0,
+      "effort_limit": 6.0,
+      "position_limit_lower": -0.7853979468345642,
+      "position_limit_upper": 0.7853979468345642,
+      "default_pose": -0.5600000023841858
+    },
+    {
+      "index": 5,
+      "joint_name": "left_ankle_roll_joint",
+      "kp": 23.299999237060547,
+      "kd": 4.0,
+      "effort_limit": 7.0,
+      "position_limit_lower": -0.2617989778518677,
+      "position_limit_upper": 0.2617989778518677,
+      "default_pose": -0.07000000029802322
+    },
+    {
+      "index": 6,
+      "joint_name": "right_hip_roll_joint",
+      "kp": 20.0,
+      "kd": 4.0,
+      "effort_limit": 6.0,
+      "position_limit_lower": -1.5707999467849731,
+      "position_limit_upper": 0.17453299462795258,
+      "default_pose": -0.10999999940395355
+    },
+    {
+      "index": 7,
+      "joint_name": "right_hip_yaw_joint",
+      "kp": 20.0,
+      "kd": 1.0,
+      "effort_limit": 6.0,
+      "position_limit_lower": -0.5890489220619202,
+      "position_limit_upper": 0.9817479252815247,
+      "default_pose": -0.0
+    },
+    {
+      "index": 8,
+      "joint_name": "right_hip_pitch_joint",
+      "kp": 68.4000015258789,
+      "kd": 9.800000190734863,
+      "effort_limit": 9.5,
+      "position_limit_lower": -1.8980498313903809,
+      "position_limit_upper": 0.9817479252815247,
+      "default_pose": -0.23999999463558197
+    },
+    {
+      "index": 9,
+      "joint_name": "right_knee_pitch_joint",
+      "kp": 30.0,
+      "kd": 1.2200000286102295,
+      "effort_limit": 6.0,
+      "position_limit_lower": -1.0835799082011335e-13,
+      "position_limit_upper": 2.443459987640381,
+      "default_pose": 0.8299999833106995
+    },
+    {
+      "index": 10,
+      "joint_name": "right_ankle_pitch_joint",
+      "kp": 20.0,
+      "kd": 0.5,
+      "effort_limit": 6.0,
+      "position_limit_lower": -0.7853979468345642,
+      "position_limit_upper": 0.7853979468345642,
+      "default_pose": -0.5600000023841858
+    },
+    {
+      "index": 11,
+      "joint_name": "right_ankle_roll_joint",
+      "kp": 20.0,
+      "kd": 2.0,
+      "effort_limit": 6.0,
+      "position_limit_lower": -0.2617989778518677,
+      "position_limit_upper": 0.2617989778518677,
+      "default_pose": 0.07000000029802322
+    }
+  ]
+}

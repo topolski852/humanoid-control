@@ -17,6 +17,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from ..config import REPO_ROOT
+from ..policy import bundle_issues
 from ..layout import (LIMB_BUS, LIMB_JOINTS, LIMB_LABEL, LIMB_ORDER, RobotLayout,
                       default_layout_path)
 from ..poses import DEG, delete_pose, load_poses, pose_names, resolve_pose, save_pose
@@ -236,13 +237,20 @@ def policies(request: Request):
             onnx = sub / "policy.onnx"
             if onnx.is_file():
                 contract = sub / "leg_policy_contract.json"
-                found.append({"name": sub.name, "path": str(onnx),
-                              "contract": str(contract) if contract.is_file() else None})
+                cpath = str(contract) if contract.is_file() else None
+                issues = bundle_issues(cpath, _service(request).contract)
+                found.append({"name": sub.name, "path": str(onnx), "contract": cpath,
+                              "compatible": not issues, "issues": issues})
         for p in sorted(d.iterdir()):   # fallback: loose weight files in the dir
             if p.is_file() and p.suffix.lower() in _POLICY_EXTS:
-                found.append({"name": p.name, "path": str(p), "contract": None})
-    names = {f["name"] for f in found}
-    default = _DEFAULT_POLICY if _DEFAULT_POLICY in names else (found[0]["name"] if found else None)
+                # No contract to compare against — unverified, which is not the same as safe.
+                found.append({"name": p.name, "path": str(p), "contract": None,
+                              "compatible": True, "issues": []})
+    # Never pre-select something the operator is not allowed to run.
+    ok = [f for f in found if f.get("compatible")]
+    ok_names = {f["name"] for f in ok}
+    default = (_DEFAULT_POLICY if _DEFAULT_POLICY in ok_names
+               else (ok[0]["name"] if ok else None))
     return _ok({"dir": str(d), "default": default, "policies": found})
 
 

@@ -910,10 +910,37 @@ class ControlService:
         self._require_legs()
         # The learned policy commands CALIBRATED-frame targets — requires calibration.
         self._require_calibrated()
+        self._require_compatible_policy(checkpoint)
         policy = load_policy(checkpoint, num_actions=self.contract.num_joints)
         cmd = np.array(command if command is not None else [0.0, 0.0, 0.0], dtype=np.float32)
         self._start_session("policy", policy, command=cmd, ramp=ramp, seconds=seconds,
                             checkpoint=checkpoint)
+
+    def _require_compatible_policy(self, checkpoint: str | None) -> None:
+        """Refuse a bundle that was not trained against the gains this robot is running.
+
+        The dropdown greys these out, but the UI is not the safety boundary — the API is.
+        Switching policy switches the NETWORK only; gains, stand pose and timing all keep
+        coming from configs/leg_policy_params.json. So a bundle trained at different gains
+        runs against a robot it has never seen, and before this it failed (if at all) as an
+        onnxruntime shape error on the FIRST step — after the ramp had already put the robot
+        into the stand pose.
+
+        A bundle with no contract alongside it is allowed: loose weight files and older
+        exports are legitimately contract-less, and refusing everything unverifiable would
+        break the fallback path. Unverified is reported as unverified, not treated as safe.
+        """
+        if not checkpoint:
+            return
+        from pathlib import Path as _Path
+        from ..policy import bundle_issues
+        cpath = _Path(checkpoint).parent / "leg_policy_contract.json"
+        issues = bundle_issues(str(cpath) if cpath.is_file() else None, self.contract)
+        if issues:
+            raise ControlError(
+                f"{_Path(checkpoint).parent.name!r} does not match this robot's contract: "
+                + "; ".join(issues)
+                + ". Re-export it or pick a compatible policy.", 409)
 
     def _require(self, capability: str) -> None:
         """Gate a session on a layout CAPABILITY rather than on limb names.
@@ -1081,6 +1108,10 @@ class ControlService:
         self._require(self.SESSION_CAPABILITY[kind])
         if kind == "policy" and not checkpoint:
             raise ControlError("policy session needs a checkpoint.", 400)
+        if kind == "policy":
+            # Caught here rather than at engage: selection is a calm moment at the console,
+            # engage is a hand on a trigger.
+            self._require_compatible_policy(checkpoint)
         if kind == "arm":
             arms = self._layout.arms
             limb = limb or arms[0]
