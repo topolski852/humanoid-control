@@ -145,10 +145,21 @@ class ControlService:
         self._control_mode = "arm" if self._layout.arms else "leg"
         self._speed_mode = "normal"
         # REST STATE when a session is armed but not driving: trigger released, tracking
-        # lost, ramp aborted, session torn down. DAMPING by default — see set_rest_mode.
-        # Deliberately NOT persisted: a restart returns to the safe choice rather than
-        # silently inheriting whatever the last operator picked.
-        self._rest_mode = "damping"
+        # lost, ramp aborted, session torn down.
+        #
+        # IDLE, and NOT because it is the better rest state — it is not; a limp 5-DOF arm
+        # falls. It is because DAMPING is not usable on this firmware without a daemon-side
+        # change. MEASURED, not assumed: with rest set to DAMPING every armed session
+        # E-STOPped within seconds on ERROR_WATCHDOG_TIMEOUT (0x0040) across all five joints.
+        # The firmware watchdog DOES run in DAMPING here, and nothing feeds it — tick() emits
+        # frames only in ENABLED.
+        #
+        # docs/HANDOFF.md and two C++ comments all state the watchdog does not fire in
+        # IDLE/DISABLED/DAMPING. They are out of date. The hardware is the authority.
+        #
+        # See set_rest_mode: DAMPING stays selectable, because it is exactly right the moment
+        # the daemon feeds it, and the operator may want it on a bench with the arm supported.
+        self._rest_mode = "idle"
 
         # Gamepad presence for the UI (updated by GamepadDeadman). "enabled" reflects whether the
         # gamepad deadman thread is running at all (HUMANOID_GAMEPAD_ENABLE).
