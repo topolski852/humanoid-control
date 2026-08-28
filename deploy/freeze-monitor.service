@@ -1,0 +1,26 @@
+[Unit]
+# Records machine state to disk, fsync'd, so a hard freeze leaves evidence behind.
+#
+# Runs at BOOT, unconditionally, and is not tied to the robot stack. Every freeze so far
+# has come at a different uptime (1.5 min to 4 h) under a different workload, so the only
+# way to be sure the next one is captured is to be running before anything else starts.
+#
+# Boot -1 is why this exists: journald's last line was 99 seconds older than the monitor's,
+# because journald logs EVENTS and an idle machine has none. The monitor samples on a timer,
+# so its final line is a true statement about the moment of death rather than about whatever
+# last happened to be worth logging.
+Description=Machine freeze forensics sampler
+After=multi-user.target
+
+[Service]
+Type=simple
+User=nse
+ExecStart=/usr/bin/python3 /home/nse/humanoid/humanoid-control/scripts/freeze_monitor.py /home/nse/humanoid-logs/freeze_monitor.log 2
+Restart=always
+RestartSec=5
+Nice=-5
+# Never let the thing recording the failure be a suspect in it.
+MemoryMax=128M
+
+[Install]
+WantedBy=multi-user.target

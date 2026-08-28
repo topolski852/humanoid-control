@@ -107,14 +107,43 @@ ok "serving /api/status"
 if [ "$WITH_QUEST" = 1 ]; then
   echo "[4/4] Quest"
   command -v adb >/dev/null || fail "adb not installed"
-  adb connect "$QUEST_IP:5555" >/dev/null 2>&1
-  sleep 2
-  if adb devices 2>/dev/null | grep -q "$QUEST_IP:5555[[:space:]]*device"; then
-    adb -s "$QUEST_IP:5555" reverse tcp:8000 tcp:8000 >/dev/null 2>&1 \
-      && ok "reverse tunnel up — open http://localhost:8000/xr/ on the headset" \
-      || fail "could not create the reverse tunnel"
+
+  # USB FIRST, deliberately. Both transports give the same reverse tunnel, but over the
+  # cable the 60 Hz frame stream never touches WiFi — and this machine's only network
+  # path is wlp7s0 (mt7925e), the prime suspect for the hard freezes. The cable also
+  # removes a whole class of ordinary flakiness: no roaming, no DHCP lease change, no
+  # headset IP to chase after every sleep.
+  #
+  # Either way the headset opens http://localhost:8000, which the browser treats as a
+  # TRUSTED SECURE CONTEXT. That is what makes WebXR available without TLS — a
+  # self-signed cert over the LAN does NOT qualify and the session request is refused.
+  SERIAL=""
+  TRANSPORT=""
+  # A USB device shows up with no ':' in its serial; wireless ones are "ip:port".
+  SERIAL=$(adb devices 2>/dev/null | awk '$2=="device" && $1 !~ /:/ {print $1; exit}')
+  if [ -n "$SERIAL" ]; then
+    TRANSPORT="USB"
   else
-    echo "  ! headset not reachable (asleep? put it on, then re-run with --with-quest)"
+    adb connect "$QUEST_IP:5555" >/dev/null 2>&1
+    sleep 2
+    if adb devices 2>/dev/null | grep -q "$QUEST_IP:5555[[:space:]]*device"; then
+      SERIAL="$QUEST_IP:5555"; TRANSPORT="WiFi"
+    fi
+  fi
+
+  if [ -z "$SERIAL" ]; then
+    echo "  ! headset not reachable. Plug in the USB cable (preferred), or put the"
+    echo "    headset on and re-run with --with-quest for the wireless path."
+  else
+    # Stale tunnels from a previous run point at a dead server; --remove-all is cheap.
+    adb -s "$SERIAL" reverse --remove-all >/dev/null 2>&1
+    if adb -s "$SERIAL" reverse tcp:8000 tcp:8000 >/dev/null 2>&1; then
+      ok "reverse tunnel up over $TRANSPORT ($SERIAL)"
+      echo "      on the headset open:  http://localhost:8000/xr/"
+      [ "$TRANSPORT" = "USB" ] && echo "      (frame stream is on the cable — WiFi carries no robot traffic)"
+    else
+      fail "could not create the reverse tunnel over $TRANSPORT"
+    fi
   fi
 else
   echo "[4/4] Quest — skipped (pass --with-quest)"
