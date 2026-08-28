@@ -222,10 +222,16 @@ export default function SettingsPanel() {
       <div className="card p-4 text-xs text-gray-500 leading-relaxed">
         <div className="data-label mb-2">Motion</div>
         <p>
-          Every motion path in this build commands the twelve contract leg joints, so
-          Hold, Run and Manual need <span className="text-gray-300">both legs</span> configured.
-          An arm-only layout is a look-and-calibrate configuration: the Robot tab draws it live
-          and the Calibration tab can zero it, but nothing here knows how to drive an arm yet.
+          <span className="text-gray-300">Hold</span> and <span className="text-gray-300">Run
+          policy</span> command the twelve contract leg joints, so they need{' '}
+          <span className="text-gray-300">both legs</span> configured — the walk policy is
+          contract-bound and there is no single-leg version.
+        </p>
+        <p className="mt-2">
+          <span className="text-gray-300">Arm teleop</span> needs an arm, and drives it from an
+          Xbox pad or a Quest headset. <span className="text-gray-300">Manual</span> poses
+          whatever the layout enables. An arm-only layout is a fully drivable configuration,
+          not just look-and-calibrate.
         </p>
       </div>
     </div>

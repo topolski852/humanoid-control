@@ -1,4 +1,10 @@
 [Unit]
+# TRAINING-PC ONLY — do not install this on a robot without changing ExecStart.
+#
+# The path below is hardcoded to one checkout. This unit exists to diagnose the hard freezes on
+# the machine that runs Isaac Sim; it has nothing to do with the robot and is not part of the
+# robot install in deploy/README.md.
+#
 # Records machine state to disk, fsync'd, so a hard freeze leaves evidence behind.
 #
 # Runs at BOOT, unconditionally, and is not tied to the robot stack. Every freeze so far

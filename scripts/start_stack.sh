@@ -19,15 +19,50 @@
 # hoping. "Started" is not the same as "ready", and every ordering bug this script
 # exists to prevent came from conflating the two.
 #
+# BENCH SCRIPT, NOT THE ROBOT ENTRY POINT. On a robot PC the systemd units in deploy/ are
+# what run the stack; this exists for hands-on work where you want to start, stop and restart
+# the layers by hand. It used to hardcode one machine's paths — everything below now derives
+# from the script's own location or an environment variable, so it works from any checkout.
+#
 # Usage:  scripts/start_stack.sh [--with-quest] [--quest-ip 192.168.0.149]
+#
+# Environment:
+#   HUMANOID_CONFIG      daemon robot config JSON        (default: the studio config, see below)
+#   HUMANOID_IMU_DEVICE  IMU serial device, "" to disable (default: /dev/humanoid_imu if present)
+#   HUMANOID_CAN_IF      CAN interface to wait for        (default: first can_* that is UP)
+#   HUMANOID_LOGDIR      where the layer logs go          (default: ~/humanoid-logs)
 set -uo pipefail
 
-REPO=/home/nse/humanoid/humanoid-control
-CONFIG=${HUMANOID_CONFIG:-/home/nse/.config/humanoid-studio/humanoid_lite.json}
-LOGDIR=${HUMANOID_LOGDIR:-/home/nse/humanoid-logs}
-QUEST_IP=192.168.0.149
+REPO=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+
+# DEFAULT TO THE STUDIO CONFIG, deliberately. There are two robot configs on a dev machine and
+# they are NOT interchangeable: the ~/.config copy carries the older asymmetric leg gains
+# (20/4, 10.5/0.5, 68.4/9.8 ...), while the studio copy carries the uniform kp=45 / kd=1.5 the
+# walk policy was trained with. Starting the daemon against the wrong one drives every leg
+# joint with gains the policy has never seen, and nothing downstream notices.
+_studio_cfg="$(dirname "$REPO")/humanoid-studio/configs/humanoid_lite.json"
+[ -f "$_studio_cfg" ] || _studio_cfg="$HOME/humanoid-studio/configs/humanoid_lite.json"
+CONFIG=${HUMANOID_CONFIG:-$_studio_cfg}
+
+# THE IMU IS ENABLED BY THIS FLAG, NOT BY THE CONFIG. main.cpp: "Passing --imu-device implies
+# enabling the IMU." Neither robot config ships an `imu` block, so a daemon started without it
+# reports `imu: disabled` and telemetry carries `base: null` — and the walk policy then runs on
+# a stub that says the robot is perfectly upright and perfectly still, forever. Six of its 45
+# observations, silently fabricated, with one stderr warning. This script omitted the flag for
+# its whole life, which is why every daemon log on the bench machine says `imu: disabled`.
+if [ "${HUMANOID_IMU_DEVICE-unset}" = "unset" ]; then
+  [ -e /dev/humanoid_imu ] && IMU_DEVICE=/dev/humanoid_imu || IMU_DEVICE=""
+else
+  IMU_DEVICE="$HUMANOID_IMU_DEVICE"
+fi
+
+LOGDIR=${HUMANOID_LOGDIR:-$HOME/humanoid-logs}
+QUEST_IP=${HUMANOID_QUEST_IP:-192.168.0.149}
 WITH_QUEST=0
-CAN_IF=can_left_arm
+# Whichever CAN interface is actually up. Hardcoding can_left_arm meant this script could not
+# start a legs robot at all.
+CAN_IF=${HUMANOID_CAN_IF:-$(ip -br link show type can 2>/dev/null | awk '$2=="UP"{print $1; exit}')}
+CAN_IF=${CAN_IF:-can_left_arm}
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -62,8 +97,10 @@ echo "[2/4] CAN daemon"
 if daemon_up; then
   ok "already running"
 else
+  IMU_ARGS=""
+  [ -n "$IMU_DEVICE" ] && IMU_ARGS="--imu-device $IMU_DEVICE"
   ( cd "$REPO" && setsid nohup stdbuf -o0 -e0 ./daemon/build/humanoid_daemon \
-      --config "$CONFIG" --rt-prio 0 > "$LOGDIR/daemon.log" 2>&1 < /dev/null & )
+      --config "$CONFIG" --rt-prio 0 $IMU_ARGS > "$LOGDIR/daemon.log" 2>&1 < /dev/null & )
   for i in $(seq 1 20); do daemon_up && break; sleep 0.5; done
   daemon_up || fail "daemon did not bind :9001 — see $LOGDIR/daemon.log"
   ok "started"

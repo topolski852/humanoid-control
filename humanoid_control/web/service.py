@@ -63,7 +63,7 @@ _TARGET_STALE_S = 5.0
 class SessionState(str, Enum):
     DISCONNECTED = "DISCONNECTED"   # sockets up, joints not configured/awake
     CONNECTED = "CONNECTED"         # joints configured + online, idle
-    ARMED = "ARMED"                 # deadman session live, legs DAMPING, waiting for trigger
+    ARMED = "ARMED"                 # deadman session live, limbs at rest, waiting for trigger
     HOLDING = "HOLDING"             # ramping/holding default_pose (ZeroPolicy)
     RUNNING = "RUNNING"             # running a learned policy
     ESTOPPED = "ESTOPPED"           # E-STOP latched; reconnect to clear
@@ -1045,7 +1045,7 @@ class ControlService:
 
     # ── gamepad deadman session (hold-to-run) ────────────────────────────────
     #
-    # The operational flow: connect → calibrate → arm_deadman() (legs DAMPING, ARMED) →
+    # The operational flow: connect → calibrate → arm_deadman() (limbs at rest, ARMED) →
     # hold a trigger to engage (ramp to default_pose, then run the selected session with the
     # live walk command) → release to DAMP → repeat. The gamepad is the deadman: losing the
     # controller (not merely releasing the trigger) E-STOPs via the presence watchdog.
@@ -1330,7 +1330,12 @@ class ControlService:
 
     def arm_deadman(self, kind: str | None = None, checkpoint: str | None = None,
                     *, ramp: float = 1.5) -> None:
-        """Enter the ARMED deadman session: legs → DAMPING, spawn the trigger-driven worker.
+        """Enter the ARMED deadman session: limbs → the configured rest state, and spawn the
+        trigger-driven worker.
+
+        Not "legs → DAMPING" as this said for a long time: it rests whichever joints the
+        layout enables (or just the driven arm for kind='arm'), and whether that is DAMPING
+        or IDLE is the operator's choice on the Rest state card.
         Requires CONNECTED + a live controller (deadman); all joints calibrated UNLESS the
         selected session is 'manual' (capture-and-hold the live pose — no calibration needed)."""
         with self._lock:
@@ -1394,8 +1399,8 @@ class ControlService:
                                  name=f"deadman-{sel_kind}", daemon=True)
             self._session_thread = t
             t.start()
-        _log.info("ARMED deadman session (kind=%s, ramp=%.1fs) — legs DAMPING, hold a trigger to run.",
-                  sel_kind, ramp)
+        _log.info("ARMED deadman session (kind=%s, ramp=%.1fs) — resting in %s, hold a trigger to run.",
+                  sel_kind, ramp, self._rest_mode.upper())
 
     def _calibration_still_valid(self) -> bool:
         """True only if every configured joint has stayed online since calibration was set.
@@ -1427,11 +1432,13 @@ class ControlService:
         return chosen
 
     def disarm_deadman(self) -> None:
-        """Leave the deadman session: stop the worker (legs → IDLE), back to CONNECTED."""
+        """Leave the deadman session: stop the worker (limbs → the configured rest state,
+        DAMPING by default — not IDLE, as this used to claim), back to CONNECTED."""
         self.stop(wait=True)
 
     def _deadman_worker(self, runner: PolicyRunner, kind: str) -> None:
-        """Persistent trigger-driven loop. Released trigger → IDLE (rest); held trigger → engage
+        """Persistent trigger-driven loop. Released trigger → the configured rest state
+        (DAMPING by default); held trigger → engage
         then hold. 'hold'/'policy' engage by ramping to default_pose then stepping the policy with
         the live command. 'manual' instead enables POSITION and holds the LIVE pose exactly — the
         daemon seeds the firmware target from the current measured position and streams it, so no
@@ -1787,7 +1794,8 @@ class ControlService:
             _log.info("manual session ended (moved=%s).", moved)
 
     def stop(self, *, wait: bool = True) -> None:
-        """Graceful stop: signal the session to exit its loop (legs → IDLE), not an E-STOP."""
+        """Graceful stop: signal the session to exit its loop (the worker rests the limbs on
+        its way out), not an E-STOP."""
         self._stop_evt.set()
         t = self._session_thread
         if wait and t and t.is_alive() and t is not threading.current_thread():

@@ -20,6 +20,29 @@ Environment=HUMANOID_GAMEPAD_ENABLE=1
 # Environment=HUMANOID_GAMEPAD_VX_MAX=0.6
 # Environment=HUMANOID_GAMEPAD_VY_MAX=0.4
 # Environment=HUMANOID_GAMEPAD_WZ_MAX=0.6
+#
+# ── Quest 3 arm teleop ───────────────────────────────────────────────────────
+# OFF by default; the arm-teleop machine must turn this on. Nothing else starts the bridge —
+# without it the headset loads /xr/ and the websocket is simply never served.
+# Environment=HUMANOID_QUEST_ENABLE=1
+#
+# WHICH INPUT SOURCE OWNS THE ROBOT. Exactly one source may command at a time; writes from any
+# other are dropped and counted (visible as `ignored_writes` in telemetry, and on the Control
+# method card). At startup the token goes to the gamepad whenever HUMANOID_GAMEPAD_ENABLE=1,
+# so on a machine driven from the headset or the browser, either leave the gamepad disabled or
+# switch the source on the Control method card after connecting.
+#
+# Optional Quest tuning (defaults shown):
+# Environment=HUMANOID_QUEST_HAND=left        # which hand drives; matches the configured arm
+# Environment=HUMANOID_QUEST_SCALE=0.5        # headset metres -> robot metres
+# Environment=HUMANOID_QUEST_YAW_DEG=0        # rotate the operator frame onto the robot's
+# Environment=HUMANOID_QUEST_TRIGGER=0.5      # deadman threshold
+# Environment=HUMANOID_ARM_HZ=50              # arm teleop tick; the leg policy stays at 25 Hz
+#
+# The headset needs a SECURE CONTEXT for WebXR. `adb reverse tcp:8000 tcp:8000` over USB and
+# then http://localhost:8000/xr/ is the dependable route — Chromium trusts localhost with no
+# certificate, and a self-signed cert you click through is NOT enough. TLS on 8443 exists as a
+# fallback (HUMANOID_QUEST_CERT / HUMANOID_QUEST_KEY / HUMANOID_QUEST_TLS_PORT).
 ExecStart=/home/nse/humanoid-control/.venv/bin/python -m humanoid_control.web
 Restart=on-failure
 RestartSec=2

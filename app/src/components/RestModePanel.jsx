@@ -2,22 +2,27 @@ import { useState } from 'react'
 import { api } from '../api'
 import { useTelemetry } from '../context/TelemetryContext'
 
-// WHAT THE ARM DOES WHEN IT IS ARMED BUT NOT DRIVING.
+// WHAT THE ROBOT DOES WHEN IT IS ARMED BUT NOT DRIVING.
 //
-// This is the state the arm spends most of its time in: every released trigger, every lost
+// Whatever the layout enables — legs, arm, or both. The endpoints behind this card are
+// layout-wide (or scoped to the driven limb), not arm-only, even though the arm is where the
+// behaviour was worked out.
+//
+// This is the state the robot spends most of its time in: every released trigger, every lost
 // tracker, every aborted ramp, every torn-down session. It used to be IDLE — zero torque —
-// which for a 5-DOF arm held out in front of a robot is not resting, it is falling.
+// which for a raised limb is not resting, it is falling.
 //
 // DAMPING is regenerative braking: the motor resists motion but holds no position target, so
-// the arm sinks slowly instead of dropping. It is the default.
+// a limb sinks slowly instead of dropping. It is the default.
 //
 // It took a daemon change to become usable. Actuator::tick() used to send PDO2 only while a
 // joint was ENABLED, so a damping joint was fed by nothing and the firmware watchdog expired
 // after 1000 ms — every armed session E-STOPped within seconds on ERROR_WATCHDOG_TIMEOUT.
-// The daemon now feeds DAMPING joints; verified on the arm for 60 s across all five.
+// The daemon now feeds DAMPING joints; verified on hardware for 60 s. A robot running an
+// older daemon build will fault about a second after every release.
 //
 // IDLE stays available because it is genuinely wanted — a damped joint is unpleasant to
-// back-drive, so hand-positioning the arm, checking free play and re-zeroing all want the
+// back-drive, so hand-positioning a limb, checking free play and re-zeroing all want the
 // motors limp. The point of this card is that going limp is a deliberate choice made here,
 // rather than the default a released trigger silently drops you into.
 //
@@ -25,7 +30,7 @@ import { useTelemetry } from '../context/TelemetryContext'
 //
 //   Default   — what the NEXT release/loss/teardown does. Changes nothing that is already
 //               resting. This is the safety policy.
-//   Right now — re-commands the joints this instant. This is the one you want when the arm
+//   Right now — re-commands the joints this instant. This is the one you want when a limb
 //               is sitting in DAMPING, you need to move it by hand, and changing the default
 //               appears to do nothing at all — because nothing has triggered a rest
 //               transition since. That gap is a real trap and the reason this half exists.
@@ -37,14 +42,14 @@ const MODES = [
   {
     id: 'damping',
     label: 'Damping',
-    blurb: 'Powered braking — the arm resists gravity and sinks slowly instead of dropping. '
+    blurb: 'Powered braking — the robot resists gravity and sinks slowly instead of dropping. '
          + 'Also where an E-STOP now leaves it.',
   },
   {
     id: 'idle',
     label: 'Idle',
-    blurb: 'Zero torque — limp and free to move by hand, and it WILL fall under its own '
-         + 'weight on release. For repositioning or re-zeroing, not for driving.',
+    blurb: 'Zero torque — limp and free to move by hand, and a raised limb WILL fall under '
+         + 'its own weight on release. For repositioning or re-zeroing, not for driving.',
   },
 ]
 
@@ -78,7 +83,7 @@ export default function RestModePanel() {
       <div className="flex items-center justify-between">
         <span className="data-label">Rest state</span>
         {active === 'idle' && (
-          <span className="text-[10px] text-warn" title="the arm is free to fall at rest">
+          <span className="text-[10px] text-warn" title="joints are free to fall at rest">
             will fall
           </span>
         )}
@@ -117,7 +122,7 @@ export default function RestModePanel() {
         // Not a nag. Idle is a real choice with a real consequence, and the moment it matters
         // is the moment the operator has stopped looking at this card.
         <div className="text-[11px] text-warn bg-surface-2/50 rounded-lg px-3 py-2">
-          The arm will drop when you release the trigger, lose tracking, or end the session.
+          Joints will drop when you release the trigger, lose tracking, or end the session.
         </div>
       )}
 
@@ -146,7 +151,7 @@ export default function RestModePanel() {
               disabled={!connected || !!busy || driving}
               onClick={() => applyNow(m.id)}
               title={driving
-                ? 'Release the trigger first — the arm is driving'
+                ? 'Release the trigger first — the robot is driving'
                 : `put the joints into ${m.label} immediately`}
               className={`px-2 py-2 rounded-lg border text-xs transition ${
                 (!connected || driving)

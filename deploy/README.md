@@ -3,6 +3,55 @@
 Bring the CAN daemon and the web control UI up on boot so the robot needs no monitor, keyboard,
 or held-open SSH. Power on → wait ~15 s → open `http://<robot-ip>:8000` from any PC on the WiFi.
 
+## Upgrading an existing robot to the Quest build — read this first
+
+Two things changed underneath every machine, including legs-only ones that will never see a
+headset.
+
+**1. Rebuild the daemon. This is not optional.** The rest state is now DAMPING instead of
+IDLE, and the firmware watchdog *runs* in DAMPING — the daemon has to feed a damping joint or
+the firmware faults `ERROR_WATCHDOG_TIMEOUT` (0x0040) after ~1 s and the session E-STOPs. That
+feed is a C++ change (`Actuator::tick`). Pull the Python without rebuilding and the robot arms
+fine, engages fine, and **E-STOPs one second after the operator releases the trigger** — while
+possibly standing.
+
+```bash
+cd daemon && make && cd ..
+sudo systemctl restart humanoid-daemon.service
+```
+
+Verify before trusting it: `.venv/bin/python scripts/verify_damping_feed.py 60` holds the
+joints in DAMPING for a minute and fails loudly if any of them faults.
+
+**2. One input source owns the robot at a time.** Walk and arm commands now carry a source and
+are dropped unless that source holds the token; drops are counted and surfaced as
+`ignored_writes`. The token goes to the **gamepad** at startup whenever
+`HUMANOID_GAMEPAD_ENABLE=1`, which this unit sets.
+
+The practical consequence on a legs robot: *starting* a policy from the browser still works
+(the preflight checks browser liveness, not the token), but the **browser's walk commands are
+ignored** while the pad holds the token — the pad's sticks drive instead. Switch the source on
+the *Control method* card to drive from the browser. Nothing is broken; it just needs one
+click that did not exist before.
+
+Also new for legs: E-STOP now parks joints in DAMPING rather than IDLE, so a stopped limb
+resists instead of collapsing.
+
+## Two machine profiles
+
+Same repo, same units, different environment. Both are set in `humanoid-web.service`.
+
+| | legs robot | arm / Quest workstation |
+|---|---|---|
+| `HUMANOID_GAMEPAD_ENABLE` | `1` — the pad drives the legs | `0`, unless a pad is wanted |
+| `HUMANOID_QUEST_ENABLE` | unset | **`1`** — nothing else starts the bridge |
+| `--imu-device` in the daemon unit | **yes** — the walk policy needs base state | not needed |
+| enabled limbs | both legs | the arm(s) |
+
+Enabled limbs live in `~/.config/humanoid-control/robot_layout.json` (Settings tab writes it)
+and are **machine-local** — they do not travel with git, so each robot needs its own. So does
+`~/.config/humanoid-control/arm_profiles.json`, the per-operator Quest arm calibration.
+
 ## One-time setup on the robot PC
 
 ```bash
@@ -89,8 +138,39 @@ yaw (0.15 deadband). **B** = hard E-STOP (reconnect in the UI to clear). **Y** =
   rest state unusable rather than merely different.
 - Keep the robot **supported** — the balance loop is unproven; the deadman is a safety, not a net.
 
+## Quest 3 arm teleop (the workstation profile)
+Set `HUMANOID_QUEST_ENABLE=1` in `humanoid-web.service` — nothing else starts the bridge, and
+without it the headset loads `/xr/` and the websocket is simply never served.
+
+**Getting the page into the headset.** WebXR needs a *secure context*, and a self-signed
+certificate you click through does **not** qualify — Chromium keeps withholding WebXR from such
+an origin. The dependable route is a USB cable:
+```bash
+adb reverse tcp:8000 tcp:8000        # then open http://localhost:8000/xr/ on the headset
+```
+`localhost` is trusted with no certificate at all. Wireless `adb connect <headset-ip>:5555`
+gives the same tunnel if a cable is impractical. TLS on 8443 exists as a fallback
+(`HUMANOID_QUEST_CERT` / `HUMANOID_QUEST_KEY`).
+
+**Body tracking** needs *WebXR Experiments* enabled in `chrome://flags` on the headset. Without
+it the controller-position path still works, but whole-arm mirroring does not.
+
+**Per-operator calibration.** Mirroring maps the operator's measured joint range onto the
+robot's, so each person needs a profile: four guided poses, prompted on the in-headset HUD,
+stored in `~/.config/humanoid-control/arm_profiles.json`. Without one the arm falls back to
+controller-position mode and the log says so.
+
+**Controls.** Trigger = deadman (hold to drive, release to rest) · A arms · B disarms ·
+Y = E-STOP. Releasing the trigger rests the arm; losing the link entirely E-STOPs it.
+
 ## Notes
 - **One daemon owns CAN.** Stop the humanoid-studio app's daemon before enabling this one.
+- **`deploy/freeze-monitor.service` is for the training PC only.** It samples machine state to
+  disk to diagnose that machine's hard freezes, and its `ExecStart` hardcodes that checkout's
+  path. Do not install it on a robot without fixing the path first.
+- **`scripts/start_stack.sh` is a bench convenience**, not the robot entry point — on a robot
+  the systemd units are what run the stack. It does derive its paths from its own location, so
+  it works from any checkout.
 - **CAN adapters must be up** before `humanoid-daemon.service` (see the comment in that unit).
 - **Password.** On anything but a trusted LAN, set `HUMANOID_WEB_PASSWORD` in the web unit
   (it's plain HTTP — for internet exposure, front it with TLS, e.g. `tailscale serve`).
