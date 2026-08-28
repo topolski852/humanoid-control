@@ -1192,6 +1192,45 @@ class ControlService:
             _log.info("rest mode: %s -> %s", self._rest_mode, mode)
         self._rest_mode = mode
 
+    def set_joint_mode(self, mode: str, *, limb: str | None = None) -> dict:
+        """Command joints into IDLE or DAMPING **right now**.
+
+        Distinct from set_rest_mode, and the distinction is the whole point of having both.
+        set_rest_mode decides what the NEXT release does and deliberately leaves a resting
+        joint alone; this re-commands the joint you are looking at. Without it an operator who
+        wants to reposition the arm by hand has no way to get there — the arm rests in
+        DAMPING, damping is hard to back-drive, and changing the default does nothing until
+        something else triggers a rest transition.
+
+        Refused while a session is ENGAGED (HOLDING/RUNNING). Dropping a driving joint to
+        IDLE mid-motion is a fall, and to DAMPING is a fight with the position controller.
+        ARMED-but-resting is allowed, because that is exactly when this is wanted.
+
+        Not sticky: the next rest transition re-applies rest_mode. That is deliberate —
+        going limp is for a specific task in front of you, not a mode you leave the robot in
+        and forget.
+        """
+        if mode not in ("damping", "idle"):
+            raise ControlError("mode must be 'damping' or 'idle'.", 400)
+        if not self.client.is_running():
+            raise ControlError("The daemon is not running.", 503)
+        if self.is_motion_active():
+            raise ControlError(
+                "Release the trigger before changing motor mode — the arm is driving.", 409)
+
+        limb = limb or self._selected.get("limb")
+        joints = list(self._layout.joints_of(limb)) if limb else list(self._joints)
+        if not joints:
+            raise ControlError("No joints to command.", 409)
+
+        group = JointGroupInterface(self.client, joints)
+        if mode == "idle":
+            group.idle()
+        else:
+            group.damp()
+        _log.info("joint mode: %s -> %s (%d joints)", limb or "all", mode.upper(), len(joints))
+        return {"mode": mode, "limb": limb, "joints": len(joints)}
+
     def _rest(self, group) -> None:
         """Put a group into the configured rest state.
 

@@ -83,6 +83,13 @@ export const api = {
   setRestMode: (mode) =>
     request('/api/rest_mode', { method: 'POST', body: JSON.stringify({ mode }) }),
 
+  // Command joints into 'idle' or 'damping' RIGHT NOW. Distinct from setRestMode, which only
+  // decides what the next release does and leaves an already-resting joint alone — this is
+  // what you want when the arm is sitting in DAMPING and you need it limp to move by hand.
+  // Refused (409) while the arm is driving.
+  setJointMode: (mode, limb = null) =>
+    request('/api/joint_mode', { method: 'POST', body: JSON.stringify({ mode, limb }) }),
+
   // motion
   hold: (ramp = 5.0, seconds = null) =>
     request('/api/hold', { method: 'POST', body: JSON.stringify({ ramp, seconds }) }),

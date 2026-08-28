@@ -370,6 +370,28 @@ def set_rest_mode(request: Request, body: RestModeBody):
     return _ok(_service(request).telemetry_snapshot())
 
 
+class JointModeBody(BaseModel):
+    mode: str
+    limb: str | None = None
+
+
+@router.post("/api/joint_mode", response_model=None)
+async def set_joint_mode(request: Request, body: JointModeBody):
+    """Command joints into 'idle' or 'damping' NOW.
+
+    Not the same as /api/rest_mode, which only decides what the next release does and leaves
+    an already-resting joint where it is. This one re-commands the joint, which is what an
+    operator wants when the arm is resting in DAMPING and they need it limp to move it by
+    hand. Refused while the arm is driving.
+    """
+    svc = _service(request)
+    try:
+        # Blocking: one UDP round-trip per joint, each with a 5 s timeout.
+        return _ok(await _blocking(lambda: svc.set_joint_mode(body.mode, limb=body.limb)))
+    except ControlError as exc:
+        return _err(str(exc), exc.status)
+
+
 @router.post("/api/input_source", response_model=None)
 def set_input_source(request: Request, body: InputSourceBody):
     """Pick what drives the robot (the Control method card). Refused mid-session."""

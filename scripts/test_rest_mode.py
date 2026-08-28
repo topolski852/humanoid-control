@@ -29,7 +29,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from humanoid_control.layout import RobotLayout                 # noqa: E402
 from humanoid_control.config import LegPolicyContract           # noqa: E402
-from humanoid_control.web.service import ControlError, ControlService  # noqa: E402
+from humanoid_control.web.service import (ControlError, ControlService,  # noqa: E402
+                                          SessionState)
 
 PASS, FAIL = [], []
 
@@ -113,6 +114,71 @@ def main() -> int:
     from humanoid_control.interface import JointGroupInterface
     for meth in ("idle", "damp", "enable_position", "send_targets"):
         check(f"JointGroupInterface.{meth} exists", hasattr(JointGroupInterface, meth))
+
+    print("\n── set_joint_mode: the immediate override ──────────────────────")
+    # The Rest state card has two halves that are easy to conflate. set_rest_mode is policy
+    # for the NEXT release and deliberately leaves a resting joint alone; set_joint_mode
+    # re-commands the joint now. Without the second one, an operator whose arm is resting in
+    # DAMPING has no way to make it limp — changing the default appears to do nothing,
+    # because nothing has triggered a rest transition since.
+    import humanoid_control.web.service as svc_mod
+    svc = build()
+    calls = []
+
+    class RecordingGroup(SpyGroup):
+        def __init__(self, client, joints):
+            super().__init__()
+            self.joints = list(joints)
+            calls.append(self)
+
+    real_group = svc_mod.JointGroupInterface
+    svc_mod.JointGroupInterface = RecordingGroup
+    try:
+        svc._state = SessionState.CONNECTED
+        out = svc.set_joint_mode("idle")
+        check("idle is commanded immediately",
+              calls and calls[-1].calls == ["idle"], str(calls[-1].calls if calls else None))
+        check("it reports what it touched",
+              out.get("mode") == "idle" and out.get("joints") == 5, str(out))
+
+        calls.clear()
+        svc.set_joint_mode("damping")
+        check("damping is commanded immediately", calls[-1].calls == ["damp"])
+
+        print("\n── ...but never while the arm is driving ───────────────────────")
+        for st in (SessionState.HOLDING, SessionState.RUNNING):
+            svc._state = st
+            calls.clear()
+            try:
+                svc.set_joint_mode("idle")
+                check(f"refused while {st.name}", False, "accepted")
+            except ControlError as exc:
+                check(f"refused while {st.name}", exc.status == 409 and not calls, str(exc))
+
+        svc._state = SessionState.ARMED
+        calls.clear()
+        svc.set_joint_mode("idle")
+        check("ARMED-but-resting IS allowed (the whole point)", calls[-1].calls == ["idle"])
+
+        print("\n── it validates like the policy setter does ────────────────────")
+        svc._state = SessionState.CONNECTED
+        for bad in ("DAMPING", "Idle", "limp", ""):
+            calls.clear()
+            try:
+                svc.set_joint_mode(bad)
+                check(f"{bad!r} is refused", False, "accepted")
+            except ControlError as exc:
+                check(f"{bad!r} is refused", exc.status == 400 and not calls)
+
+        print("\n── the override does not change the policy ─────────────────────")
+        svc.set_rest_mode("damping")
+        svc.set_joint_mode("idle")
+        check("going limp now leaves rest_mode alone", svc.rest_mode == "damping",
+              svc.rest_mode)
+        g = SpyGroup(); svc._rest(g)
+        check("...so the next release still damps", g.calls == ["damp"], str(g.calls))
+    finally:
+        svc_mod.JointGroupInterface = real_group
 
     print("\n── every rest path in the worker goes through _rest ────────────")
     # The four sites were four separate group.idle() calls, each carrying the same wrong
