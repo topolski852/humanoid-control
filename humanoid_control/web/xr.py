@@ -56,6 +56,7 @@ cost is that BOTH controllers must be tracked to have every function available.
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 import math
 import os
@@ -123,6 +124,7 @@ class QuestSource:
         self.hand = os.environ.get("HUMANOID_QUEST_HAND", "").lower() or None
 
         self._connected = False
+        self._conn_id = 0           # newest client wins; see attach()
         self._session: str | None = None
         self._last_seq: int | None = None
         self._last_rx = 0.0             # monotonic time of the last ACCEPTED frame
@@ -143,6 +145,7 @@ class QuestSource:
         self._body_robot: dict = {}
         self._human = None
         self._calib = None          # active CalibrationRun, if any
+        self._body_latch = False    # body tracking was lost while armed; needs a re-press
         self._profile = None        # operator calibration, loaded at attach
         self._mirror_targets = None # retargeted robot joint targets, or None
         self._body_ok = False       # body tracking usable AND a profile loaded
@@ -159,12 +162,26 @@ class QuestSource:
         self._hz_n0 = 0
 
     # ── lifecycle ───────────────────────────────────────────────────────────
-    def attach(self) -> None:
+    def attach(self) -> int:
+        """A client connected. Returns its CONNECTION ID.
+
+        ONE CLIENT AT A TIME. Opening the page with an `am start` VIEW intent gives the Quest
+        browser a NEW TAB rather than reusing the old one, and an abandoned tab keeps its
+        websocket, its render loop and its frame stream alive in the background. Several tabs
+        then feed this single object at once: their `seq` counters interleave (so frames get
+        rejected as out-of-order), and `tracked`/`trigger` flicker as each overwrites the
+        other. Newest wins — frames from a superseded connection are ignored.
+        """
+        self._conn_id += 1
+        if self._connected:
+            _log.warning("quest: a second client connected — superseding the previous one. "
+                         "(An old browser tab left running? It will now be ignored.)")
         self._connected = True
         self._reset_link("connected")
         self.reload_profile()
-        _log.info("quest: client attached (scale=%.2f, yaw=%.0f deg, trigger>=%.2f)",
-                  self.scale, math.degrees(self.yaw), self.trig_thresh)
+        _log.info("quest: client attached as #%d (scale=%.2f, yaw=%.0f deg, trigger>=%.2f)",
+                  self._conn_id, self.scale, math.degrees(self.yaw), self.trig_thresh)
+        return self._conn_id
 
     def reload_profile(self) -> None:
         """Pick up the operator profile from disk. Called on attach and after calibration."""
@@ -181,9 +198,16 @@ class QuestSource:
             self._profile = None
             _log.error("quest: could not load arm profile (%s)", exc)
 
-    def detach(self) -> None:
+    def detach(self, conn_id: int | None = None) -> None:
         """Socket closed. If this source was the deadman for a live session, that is
-        controller loss — E-STOP, the same as unplugging the gamepad."""
+        controller loss — E-STOP, the same as unplugging the gamepad.
+
+        A SUPERSEDED connection closing must not tear down the live one: an abandoned tab
+        being garbage-collected would otherwise E-STOP a session the current tab is driving.
+        """
+        if conn_id is not None and conn_id != self._conn_id:
+            _log.info("quest: superseded client %d disconnected (ignored)", conn_id)
+            return
         self._connected = False
         self._release("disconnected")
         self.service.drop_source(SOURCE)
@@ -203,6 +227,11 @@ class QuestSource:
         self._body = None
         self._body_avail = False
         self._body_usable = False
+        # A new link starts with no body-tracking history. Leaving _body_ok_at set from the
+        # previous connection would make body_lost_too_long() true the instant a fresh client
+        # attaches, on a signal from a session that is already gone.
+        self._body_ok_at = 0.0
+        self._body_latch = False
         self._reason = why
 
     def _release(self, why: str, *, reset_pose: bool = True) -> None:
@@ -228,9 +257,13 @@ class QuestSource:
         self.service.set_run_gate(False, source=SOURCE)
 
     # ── per-frame ───────────────────────────────────────────────────────────
-    def on_frame(self, msg: dict) -> None:
+    def on_frame(self, msg: dict, conn_id: int | None = None) -> None:
         """One JSON frame from the headset. Never raises: a bad frame is counted and dropped,
         and the liveness ladder then treats the gap as a stall like any other."""
+        # Ignore anything from a superseded tab. Its seq counter is independent of the live
+        # one, so accepting it corrupts the liveness signal the deadman depends on.
+        if conn_id is not None and conn_id != self._conn_id:
+            return
         try:
             self._on_frame(msg)
         except Exception as exc:               # noqa: BLE001
@@ -341,7 +374,39 @@ class QuestSource:
         if not held:
             if self._gate or self._anchor is not None:
                 self._release("trigger released")
+            # Releasing the trigger is what clears the body-loss latch below. Re-arming has
+            # to cost the operator a deliberate press.
+            self._body_latch = False
             return
+
+        # BODY-LOSS LATCH (mirror mode only).
+        #
+        # The deadman worker also notices `body_lost_too_long()` and clears the run gate. That
+        # alone is NOT enough, and the reason is a race worth spelling out: the gate is asserted
+        # HERE, once per frame at 60 Hz, for as long as the trigger is held. The worker clears it
+        # at 50 Hz. So the worker's clear survives ~16 ms before this path sets it again, and the
+        # arm oscillates IDLE -> POSITION -> IDLE at up to 50 Hz — each engage re-running
+        # enable_position() (a mode-change write to five ESCs) and re-seeding the teleop. A
+        # bolted-down arm slamming between zero-torque and position hold, hundreds of CAN
+        # mode-changes a second, triggered by precisely the condition the check exists to make
+        # safe: the operator's arm leaving the headset's view.
+        #
+        # So the release has to LATCH at the source that owns the trigger. Held down, it stays
+        # released; the operator has to let go and press again.
+        #
+        # Mirror mode only. Without a profile the arm is driven from the controller's position
+        # and body tracking is not in the loop at all, so dropping the gate on body loss there
+        # would break the working path for a signal nothing is reading.
+        if self._profile is not None:
+            if self.body_lost_too_long():
+                if not self._body_latch:
+                    _log.warning("quest: body tracking lost >%.1fs while the trigger is held "
+                                 "— releasing. Release the trigger and press again to re-arm.",
+                                 BODY_HOLD_S)
+                self._body_latch = True
+            if self._body_latch:
+                self._release("body tracking lost")
+                return
 
         # Trigger held: clutch anchor on the rising edge, then command displacement from it.
         # The anchor is latched here and the arm-side anchor is latched by ArmTeleop.reset()
@@ -377,6 +442,15 @@ class QuestSource:
             self._seg_fore = 0.0
             self._body_robot = {}
             self._human = None
+            # _body_ok and _mirror_targets are DERIVED TOO, and they are the two that drive a
+            # motor. Clearing everything else but leaving these was worse than the stale
+            # segment lengths this branch was originally written to fix: `_body_ok` stayed
+            # True, so body_lost_too_long() short-circuited to False FOREVER and
+            # mirror_command() went on handing out the last good targets with hold=False. The
+            # entire tracking-loss ladder was dead in the one case it exists for — the body
+            # block vanishing outright. Route through the same function the live path uses so
+            # there is one place that decides what "usable" means.
+            self._retarget(None)
             return
         self._body_avail = True
         self._body = body
@@ -536,6 +610,35 @@ class QuestSource:
         _log.error("quest: Y pressed — E-STOP.")
         self.service.trigger_estop("quest-estop")
 
+    def _dispatch(self, fn, label: str) -> None:
+        """Run a BLOCKING service call OFF the event loop.
+
+        on_frame runs in the asyncio event loop (server.py awaits receive_json and calls it
+        directly). arm_deadman takes a lock and may load an ONNX policy from disk;
+        disarm_deadman calls stop(wait=True), which JOINS the session thread with a 5-second
+        timeout. Calling either inline stalls the whole loop for that long — no telemetry, no
+        /ws/control heartbeats, no XR frames, and crucially not the deadman watchdog, which
+        is itself an asyncio task. When the loop resumed the watchdog would see a stale
+        heartbeat and fire a SPURIOUS E-STOP.
+
+        routes.py already wraps both in `await _blocking(...)` for exactly this reason; the
+        button path simply never did.
+        """
+        def run():
+            try:
+                fn()
+            except Exception as exc:                 # noqa: BLE001
+                # A refused action (uncalibrated, wrong state) is operator feedback, not a
+                # fault. Surface it on the HUD.
+                self._reason = str(exc)
+                _log.info("quest: %s refused (%s)", label, exc)
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            run()                                    # no loop (tests) — inline is fine
+            return
+        loop.run_in_executor(None, run)
+
     def _on_arm(self) -> None:
         """A → arm the deadman session. Only when the Quest actually holds the input token:
         arming a session this source cannot then drive would strand the operator in ARMED
@@ -544,12 +647,12 @@ class QuestSource:
             self._reason = "not the active control method"
             return
         _log.info("quest: A pressed — arming.")
-        self.service.arm_deadman()
+        self._dispatch(self.service.arm_deadman, "arm")
 
     def _on_disarm(self) -> None:
         """B → disarm. Allowed regardless of the token: stopping is never gated."""
         _log.info("quest: B pressed — disarming.")
-        self.service.disarm_deadman()
+        self._dispatch(self.service.disarm_deadman, "disarm")
 
     def _owns(self) -> bool:
         return self.service.input_source == SOURCE
@@ -621,16 +724,15 @@ class QuestSource:
                                if self._body_frames else None),
                 "upper_arm_m": round(self._seg_upper, 4) or None,
                 "forearm_m": round(self._seg_fore, 4) or None,
-                # Retargeted arm angles, degrees. OBSERVATION ONLY — nothing commands a
-                # joint from these yet. This is the number that decides whether mirroring
-                # is viable, because it is what a motor would actually receive.
-                # Raw robot-frame joint positions, for diagnosing the decomposition.
-                "raw": {k: [round(c, 4) for c in v["p"]]
-                        for k, v in (self._body_robot or {}).items()},
-                # Same angles the recorder stores, so a run log can be compared joint-for-joint
-            # against what the robot actually did — "how far off was each joint" is
-            # unanswerable otherwise.
-            "angles_deg": (None if self._human is None else {
+                # Retargeted arm angles, degrees — the same ones the recorder stores, so a
+                # run log can be compared joint-for-joint against what the robot did.
+                #
+                # The raw 13-joint positions used to be here too. They were a one-off
+                # diagnostic for the decomposition and should never have survived: this
+                # whole snapshot is pushed to EVERY browser at 20 Hz, so a debug field costs
+                # bandwidth and JSON encoding forever. Read them from the flight recorder,
+                # which is where per-tick detail belongs.
+                "angles_deg": (None if self._human is None else {
                     "shoulder_pitch": round(math.degrees(self._human.shoulder_pitch), 2),
                     "shoulder_roll": round(math.degrees(self._human.shoulder_roll), 2),
                     "shoulder_yaw": round(math.degrees(self._human.shoulder_yaw), 2),
@@ -639,6 +741,7 @@ class QuestSource:
                 }),
             },
             "overlay": self._overlay,
+            "conn_id": self._conn_id,
             # Which operator profile is loaded. Without one the retargeted angles carry the
             # tracker's systematic offsets (a straight arm reads ~21 deg of elbow bend), so
             # the UI must be able to say "not calibrated" rather than quietly mis-mapping.

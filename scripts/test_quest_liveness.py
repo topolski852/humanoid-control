@@ -96,6 +96,51 @@ def frame(seq, *, p=(0.0, 0.0, 0.0), trigger=0.0, tracked=True, b=False,
     return f
 
 
+# ── body tracking fixtures ──────────────────────────────────────────────────
+def body(*, emulated: bool = False, present: bool = True):
+    """One `body` block. WebXR coords (y up, -z forward); the source converts.
+
+    Geometry is a person standing with the left arm reaching forward — upper arm 26 cm,
+    forearm 22 cm, which is what the retargeter measured off the real T-pose capture.
+    """
+    if not present:
+        return None
+    j = {
+        "hips":                  [0.00, 0.95,  0.00],
+        "chest":                 [0.00, 1.35,  0.00],
+        "left-shoulder":         [-0.17, 1.45, 0.00],
+        "right-shoulder":        [0.17, 1.45,  0.00],
+        "left-arm-upper":        [-0.20, 1.42, 0.00],
+        "left-arm-lower":        [-0.20, 1.42, -0.26],
+        "left-hand-wrist-twist": [-0.20, 1.42, -0.46],
+        "left-hand-wrist":       [-0.20, 1.42, -0.48],
+    }
+    return {"joints": {n: {"p": pp, "e": emulated} for n, pp in j.items()}}
+
+
+def give_profile(q):
+    """Attach a calibration profile so the source runs in MIRROR mode."""
+    from humanoid_control.arm_profile import ArmProfile, JOINTS
+    n = len(JOINTS)
+    q._profile = ArmProfile(name="test", captured_utc="2026-01-01T00:00:00Z",
+                            zero_rad=[0.0] * n,
+                            lo_rad=[-1.2] * n, hi_rad=[1.2] * n,
+                            upper_len_m=0.26, fore_len_m=0.22)
+    return q._profile
+
+
+def spy_gate(svc):
+    """Record every set_run_gate call so we can assert on what was ASKED, not just the
+    resulting flag — the bug this catches is a gate re-ASSERTED 60 times a second."""
+    calls = []
+    real = svc.set_run_gate
+    def wrapped(active, *, source="web"):
+        calls.append(bool(active))
+        return real(active, source=source)
+    svc.set_run_gate = wrapped
+    return calls
+
+
 def main() -> int:
     clock = Clock()
     xr_mod.time.monotonic = clock          # patch the module's clock
@@ -357,6 +402,95 @@ def main() -> int:
     svc, q = build()
     check("defaults to the hand matching the configured arm (left)",
           q.status()["hand"] == "left", q.status()["hand"])
+
+
+    print("\n── BODY LOSS LATCHES (the IDLE<->POSITION oscillation) ──────────")
+    # The bug: the run gate is asserted from the frame path at 60 Hz for as long as the
+    # trigger is held, while the deadman worker cleared it at 50 Hz on body loss. The clear
+    # survived ~16 ms. The arm oscillated between zero-torque and position hold at tick rate,
+    # re-running enable_position() (a mode change to five ESCs) every cycle — triggered by
+    # exactly the condition meant to make tracking loss SAFE.
+    clk = Clock(); xr_mod.time.monotonic = clk
+    svc, q = build(live_session=True)
+    give_profile(q)
+    n = 0
+    def push(*, trig, emu=False, present=True, dt=1 / 60.0):
+        nonlocal n
+        n += 1
+        f = frame(n, p=(0.0, 0.0, -0.30 - n * 1e-4), trigger=trig)
+        f["body"] = body(emulated=emu, present=present)
+        q.on_frame(f)
+        clk.advance(dt)
+
+    for _ in range(30):
+        push(trig=0.9)
+    check("body good + trigger held → gate on", svc._run_gate.is_set())
+
+    calls = spy_gate(svc)
+    # Body tracking drops. Trigger STAYS HELD, exactly as it would if the operator's arm
+    # swung out of the headset's view mid-motion.
+    for _ in range(int(xr_mod.BODY_HOLD_S * 60) + 30):
+        push(trig=0.9, present=False)
+    check("body lost past BODY_HOLD_S → gate released", not svc._run_gate.is_set())
+
+    # THE REGRESSION. Hundreds more frames, trigger still held. Not one may re-assert.
+    calls.clear()
+    for _ in range(300):
+        push(trig=0.9, present=False)
+    check("trigger still held: the gate is never re-asserted",
+          True not in calls, f"{calls.count(True)} of {len(calls)} calls asked to re-arm")
+    check("...and it stays released", not svc._run_gate.is_set())
+
+    # Tracking comes BACK, trigger never released. Must still stay down: re-arming a moving
+    # arm without the operator asking is the thing the latch exists to prevent.
+    calls.clear()
+    for _ in range(120):
+        push(trig=0.9)
+    check("tracking recovers mid-hold: still latched until a re-press",
+          True not in calls and not svc._run_gate.is_set())
+
+    # Release, then press again. That is the deliberate act that re-arms.
+    for _ in range(5):
+        push(trig=0.0)
+    check("releasing the trigger clears the latch", q._body_latch is False)
+    for _ in range(30):
+        push(trig=0.9)
+    check("a fresh press re-arms", svc._run_gate.is_set())
+
+    print("\n── an EMULATED joint is a guess, and counts as lost ─────────────")
+    clk = Clock(); xr_mod.time.monotonic = clk
+    svc, q = build(live_session=True); give_profile(q); n = 0
+    for _ in range(30):
+        push(trig=0.9)
+    check("measured body → armed", svc._run_gate.is_set())
+    for _ in range(int(xr_mod.BODY_HOLD_S * 60) + 30):
+        push(trig=0.9, emu=True)
+    check("emulated joints do not keep the gate alive", not svc._run_gate.is_set())
+
+    print("\n── NO profile: body loss must not touch the controller path ─────")
+    # Without a calibration the arm is driven from the controller's POSITION and body
+    # tracking is not in the loop at all. Dropping the gate there would break the working
+    # path over a signal nothing reads.
+    clk = Clock(); xr_mod.time.monotonic = clk
+    svc, q = build(live_session=True); n = 0          # deliberately no give_profile()
+    for _ in range(30):
+        push(trig=0.9)
+    check("pose mode arms without a profile", svc._run_gate.is_set())
+    for _ in range(int(xr_mod.BODY_HOLD_S * 60) + 60):
+        push(trig=0.9, present=False)
+    check("pose mode is unaffected by body-tracking loss", svc._run_gate.is_set())
+
+    print("\n── a reconnect does not inherit the old link's body history ─────")
+    clk = Clock(); xr_mod.time.monotonic = clk
+    svc, q = build(live_session=True); give_profile(q); n = 0
+    for _ in range(30):
+        push(trig=0.9)
+    clk.advance(xr_mod.BODY_HOLD_S + 5.0)             # long gap, then a NEW client
+    push(trig=0.0, present=False)                     # body gone: the ladder can now see it
+    check("stale body history would have read as lost", q.body_lost_too_long())
+    q.attach()
+    check("attach clears it", not q.body_lost_too_long())
+    check("attach clears the latch", q._body_latch is False)
 
     print(f"\n{len(PASS)} passed, {len(FAIL)} failed")
     if FAIL:

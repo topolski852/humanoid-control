@@ -160,12 +160,17 @@ function hudDom({ step = '', instruction = '', count = '', progress = null,
 // null poses for ALL of them. An emulated joint is the browser guessing where your elbow
 // is, so `emulated` is reported per joint and the server treats any emulation as untracked
 // — a guessed elbow must never drive a robot arm.
+// EXACTLY what the retargeter reads, and nothing else. Both shoulders and hips/chest
+// define the torso frame; the rest is the driven arm's chain.
+//
+// Sending more is not free: this goes out 60 times a second over WiFi. The first version
+// shipped 13 joints WITH orientation quaternions — and the server drops every quaternion on
+// arrival, because human_angles works from segment DIRECTIONS (joint positions), not the
+// reported orientations, which are the least trustworthy part of an inferred upper body.
+// That was 47 kB/s of traffic encoded, transmitted, parsed and thrown away.
 const BODY_JOINTS = [
-  'hips', 'chest',
-  'left-shoulder', 'left-scapula', 'left-arm-upper', 'left-arm-lower',
-  'left-hand-wrist-twist', 'left-hand-wrist',
-  'right-shoulder', 'right-arm-upper', 'right-arm-lower',
-  'right-hand-wrist-twist', 'right-hand-wrist',
+  'hips', 'chest', 'left-shoulder', 'right-shoulder',
+  'left-arm-upper', 'left-arm-lower', 'left-hand-wrist-twist', 'left-hand-wrist',
 ];
 
 let bodyWarned = false;
@@ -190,12 +195,10 @@ function readBody(frame, refSpace) {
     if (!pose) { out[name] = null; continue; }
     present++;
     if (pose.emulatedPosition) emulated++;
-    const { position: p, orientation: o } = pose.transform;
-    out[name] = {
-      p: [r4(p.x), r4(p.y), r4(p.z)],
-      q: [r4(o.x), r4(o.y), r4(o.z), r4(o.w)],
-      e: !!pose.emulatedPosition,
-    };
+    // Positions only — see BODY_JOINTS. `e` (emulated) must survive: it is what tells the
+    // server the headset is GUESSING where this joint is, and a guess must not drive a motor.
+    const { position: p } = pose.transform;
+    out[name] = { p: [r4(p.x), r4(p.y), r4(p.z)], e: !!pose.emulatedPosition };
   }
   return { joints: out, present, emulated, total: BODY_JOINTS.length };
 }
@@ -319,6 +322,7 @@ async function start() {
     show('session ended — arm stopped');
   });
 
+  let viewerPose = null;
   const onFrame = (t, frame) => {
     session.requestAnimationFrame(onFrame);
 
@@ -333,13 +337,13 @@ async function start() {
 
       // Draw the HUD once per eye, into each view's own viewport, so it has correct stereo
       // depth rather than sitting flat on one eye.
-      const vp = frame.getViewerPose(refSpace);
-      if (hud3d && vp) {
+      viewerPose = frame.getViewerPose(refSpace);
+      if (hud3d && viewerPose) {
         for (const view of vp.views) {
           const v = layer.getViewport(view);
           if (!v) continue;
           gl.viewport(v.x, v.y, v.width, v.height);
-          hud3d.draw(view, vp);
+          hud3d.draw(view, viewerPose);
         }
       }
     }
@@ -347,7 +351,9 @@ async function start() {
     if (t - lastTx < 1000 / TX_HZ) return;
     lastTx = t;
 
-    const viewer = frame.getViewerPose(refSpace);
+    // Reuse the pose already fetched for the HUD rather than asking again. getViewerPose
+    // is a prediction, not a lookup, and it was being called twice every frame.
+    const viewer = viewerPose;
     let left = null, right = null;
     for (const src of session.inputSources) {
       const c = readController(frame, refSpace, src);

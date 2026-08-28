@@ -335,7 +335,7 @@ async def ws_xr(ws: WebSocket) -> None:
         await ws.close(code=1011)      # bridge not enabled — don't accept and look healthy
         return
     await ws.accept()
-    service.quest.attach()
+    conn_id = service.quest.attach()
     # The HUD is the operator's ONLY feedback channel once the headset is on — passthrough
     # cameras cannot resolve monitor text. Pushed on its own task so a slow or wedged HUD
     # send can never stall the frame-receive loop that the deadman depends on.
@@ -343,7 +343,7 @@ async def ws_xr(ws: WebSocket) -> None:
     try:
         while True:
             msg = await ws.receive_json()
-            service.quest.on_frame(msg)
+            service.quest.on_frame(msg, conn_id)
     except WebSocketDisconnect:
         pass
     except Exception:
@@ -352,7 +352,7 @@ async def ws_xr(ws: WebSocket) -> None:
         _log.warning("quest: websocket error — treating as disconnect.", exc_info=True)
     finally:
         hud_task.cancel()
-        service.quest.detach()
+        service.quest.detach(conn_id)
 
 
 # ── static web UI (mounted last so API/WS win) ───────────────────────────────

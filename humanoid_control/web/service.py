@@ -1455,9 +1455,14 @@ class ControlService:
                             q_target, info = teleop.step_mirror(
                                 q_now, tgts, dt, creep=(self._speed_mode == "creep"),
                                 hold=hold)
+                            # Defence in depth. The Quest source latches this release itself
+                            # (see QuestSource._on_frame): it has to, because the gate is
+                            # re-asserted there every frame while the trigger is held, so a
+                            # clear from this worker alone would be overwritten ~16 ms later
+                            # and the arm would oscillate IDLE<->POSITION at tick rate. This
+                            # clear is the motor-side backstop for that, not the mechanism.
                             if self.quest.body_lost_too_long():
-                                _log.warning("arm teleop: body tracking lost >%.0fs — "
-                                             "releasing to IDLE.", 3.0)
+                                _log.warning("arm teleop: body tracking lost — releasing to IDLE.")
                                 self._run_gate.clear()
                         elif pose_mode:
                             # No fresh sample yet (or the source dropped it) means HOLD, not
