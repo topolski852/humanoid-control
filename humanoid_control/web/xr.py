@@ -83,6 +83,11 @@ LOSS_S = 1.0
 # pose means a repeated buffer, not a steady hand. This is the failure mode xr_teleoperate's
 # own safety layer documents ("silently repeats the last pose when hands leave the FOV").
 FROZEN_S = 0.5
+# Body tracking is ALL-OR-NOTHING: the spec lets the UA emulate obscured joints or null the
+# lot. An emulated joint is the headset guessing where your elbow is, and a guess must not
+# drive a motor. On a bolted-down arm, freezing where it is beats dropping to IDLE mid-motion
+# — so tracking loss HOLDS, and only becomes IDLE if it persists.
+BODY_HOLD_S = 3.0
 
 
 def _f(name: str, default: float) -> float:
@@ -139,6 +144,9 @@ class QuestSource:
         self._human = None
         self._calib = None          # active CalibrationRun, if any
         self._profile = None        # operator calibration, loaded at attach
+        self._mirror_targets = None # retargeted robot joint targets, or None
+        self._body_ok = False       # body tracking usable AND a profile loaded
+        self._body_ok_at = 0.0      # monotonic time body tracking was last usable
 
         self._overlay = False       # dom-overlay granted by the headset?
         self._ctrls: dict = {}      # per-hand tracked/trigger, for diagnosis
@@ -395,6 +403,7 @@ class QuestSource:
 
         arm = human_angles(robot_joints, side=self._drive_hand())
         self._human = arm
+        self._retarget(arm)
         if self._calib is not None:
             was_done = self._calib.done
             self._calib.update(arm, robot_joints)
@@ -403,6 +412,50 @@ class QuestSource:
         if arm is not None:
             self._seg_upper = arm.upper_len
             self._seg_fore = arm.fore_len
+
+    # ── retargeting ─────────────────────────────────────────────────────────
+    def _retarget(self, arm) -> None:
+        """Operator's arm angles → robot joint targets, via their calibration profile.
+
+        Sets `_mirror_targets` (or None) and `_body_ok`. Deliberately does NOT decide whether
+        to command anything — that is the worker's call — so this stays a pure translation
+        step that can be reasoned about on its own.
+        """
+        usable = bool(self._body_usable and arm is not None and self._profile is not None)
+        if usable:
+            self._body_ok_at = time.monotonic()
+        self._body_ok = usable
+        if not usable:
+            self._mirror_targets = None
+            if self._profile is None and self._body_usable:
+                self._reason = "no calibration profile — run the arm calibration"
+            return
+        try:
+            chain = self.service.arm_chain()
+            self._mirror_targets = self._profile.to_robot(arm.as_array(), chain)
+        except Exception as exc:                             # noqa: BLE001
+            self._mirror_targets = None
+            self._body_ok = False
+            self._reason = f"retarget failed: {exc}"
+
+    def mirror_command(self):
+        """(targets, hold) for the arm worker, or (None, True) when it must freeze.
+
+        HOLD, not IDLE. Body tracking drops all-or-nothing, and a brief occlusion while the
+        operator reaches across themselves is normal rather than a fault — freezing rides it
+        out. It only becomes IDLE if tracking stays gone past BODY_HOLD_S, because holding a
+        powered arm indefinitely on lost tracking is its own hazard.
+        """
+        if self._mirror_targets is not None and self._body_ok:
+            return self._mirror_targets, False
+        gone = time.monotonic() - self._body_ok_at if self._body_ok_at else 1e9
+        return None, gone <= BODY_HOLD_S
+
+    def body_lost_too_long(self) -> bool:
+        """True once tracking has been gone long enough that holding is no longer right."""
+        if self._body_ok:
+            return False
+        return bool(self._body_ok_at) and (time.monotonic() - self._body_ok_at) > BODY_HOLD_S
 
     # ── in-headset HUD ──────────────────────────────────────────────────────
     def hud_frame(self) -> dict | None:
@@ -422,11 +475,29 @@ class QuestSource:
             return {"type": "hud", "tone": "warn",
                     "instruction": "NO BODY TRACKING",
                     "note": "enable 'WebXR Experiments' in chrome://flags, restart the browser"}
+        if self._profile is None:
+            # Say this loudly. Without a profile the arm still drives, but through the
+            # controller-position path — so the operator would be wondering why their elbow
+            # is not being followed, with no way to tell from inside the headset.
+            return {"type": "hud", "tone": "warn",
+                    "step": "NOT CALIBRATED",
+                    "instruction": "NO PROFILE",
+                    "note": "run the arm calibration to mirror your whole arm",
+                    "live": (f"pitch {math.degrees(a.shoulder_pitch):+6.1f}   "
+                             f"roll {math.degrees(a.shoulder_roll):+6.1f}\n"
+                             f"yaw   {math.degrees(a.shoulder_yaw):+6.1f}   "
+                             f"elbow {math.degrees(a.elbow):5.1f}")}
         held = self._trigger >= self.trig_thresh
+        if not self._body_ok and self._gate:
+            # Tracking dropped while driving: the arm is frozen where it was.
+            return {"type": "hud", "tone": "err",
+                    "step": "TRACKING LOST",
+                    "instruction": "ARM HELD",
+                    "note": "step back into view — the arm is frozen, not driving"}
         return {
             "type": "hud",
-            "step": "DRIVING" if self._gate else "READY",
-            "instruction": "DRIVING" if self._gate else "hold the trigger",
+            "step": ("MIRRORING" if self._gate else "READY"),
+            "instruction": "MIRRORING" if self._gate else "hold the trigger",
             "tone": "ok" if self._gate else "",
             "live": (f"pitch {math.degrees(a.shoulder_pitch):+6.1f}   "
                      f"roll {math.degrees(a.shoulder_roll):+6.1f}\n"

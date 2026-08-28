@@ -35,7 +35,7 @@ class TeleopTuning:
     # "pose" is the 6-DOF-tracker frame (Quest controller): the caller supplies an absolute
     # hand displacement rather than a stick deflection, and ArmTeleop.step_pose is used
     # instead of step. Position only — see step_pose on why orientation is not tracked.
-    frame: str = "joint"              # "joint" | "cartesian" | "spherical" | "pose"
+    frame: str = "joint"   # "joint" | "cartesian" | "spherical" | "pose" | "mirror"
 
     # JOINT mode: which joint each stick axis drives, indexed by stick in the order
     # (left_x, left_y, right_y, right_x). None leaves that axis unbound.
@@ -117,6 +117,13 @@ class TeleopTuning:
     # Raising it makes the arm push harder against a blockage; lowering it makes the shoulder
     # unable to lift itself again. Measured on the real arm, not guessed — see step_pose.
     pose_leash_deg: float = 8.0
+
+    # MIRROR frame (whole-arm body tracking). The operator's own motion sets the pace, so
+    # these are a safety backstop rather than the controller — they should sit ABOVE the
+    # speed a person actually moves at, or the robot lags behind its own operator and the
+    # mapping stops feeling direct. rad/SECOND, multiplied by the real dt each tick.
+    mirror_rate_normal: float = 1.2   # ~69 deg/s, matching max_joint_rate
+    mirror_rate_creep: float = 0.35   # ~20 deg/s for first runs on hardware
 
     posture_gain: float = 0.05
     damping: float = 0.01
@@ -223,6 +230,89 @@ class ArmTeleop:
             self._clipped = True
         self.target, clipped = self._clamp_to_shell(self.target)
         self._clipped = self._clipped or clipped
+
+    def step_mirror(self, q_measured, targets_rad, dt: float, *,
+                    creep: bool = False, hold: bool = False):
+        """One tick of WHOLE-ARM MIRRORING: the operator's joint angles drive the robot's.
+
+        ``targets_rad`` is already a robot joint vector — the retargeter read the operator's
+        shoulder/elbow/wrist from body tracking and their calibration profile mapped it onto
+        this arm's limits. There is NO IK here and that is the entire point: the solver is
+        what redistributes motion across joints, so bending only your elbow moved four of
+        them. Commanding the joints directly is what makes one DOF move one joint.
+
+        WHAT THIS STILL SHARES WITH THE OTHER FRAMES, deliberately:
+
+        * ``q_cmd`` integration with the leash. Setting ``q_target = targets`` directly would
+          reintroduce the exact stall that kept the shoulder frozen — a command that never
+          leads the encoder by more than a tick asks for 0.19 Nm against a ~2.8 Nm gravity
+          load. The command must be allowed to lead, and the leash is what bounds it.
+        * A per-tick rate cap, so a tracking glitch that teleports a target cannot be
+          followed at infinite speed.
+        * ``chain.clamp``, so joint limits are enforced in one place for every frame.
+
+        ``hold=True`` freezes the command where it is while still reporting — that is the
+        tracking-loss behaviour: body tracking is all-or-nothing, and an emulated joint is
+        the headset guessing where your elbow is. A guess must not drive a motor, but on a
+        bolted-down arm freezing is safer than dropping to IDLE mid-motion.
+
+        Returns (joint_targets, info) — the same contract as :meth:`step`.
+        """
+        q = np.asarray(q_measured, dtype=float)
+        if self.q_cmd is None or self.target is None:
+            self.reset(q)
+        t = self.tuning
+        n = self.chain.n
+
+        tgt = np.asarray(targets_rad, dtype=float).reshape(n) if targets_rad is not None \
+            else self.q_cmd.copy()
+        if not np.all(np.isfinite(tgt)):
+            tgt = self.q_cmd.copy()          # a bad sample HOLDS, never flings the arm
+            hold = True
+
+        if hold:
+            dq = np.zeros(n)
+        else:
+            rate = (t.mirror_rate_creep if creep else t.mirror_rate_normal) * dt
+            dq = np.clip(tgt - self.q_cmd, -rate, rate)
+
+        # Integrate the COMMAND and leash it to the encoder — see step_pose for why the
+        # obvious `q + dq` cannot lift this arm.
+        leash = np.radians(t.pose_leash_deg)
+        self.q_cmd = self.chain.clamp(np.clip(self.q_cmd + dq, q - leash, q + leash))
+        q_target = self.q_cmd.copy()
+        self.target = self.chain.tool(q_target)
+        hand = self.chain.tool(q)
+
+        at_limit = [
+            self.chain.joint_names[i] for i in range(n)
+            if q_target[i] <= self.chain.limits_lower[i] + 1e-6
+            or q_target[i] >= self.chain.limits_upper[i] - 1e-6
+        ]
+        r2, e2, a2 = self._to_spherical(self.target)
+        # How far each joint still is from where the operator's arm says it should be. This
+        # is the mirroring equivalent of tracking_error_m: large and persistent means the
+        # robot cannot reach that posture, not that the link is lagging.
+        follow_err = np.degrees(np.abs(tgt - q))
+        return q_target, {
+            "target": self.target.copy(),
+            "hand": hand,
+            "frame": "mirror",
+            "hold": bool(hold),
+            "joint_err_deg": [round(float(v), 2) for v in follow_err],
+            "worst_joint_err_deg": round(float(follow_err.max()), 2),
+            "lead_deg": [round(float(np.degrees(a - b)), 3)
+                         for a, b in zip(q_target, q)],
+            "error_m": 0.0,
+            "follow": 1.0,
+            "sliding": False,
+            "clipped": bool(at_limit),
+            "spherical": {"reach_m": round(r2, 4),
+                          "elevation_deg": round(float(np.degrees(e2)), 1),
+                          "azimuth_deg": round(float(np.degrees(a2)), 1)},
+            "at_limit": at_limit,
+            "commanding": bool(not hold and float(np.abs(dq).max()) > 1e-9),
+        }
 
     def step_pose(self, q_measured, delta_m, dt: float, *, creep: bool = False):
         """One teleop tick driven by a 6-DOF tracker (the Quest controller) instead of sticks.

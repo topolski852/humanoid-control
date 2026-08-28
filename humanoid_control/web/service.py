@@ -1207,6 +1207,17 @@ class ControlService:
             self._arm_pose_command = (
                 np.asarray(delta_m, dtype=np.float32).reshape(3).copy(), int(seq))
 
+    def arm_chain(self):
+        """Kinematic chain for the selected arm. Cached — building it parses the vendored
+        URDF model, and the retargeter asks for it on every XR frame."""
+        limb = self.selected_limb()
+        if limb is None:
+            raise ControlError("no arm configured", 409)
+        if getattr(self, "_chain_cache", (None, None))[0] != limb:
+            from ..arm_kinematics import ArmChain
+            self._chain_cache = (limb, ArmChain(list(self._layout.joints_of(limb))))
+        return self._chain_cache[1]
+
     def selected_limb(self) -> str | None:
         """Which arm a teleop session drives (first configured arm when unset)."""
         return self._selected.get("limb") or (self._layout.arms[0] if self._layout.arms else None)
@@ -1357,8 +1368,24 @@ class ControlService:
             # A 6-DOF tracker supplies an absolute hand displacement, not stick deflections,
             # so the teleop runs its 'pose' frame. Fixed at session start from the source that
             # armed it — the input token cannot change mid-session anyway.
-            pose_mode = (self._session_deadman == "quest")
-            tuning = TeleopTuning(frame="pose") if pose_mode else TeleopTuning()
+            # MIRROR when the Quest is driving AND the operator has a calibration profile;
+            # otherwise fall back to the controller-position path. Chosen once at session
+            # start: the input token cannot change mid-session anyway, and switching mapping
+            # under a moving arm is exactly the transition nobody can supervise.
+            quest_src = (self._session_deadman == "quest")
+            mirror_mode = bool(quest_src and self.quest is not None
+                               and getattr(self.quest, "_profile", None) is not None)
+            pose_mode = quest_src and not mirror_mode
+            if mirror_mode:
+                tuning = TeleopTuning(frame="mirror")
+            elif pose_mode:
+                tuning = TeleopTuning(frame="pose")
+            else:
+                tuning = TeleopTuning()
+            if quest_src and not mirror_mode:
+                _log.warning("arm teleop: Quest is driving but there is NO calibration "
+                             "profile — falling back to controller-position mode. Run the "
+                             "arm calibration to mirror your whole arm.")
             teleop = ArmTeleop(ArmChain(arm_joints), tuning=tuning)
             _log.info("arm teleop: driving %s (%d joints) in '%s' frame",
                       limb, len(arm_joints), tuning.frame)
@@ -1418,7 +1445,21 @@ class ControlService:
                             cmd = self._arm_command.copy()
                             pose_cmd = self._arm_pose_command
                         q_now, v_now = group.read_states()
-                        if pose_mode:
+                        if mirror_mode:
+                            # Whole-arm mirroring. `hold` freezes the command where it is
+                            # when body tracking drops — an emulated joint is the headset
+                            # guessing where the operator's elbow is, and a guess must not
+                            # drive a motor. Freezing beats dropping to IDLE mid-motion on a
+                            # bolted-down arm; if it persists the worker releases below.
+                            tgts, hold = self.quest.mirror_command()
+                            q_target, info = teleop.step_mirror(
+                                q_now, tgts, dt, creep=(self._speed_mode == "creep"),
+                                hold=hold)
+                            if self.quest.body_lost_too_long():
+                                _log.warning("arm teleop: body tracking lost >%.0fs — "
+                                             "releasing to IDLE.", 3.0)
+                                self._run_gate.clear()
+                        elif pose_mode:
                             # No fresh sample yet (or the source dropped it) means HOLD, not
                             # "reuse the last displacement" — a stale offset would keep
                             # driving the arm after the operator's link went quiet.
