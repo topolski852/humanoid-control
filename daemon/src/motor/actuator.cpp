@@ -181,6 +181,12 @@ static void send_sdo_read(CanBusManager& bus, const std::string& channel,
     bus.send(channel, f);
 }
 
+// How often a DAMPING joint gets a watchdog feed, in 200 Hz control ticks.
+// 10 ticks = 50 ms, against a 1000 ms firmware timeout (config_loader.cpp: watchdog_timeout,
+// default 1000) — a 20x margin. Deliberately not every tick: feeding a resting 22-joint robot
+// at 200 Hz would put 4400 frames/s on the bus to accomplish nothing.
+static constexpr uint32_t DAMPING_FEED_TICKS = 10;
+
 void Actuator::send_pdo2(CanBusManager& bus, float display_pos, float vel_ff) {
     can_frame frame{};
     frame.can_id  = make_arb_id(
@@ -334,13 +340,40 @@ void Actuator::tick(CanBusManager& bus) {
         { std::lock_guard<std::mutex> lk(cmd_mutex_); target = position_target_; }
         send_pdo2(bus, target);
 
+    } else if (current_state == JointState::DAMPING) {
+        // FEED THE FIRMWARE WATCHDOG. Without this a DAMPING joint faults
+        // ERROR_WATCHDOG_TIMEOUT (0x0040) in about a second, and any session resting in
+        // DAMPING E-STOPs. Measured on hardware twice: 2026-07-14 (b5f2423) and again
+        // 2026-08-27 (dee6839), five joints, every time.
+        //
+        // A PDO is required — polling is not enough. DAMPING is already in the slow-poll
+        // gate below, so these joints were ALREADY receiving an SDO read every 100 ms,
+        // ten frames a second against a 1000 ms timeout, and they faulted regardless.
+        // FUNC_RECEIVE_SDO does not reset the counter. FUNC_RECEIVE_PDO_2 does, which we
+        // know because ENABLED joints receive only PDO2 and never fault.
+        //
+        // Seeded from the MEASURED position, not position_target_. In DAMPING the firmware
+        // ignores the target, but its FUNC_RECEIVE_PDO_2 handler stores it unconditionally
+        // (no mode guard — see the ENABLED transition above). Sending the measured position
+        // means the stored target is always where the joint actually is, so it can never be
+        // a stale pose from before the operator let go.
+        if (++damping_feed_counter_ % DAMPING_FEED_TICKS == 0) {
+            float hold;
+            { std::lock_guard<std::mutex> slk(state_mutex_); hold = state_.position; }
+            send_pdo2(bus, hold);
+        }
     }
-    // IDLE, OFFLINE, CALIBRATING, FAULT: no outbound frames from tick().
-    // NOTE: Do NOT send FUNC_HEARTBEAT (0x700+device_id) to IDLE motors.
-    // That arb_id is used by the motor itself to BROADCAST its heartbeat.
-    // Sending on the same arb_id from the host causes CAN bus collisions that
-    // accumulate error counts on both sides and can corrupt adjacent SDO frames.
-    // The firmware watchdog does not fire in IDLE mode, so no feed is needed.
+    // IDLE, OFFLINE, CALIBRATING, FAULT: no PDO from tick(). IDLE and DAMPING still get
+    // slow-poll SDO reads below; OFFLINE, CALIBRATING, FAULT and DISABLED get nothing at all.
+    //
+    // NOTE: Do NOT send FUNC_HEARTBEAT (0x700+device_id) to any motor. That arb_id is what
+    // the motor itself BROADCASTS on. Sending on it from the host causes CAN bus collisions
+    // that accumulate error counts on both sides and can corrupt adjacent SDO frames. It is
+    // receive-only here despite what the enum comment in recoil_protocol.hpp says.
+    //
+    // IDLE genuinely needs no feed — verified by it never faulting across every session this
+    // robot has run. That is a measurement, not an inference from DAMPING's behaviour, and it
+    // is the only mode besides ENABLED for which the claim has actually been tested.
 
     // Slow-poll telemetry via SDO reads (~3 Hz per field at 200 Hz / 60 ticks).
     // Skipped when slow_poll_enabled_ is false (e.g. during Flash Wizard commissioning)
@@ -366,6 +399,16 @@ void Actuator::tick(CanBusManager& bus) {
 }
 
 // ── Setters (UDP thread) ────────────────────────────────────────────────────
+
+void Actuator::feed_damping(CanBusManager& bus) {
+    float hold;
+    {
+        std::lock_guard<std::mutex> slk(state_mutex_);
+        if (state_.joint_state != JointState::DAMPING) return;
+        hold = state_.position;
+    }
+    send_pdo2(bus, hold);
+}
 
 void Actuator::request_state(JointState s) {
     std::lock_guard<std::mutex> lk(cmd_mutex_);

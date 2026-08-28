@@ -64,6 +64,12 @@ public:
     // Sends PDO2 (ENABLED) or HEARTBEAT (IDLE, every 200 ms).
     void tick(CanBusManager& bus);
 
+    // One watchdog feed for a joint that is resting in DAMPING, for callers outside the
+    // control loop. Robot::stop() needs this: it stops the loop BEFORE parking joints in
+    // DAMPING, so tick() is no longer running to feed them. No-op unless the joint is
+    // actually in DAMPING, so it is safe to call across every actuator.
+    void feed_damping(CanBusManager& bus);
+
     // --- Thread-safe setters called from UDP server command queue ---
 
     // Request a mode transition on the next tick.
@@ -137,6 +143,10 @@ private:
 
     // Slow-poll counter for periodic SDO telemetry reads (bus_voltage, current, torque).
     uint32_t slow_poll_counter_ = 0;
+    // Tick counter for the DAMPING watchdog feed. Separate from slow_poll_counter_ on
+    // purpose: that one only advances while slow-poll is enabled and the joint is in one of
+    // three states, so it is not a reliable clock for anything safety-relevant.
+    uint32_t damping_feed_counter_ = 0;
     // When false, slow-poll SDO reads are skipped (set during Flash Wizard commissioning
     // to prevent slow-poll responses from consuming generic_listener_ futures).
     std::atomic<bool> slow_poll_enabled_{true};

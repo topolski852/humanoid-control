@@ -128,7 +128,22 @@ void Robot::stop() {
             bus_mgr_->send(a->can_channel(), nmt);
         }
     }
-    std::this_thread::sleep_for(ms(500));
+    // Settle in DAMPING before going limp — but KEEP FEEDING while we wait.
+    //
+    // control_loop_.stop() above means tick() is no longer running, so nothing is feeding
+    // the firmware watchdog. An unfed DAMPING joint faults ERROR_WATCHDOG_TIMEOUT (0x0040)
+    // after watchdog_timeout ms (default 1000, config_loader.cpp). This wait used to be a
+    // bare 500 ms sleep, which survived only because it happened to be half the budget —
+    // undocumented, and it would have broken silently the moment anyone lengthened the
+    // settle time to let a heavier arm come to rest.
+    {
+        constexpr int kSettleMs = 500;
+        constexpr int kFeedMs   = 50;
+        for (int elapsed = 0; elapsed < kSettleMs; elapsed += kFeedMs) {
+            std::this_thread::sleep_for(ms(kFeedMs));
+            for (auto& a : actuators_) a->feed_damping(*bus_mgr_);
+        }
+    }
 
     // Idle all joints.
     for (auto& a : actuators_) {
