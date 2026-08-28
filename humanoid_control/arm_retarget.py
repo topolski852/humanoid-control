@@ -57,7 +57,7 @@ class HumanArm:
     """One sample of the operator's arm, in robot-frame radians.
 
     Angles use the ROBOT's conventions so they can be compared with telemetry directly:
-      shoulder_pitch  forward swing, + = forward
+      shoulder_pitch  forward swing, - = forward (the ROBOT's sense, not anatomy — see below)
       shoulder_roll   abduction, + = away from the body
       shoulder_yaw    humeral rotation about the upper-arm axis
       elbow           flexion, 0 = straight
@@ -154,7 +154,19 @@ def human_angles(joints: dict, *, side: str = "left") -> HumanArm | None:
     #   u_x = sin(pitch)                 -> pitch = asin(u_x)
     #   u_y = cos(pitch)·sin(roll)       -> roll  = atan2(u_y, -u_z)
     #   u_z = -cos(pitch)·cos(roll)
-    pitch = float(np.arcsin(np.clip(u[0], -1.0, 1.0)))
+    # NEGATED, and this is the whole subtlety of the line. The decomposition below is
+    # anatomical: u_x is the forward component of the upper arm, so asin(u_x) is POSITIVE
+    # when the operator's arm swings forward. The ROBOT's shoulder_pitch runs the other way
+    # — forward kinematics puts the hand at x=+0.242 for pitch -60 and x=-0.197 for pitch
+    # +45, so negative pitch is forward. This function's contract is to emit the ROBOT's
+    # convention (it is documented as decomposing in robot kinematic order and its output
+    # feeds joint targets directly), so the sign belongs here rather than as a fudge factor
+    # further downstream.
+    #
+    # Measured on hardware: without this the operator moved their arm forward and the robot
+    # arm swung back. Nothing else was mirrored wrongly — roll abducts the same way on both,
+    # and elbow flexion agrees — which is exactly why a single inverted joint is easy to ship.
+    pitch = -float(np.arcsin(np.clip(u[0], -1.0, 1.0)))
     roll = float(np.arctan2(u[1], -u[2]))
 
     # Humeral rotation: where the forearm sits around the upper-arm axis. Projecting the

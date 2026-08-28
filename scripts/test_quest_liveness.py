@@ -472,7 +472,13 @@ def main() -> int:
     # tracking is not in the loop at all. Dropping the gate there would break the working
     # path over a signal nothing reads.
     clk = Clock(); xr_mod.time.monotonic = clk
-    svc, q = build(live_session=True); n = 0          # deliberately no give_profile()
+    svc, q = build(live_session=True); n = 0
+    # EXPLICITLY profile-less. build() -> attach() -> reload_profile() reads the operator's
+    # real calibration from ~/.config, so "deliberately no give_profile()" quietly meant
+    # "whatever this machine happens to have on disk" — passing on a fresh checkout and
+    # failing the moment anyone actually calibrated. State the precondition instead of
+    # inheriting it.
+    q._profile = None
     for _ in range(30):
         push(trig=0.9)
     check("pose mode arms without a profile", svc._run_gate.is_set())
