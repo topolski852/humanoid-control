@@ -24,3 +24,10 @@ recordings/
 .DS_Store
 # temporary arm frame-calibration recordings (scripts/tmp_record_arm.py)
 _arm_recording/
+
+# Raw sim2real capture sidecars (scripts/measure/) — a 10-minute run is ~13 MB of CAN
+# timestamps. The small *_can.json / *_M2M3M6.json summaries beside them ARE tracked, so
+# every reported number stays traceable without carrying the raw stream in git.
+docs/measurements/*.frames.jsonl
+docs/measurements/*.ticks.jsonl
+docs/measurements/.*.out

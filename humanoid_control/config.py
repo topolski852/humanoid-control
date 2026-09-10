@@ -41,7 +41,8 @@ DEFAULT_CONTRACT_PATH = REPO_ROOT / "configs" / "leg_policy_params.json"
 # not exist. Point the daemon's --config at whatever this resolves to.
 ROBOT_CONFIG_CANDIDATES = (
     Path("~/.config/humanoid-studio/humanoid_lite.json").expanduser(),   # studio GUI writes here
-    Path("~/humanoid/humanoid-studio/configs/humanoid_lite.json").expanduser(),
+    Path("~/humanoid-studio/configs/humanoid_lite.json").expanduser(),   # flat sibling checkouts
+    Path("~/humanoid/humanoid-studio/configs/humanoid_lite.json").expanduser(),  # nested layout
     REPO_ROOT / "configs" / "humanoid_lite.json",
 )
 
