@@ -76,6 +76,8 @@ export const api = {
   // token; the backend drops commands from every other source. Refused mid-session (409).
   setInputSource: (source) =>
     request('/api/input_source', { method: 'POST', body: JSON.stringify({ source }) }),
+  setArmMethod: (method) =>
+    request('/api/arm_method', { method: 'POST', body: JSON.stringify({ method }) }),
 
   // What the arm does when armed but not driving: 'damping' (powered braking, the default) or
   // 'idle' (zero torque, limp — the arm falls). Allowed mid-session: it decides what the NEXT
@@ -109,6 +111,9 @@ export const api = {
   // Arms have no hardstops, so they are zeroed from a held T-pose rather than by capturing
   // two mechanical stops. Must be redone after every power cycle — single-turn encoders.
   calibrateArm: (limb) => request(`/api/calibrate/arm/${limb}`, { method: 'POST' }),
+
+  // Whole-leg zeroing from the folded, feet-together stance. `limb` is a leg name or 'both'.
+  calibrateLegs: (limb = 'both') => request(`/api/calibrate/legs/${limb}`, { method: 'POST' }),
 
   // manual control + saved poses (values in degrees)
   getPoses: () => request('/api/poses'),

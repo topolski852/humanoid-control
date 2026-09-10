@@ -2,41 +2,18 @@ import { useEffect, useRef, useState } from 'react'
 import { api } from '../api'
 import { useTelemetry } from '../context/TelemetryContext'
 
-// WHAT IS DRIVING THE ROBOT — and, for whichever method is selected, its own controls.
+// WHAT EACH LIMB DOES with the operator's input — per limb, because the two are not the same
+// kind of thing and never were.
 //
-// Exactly one source holds the input token at a time; the backend drops (and counts) commands
-// from anything else, because two live sources both believing they are driving is the failure
-// this exists to prevent. Switching is refused mid-session for the same reason the backend
-// refuses it: handing authority over while the robot moves is the transition nobody can
-// supervise.
+//   legs  which POLICY runs. The policy is always what moves the legs; the input device (Input
+//         method card) only supplies its velocity command. With no device connected the policy
+//         runs and stands still. That is why a policy is not an input method: it composes with
+//         one rather than replacing it.
+//   arms  HOW the operator's motion maps onto the arm. There is no policy for the arms, so on
+//         an arms-only machine nothing here mentions one.
 //
-// "Policy" is not an input DEVICE like the other two, but the card answers "what is driving the
-// robot", and for that question a policy genuinely is one of the answers.
-
-const METHODS = [
-  {
-    id: 'xbox',
-    label: 'Xbox controller',
-    blurb: 'Hold LT/RT to drive · A arms · START is E-STOP · Select toggles arm/leg',
-  },
-  {
-    id: 'quest',
-    label: 'Quest',
-    blurb: 'Hold the trigger to drive · release re-anchors · B/Y is E-STOP',
-  },
-  {
-    id: 'web',
-    label: 'Policy',
-    blurb: 'Run a trained checkpoint from this page. The browser is the deadman.',
-  },
-]
-
-const UNAVAILABLE = {
-  xbox: 'gamepad deadman not enabled (HUMANOID_GAMEPAD_ENABLE)',
-  quest: 'Quest bridge not enabled (HUMANOID_QUEST_ENABLE)',
-  web: 'unavailable',
-}
-
+// A machine shows only the sections its layout supports, so a bench arm never sees a policy
+// picker and a legs-only robot never sees an arm mapping.
 export default function ControlMethodPanel() {
   const t = useTelemetry()
   const [busy, setBusy] = useState(null)
@@ -45,10 +22,11 @@ export default function ControlMethodPanel() {
   const [defaultPolicy, setDefaultPolicy] = useState(null)
   const [checkpoint, setCheckpoint] = useState('')
 
-  const available = t.input_sources || []
-  const active = t.input_source || 'web'
+  const modes = t.control?.modes || []
+  const hasLegs = modes.includes('leg')
+  const hasArms = modes.includes('arm')
   const motion = t.state === 'HOLDING' || t.state === 'RUNNING'
-  const live = t.armed || motion               // backend refuses a switch in these states
+  const live = t.armed || motion
   const isConnected = t.state === 'CONNECTED'
 
   async function run(name, fn) {
@@ -57,10 +35,11 @@ export default function ControlMethodPanel() {
   }
 
   useEffect(() => {
+    if (!hasLegs) return
     api.getPolicies()
       .then((d) => { setPolicies(d.policies || []); setDefaultPolicy(d.default || null) })
       .catch(() => { /* ignore — policy dir may be absent */ })
-  }, [])
+  }, [hasLegs])
 
   useEffect(() => {
     if (policies.length && !checkpoint) {
@@ -72,7 +51,7 @@ export default function ControlMethodPanel() {
   }, [policies, defaultPolicy])
 
   // LOAD-BEARING, AND NOT OBVIOUS. This tells the backend which session a trigger-engage runs.
-  // Without it, arm_deadman() falls back to a ZeroPolicy "hold" and the gamepad's A button
+  // Without it, arm_deadman() falls back to a ZeroPolicy "hold" and the controller's A button
   // appears to arm while the sticks do nothing — a bug that reads as a broken controller.
   // Re-asserted on every entry to CONNECTED so a restarted service picks it up, and only from
   // CONNECTED because select_session is rejected while a session is live.
@@ -84,7 +63,8 @@ export default function ControlMethodPanel() {
     api.deadmanSelect('policy', checkpoint).catch(() => { syncedRef.current = null })
   }, [checkpoint, t.state])
 
-  const xrUrl = `https://${window.location.hostname}:8443/xr/`
+  const armMethods = t.control?.arm_methods || []
+  const activeArm = t.control?.arm_method
 
   return (
     <div className="card p-4 space-y-3">
@@ -97,48 +77,16 @@ export default function ControlMethodPanel() {
         )}
       </div>
 
-      {/* Selector. Unavailable methods are shown DISABLED WITH THE REASON rather than hidden —
-          "why is Quest not in the list" is otherwise unanswerable from the UI. */}
-      <div className="grid grid-cols-3 gap-1.5">
-        {METHODS.map((m) => {
-          const enabled = available.includes(m.id)
-          const on = active === m.id
-          const blocked = !enabled || live
-          return (
-            <button
-              key={m.id}
-              disabled={blocked || busy === m.id}
-              onClick={() => run(m.id, () => api.setInputSource(m.id))}
-              title={!enabled ? UNAVAILABLE[m.id]
-                : live ? 'Disarm to change control method' : `drive with ${m.label}`}
-              className={`px-2 py-2 rounded-lg border text-xs transition ${
-                on ? 'bg-accent/25 border-accent text-white'
-                  : blocked ? 'border-surface-3/40 text-gray-600 cursor-not-allowed'
-                    : 'border-surface-3 text-gray-300 hover:border-accent/60'}`}
-            >
-              {m.label}
-            </button>
-          )
-        })}
-      </div>
-
-      <p className="text-[10px] text-gray-500 leading-relaxed">
-        {METHODS.find((m) => m.id === active)?.blurb}
-      </p>
-
-      {/* ── per-method controls ─────────────────────────────────────────── */}
-
-      {active === 'quest' && <QuestMethod t={t} xrUrl={xrUrl} />}
-
-      {active === 'xbox' && (
-        <div className="text-[11px] text-gray-400 bg-surface-2/50 rounded-lg px-3 py-2 space-y-1">
-          <div>Arm from the controller: <b className="text-gray-200">A</b>. Disarm: <b className="text-gray-200">B</b>.</div>
-          <div className="text-gray-500">Live button and axis state is on the Xbox controller card.</div>
-        </div>
+      {!hasLegs && !hasArms && (
+        <p className="text-[10px] text-gray-500">
+          Nothing to control — the layout has neither legs nor arms enabled.
+        </p>
       )}
 
-      {active === 'web' && (
+      {/* ── LEGS: which policy ──────────────────────────────────────────── */}
+      {hasLegs && (
         <div className="space-y-2">
+          <div className="text-[10px] text-gray-500 uppercase tracking-wide">Legs · policy</div>
           <div className="flex items-center gap-2">
             <select value={checkpoint} onChange={(e) => setCheckpoint(e.target.value)}
               className="bg-surface-2 border border-surface-3 rounded-lg px-2 py-2 text-xs text-gray-200 flex-1 min-w-0">
@@ -168,6 +116,10 @@ export default function ControlMethodPanel() {
             <button className="btn-ghost w-full" disabled={busy}
               onClick={() => run('stop', () => api.stop())}>Stop</button>
           )}
+          <p className="text-[10px] text-gray-500 leading-relaxed">
+            The selected policy is what the legs run. It takes its velocity command from
+            whichever device holds the input token — with none connected it stands still.
+          </p>
           {policies.some((p) => p.compatible === false) && (
             // Switching policy switches the NETWORK only — gains, stand pose and timing keep
             // coming from the runtime contract. A bundle trained at other gains would run
@@ -189,67 +141,59 @@ export default function ControlMethodPanel() {
         </div>
       )}
 
+      {hasLegs && hasArms && <div className="border-t border-surface-3/60" />}
+
+      {/* ── ARMS: how the operator's motion maps ────────────────────────── */}
+      {hasArms && (
+        <div className="space-y-2">
+          <div className="text-[10px] text-gray-500 uppercase tracking-wide">Arms · mapping</div>
+          {armMethods.length === 0 && (
+            <p className="text-[10px] text-gray-500">No arm mapping available for this layout.</p>
+          )}
+          {/* Each mapping is valid for exactly ONE input device, so the list changes when the
+              token moves. Invalid ones stay visible with the reason — "why can I not pick
+              mirror" is otherwise an invisible property of the calibration state. */}
+          <div className="grid grid-cols-1 gap-1.5">
+            {armMethods.map((m) => {
+              const on = activeArm === m.id
+              const blocked = !m.available || live
+              return (
+                <button
+                  key={m.id}
+                  disabled={blocked || busy === m.id}
+                  onClick={() => run(m.id, () => api.setArmMethod(m.id))}
+                  title={m.reason || (live ? 'Disarm to change arm mapping' : m.blurb)}
+                  className={`px-2 py-2 rounded-lg border text-left text-xs transition ${
+                    on ? 'bg-accent/25 border-accent text-white'
+                      : blocked ? 'border-surface-3/40 text-gray-600 cursor-not-allowed'
+                        : 'border-surface-3 text-gray-300 hover:border-accent/60'}`}
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <span>{m.label}</span>
+                    {!m.available && (
+                      <span className="text-[9px] text-gray-600 shrink-0">{m.reason}</span>
+                    )}
+                  </div>
+                </button>
+              )
+            })}
+          </div>
+          {activeArm && (
+            <p className="text-[10px] text-gray-500 leading-relaxed">
+              {armMethods.find((m) => m.id === activeArm)?.blurb}
+            </p>
+          )}
+          <p className="text-[10px] text-gray-500">
+            Resolved once when the session arms — the mapping cannot change under a moving arm.
+          </p>
+        </div>
+      )}
+
       {error && (
         <div className="text-xs text-danger bg-danger/10 border border-danger/30 rounded-lg px-3 py-2">
           {error}
         </div>
       )}
-    </div>
-  )
-}
-
-/** Quest-specific setup: which arm, the mapping constants, and how to reach the headset page. */
-function QuestMethod({ t, xrUrl }) {
-  const q = t.quest || {}
-  const arms = (t.layout?.enabled || []).filter((l) => l.endsWith('_arm'))
-  return (
-    <div className="space-y-2">
-      <div className="grid grid-cols-3 gap-2 text-center">
-        <Stat label="hand" value={q.hand || '—'} />
-        <Stat label="scale" value={q.scale != null ? `${q.scale}×` : '—'} />
-        <Stat label="yaw" value={q.yaw_deg != null ? `${q.yaw_deg}°` : '—'} />
-      </div>
-      {arms.length > 1 && (
-        <p className="text-[10px] text-gray-500">
-          Driving <b className="text-gray-300">{q.hand === 'right' ? 'right' : 'left'}</b> arm —
-          set with the bumpers or <span className="font-mono">HUMANOID_QUEST_HAND</span>.
-        </p>
-      )}
-      <div className="bg-surface-2/50 rounded-lg px-3 py-2 space-y-1.5">
-        <div className="data-label">Open on the headset</div>
-        <code className="text-[11px] text-accent break-all">http://localhost:8000/xr/</code>
-        <p className="text-[10px] text-gray-500 leading-relaxed">
-          Requires <span className="font-mono">adb reverse tcp:8000 tcp:8000</span> with the
-          headset in developer mode over USB. WebXR only runs in a <b>secure context</b>, and
-          Chromium trusts <span className="font-mono">localhost</span> as one with no
-          certificate at all.
-        </p>
-        <details className="text-[10px] text-gray-600">
-          <summary className="cursor-pointer hover:text-gray-400">
-            Why not the LAN address?
-          </summary>
-          <p className="pt-1 leading-relaxed">
-            <code className="break-all">{xrUrl}</code> serves the same page over TLS, but the
-            certificate is self-signed. Chromium keeps flagging an origin whose certificate you
-            clicked through and withholds WebXR from it, so the page loads and then reports
-            “WebXR unavailable”. A trusted certificate would fix it — the robot has no public
-            DNS name to get one for.
-          </p>
-        </details>
-      </div>
-      <p className="text-[10px] text-gray-500">
-        Scale, yaw and hand are env vars (<span className="font-mono">HUMANOID_QUEST_*</span>) —
-        they are read at startup, so changing one needs a restart.
-      </p>
-    </div>
-  )
-}
-
-function Stat({ label, value }) {
-  return (
-    <div className="rounded-md border border-surface-3 px-1 py-1.5">
-      <div className="text-[9px] text-gray-500 uppercase tracking-wide">{label}</div>
-      <div className="font-mono text-xs text-gray-200">{value}</div>
     </div>
   )
 }

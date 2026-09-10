@@ -20,7 +20,7 @@ function read() {
     const raw = localStorage.getItem(KEY)
     if (raw) {
       const parsed = JSON.parse(raw)
-      if (parsed?.tabs?.length) return migrateV3(migrateV2(parsed))
+      if (parsed?.tabs?.length) return migrateV4(migrateV3(migrateV2(parsed)))
     }
     const legacy = localStorage.getItem(LEGACY_KEY)
     if (legacy) return migrateV1(JSON.parse(legacy))
@@ -139,6 +139,45 @@ function migrateV3(layout) {
     if (!Array.isArray(tab.cards)) continue
     // Below Control method where that exists, else below Control — both put it with the
     // other things that decide what the robot does when you let go.
+    if (insertBelow(tab, 'control-method', { ...card })
+        || insertBelow(tab, 'control-panel', { ...card })) {
+      placed = true
+    }
+  }
+  if (!placed && next.tabs[0]?.cards) {
+    const maxY = next.tabs[0].cards.reduce((m, c) => Math.max(m, c.y + c.h), 0)
+    next.tabs[0].cards.push({ ...card, x: 0, y: maxY, w: 4 })
+  }
+  return next
+}
+
+/** v4 → v5: picking the INPUT DEVICE moved out of Control method into its own card.
+ *
+ *  Control method used to answer "what drives the robot" with three options — Xbox, Quest and
+ *  a policy — which framed a policy as a third way of driving. It is not. The policy always
+ *  runs on the legs and takes its velocity command from whichever device holds the token; with
+ *  no device connected it runs and stands still. The two compose rather than competing.
+ *
+ *  So Control method now answers a per-limb question (which policy the legs run, how the arms
+ *  map the operator's motion) and the device choice lives on a new Input method card.
+ *
+ *  This MUST be an insert, for the same reason v2→v3 was: the card is LOSING a feature.
+ *  Anyone who had ever touched their dashboard would keep a Control method card that no longer
+ *  offers Xbox or Quest, with no Input method card anywhere — no route to choose a device at
+ *  all, and nothing on screen explaining where it went.
+ */
+function migrateV4(layout) {
+  if ((layout.version ?? 4) >= 5) return layout
+  const next = clone(layout)
+  next.version = 5
+
+  const card = { key: 'input-method#1', type: 'input-method', title: 'Input method', h: 8, props: {} }
+  let placed = false
+  for (const tab of next.tabs) {
+    if (!Array.isArray(tab.cards)) continue
+    // Above Control method conceptually, but inserted BELOW it so the operator's existing
+    // positions are preserved — the two read fine either way round, and rearranging a layout
+    // somebody chose is a worse trade than the ordering.
     if (insertBelow(tab, 'control-method', { ...card })
         || insertBelow(tab, 'control-panel', { ...card })) {
       placed = true

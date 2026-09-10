@@ -1,5 +1,6 @@
 import ControlPanel from '../components/ControlPanel'
 import ControlMethodPanel from '../components/ControlMethodPanel'
+import InputMethodPanel from '../components/InputMethodPanel'
 import RestModePanel from '../components/RestModePanel'
 import GamepadPanel from '../components/GamepadPanel'
 import QuestPanel from '../components/QuestPanel'
@@ -12,6 +13,7 @@ import ManualPanel from '../components/ManualPanel'
 import SettingsPanel from '../components/SettingsPanel'
 import JointCard from '../components/JointCard'
 import ArmCalibration from '../components/ArmCalibration'
+import LegCalibration from '../components/LegCalibration'
 
 // The widget CATALOG — every card that can be placed, and nothing about where any of them is.
 //
@@ -58,11 +60,20 @@ export const WIDGETS = [
       <ControlPanel deadmanConnected={deadmanConnected} size={size} />,
   },
   {
+    id: 'input-method',
+    title: 'Input method',
+    group: 'Control',
+    description: 'Which device drives the robot — Xbox or Quest — plus that device\'s setup.',
+    defaultLayout: { w: 4, h: 8 },
+    minW: 2, minH: 4,
+    render: () => <InputMethodPanel />,
+  },
+  {
     id: 'control-method',
     title: 'Control method',
     group: 'Control',
-    description: 'What drives the robot — Xbox, Quest or a policy — plus that method\'s controls.',
-    defaultLayout: { w: 4, h: 8 },
+    description: 'What each limb does with the input — which policy the legs run, how the arms map.',
+    defaultLayout: { w: 4, h: 10 },
     minW: 2, minH: 4,
     render: () => <ControlMethodPanel />,
   },
@@ -93,6 +104,17 @@ export const WIDGETS = [
     defaultLayout: { w: 8, h: 12 },
     minW: 3, minH: 4,
     render: () => <CalibrationPanel />,
+  },
+  {
+    id: 'leg-calibration',
+    title: 'Leg zeroing',
+    group: 'Control',
+    description: 'Zero every leg joint at once from one folded, feet-together stance — the '
+               + 'quick way back after a power cycle.',
+    defaultLayout: { w: 8, h: 9 },
+    minW: 3, minH: 3,
+    bare: true,
+    render: () => <LegCalibration />,
   },
   {
     id: 'arm-calibration',
@@ -227,18 +249,19 @@ export function settingsFor(widget) {
 // The shipped dashboard. Seeds first run and backs "Restore default layout". Kept identical to
 // the pre-configurable arrangement so an existing user sees no change until they edit something.
 export const DEFAULT_LAYOUT = {
-  version: 4,
+  version: 5,
   tabs: [
     {
       id: 'control', name: 'Control',
       cards: [
         { key: 'control-panel#1', type: 'control-panel', title: 'Control', x: 0, y: 0, w: 4, h: 6, props: {} },
-        { key: 'control-method#1', type: 'control-method', title: 'Control method', x: 0, y: 6, w: 4, h: 8, props: {} },
-        { key: 'rest-mode#1', type: 'rest-mode', title: 'Rest state', x: 0, y: 14, w: 4, h: 9, props: {} },
-        { key: 'gamepad#1', type: 'gamepad', title: 'Xbox controller', x: 0, y: 23, w: 4, h: 11, props: {} },
-        { key: 'quest#1', type: 'quest', title: 'Quest', x: 0, y: 34, w: 4, h: 9, props: {} },
-        { key: 'imu#1', type: 'imu', title: 'IMU', x: 0, y: 43, w: 4, h: 4, props: {} },
-        { key: 'robot-mini#1', type: 'robot-mini', title: 'Robot pose', x: 0, y: 47, w: 4, h: 11, props: {} },
+        { key: 'input-method#1', type: 'input-method', title: 'Input method', x: 0, y: 6, w: 4, h: 8, props: {} },
+        { key: 'control-method#1', type: 'control-method', title: 'Control method', x: 0, y: 14, w: 4, h: 10, props: {} },
+        { key: 'rest-mode#1', type: 'rest-mode', title: 'Rest state', x: 0, y: 24, w: 4, h: 9, props: {} },
+        { key: 'gamepad#1', type: 'gamepad', title: 'Xbox controller', x: 0, y: 33, w: 4, h: 11, props: {} },
+        { key: 'quest#1', type: 'quest', title: 'Quest', x: 0, y: 44, w: 4, h: 9, props: {} },
+        { key: 'imu#1', type: 'imu', title: 'IMU', x: 0, y: 53, w: 4, h: 4, props: {} },
+        { key: 'robot-mini#1', type: 'robot-mini', title: 'Robot pose', x: 0, y: 57, w: 4, h: 11, props: {} },
         { key: 'joint-table#1', type: 'joint-table', title: 'Joints', x: 4, y: 0, w: 8, h: 9, props: {} },
       ],
     },

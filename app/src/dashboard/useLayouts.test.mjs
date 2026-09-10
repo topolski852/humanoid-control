@@ -194,6 +194,37 @@ check('a v2 layout with multiple tabs gets the card on the RIGHT tab', () => {
 })
 
 
+function migrateV4(layout) {
+  if ((layout.version ?? 4) >= 5) return layout
+  const next = clone(layout)
+  next.version = 5
+  const insertBelow = (tab, anchorType, card) => {
+    const anchor = tab.cards.find((c) => c.type === anchorType)
+    if (!anchor) return false
+    if (tab.cards.some((c) => c.type === card.type)) return true
+    const y = anchor.y + anchor.h
+    for (const c of tab.cards) {
+      if (c !== anchor && c.y >= y && c.x < anchor.x + anchor.w && c.x + c.w > anchor.x) {
+        c.y += card.h
+      }
+    }
+    tab.cards.push({ ...card, x: anchor.x, y, w: anchor.w })
+    return true
+  }
+  const card = { key: 'input-method#1', type: 'input-method', title: 'Input method', h: 8, props: {} }
+  let placed = false
+  for (const tab of next.tabs) {
+    if (!Array.isArray(tab.cards)) continue
+    if (insertBelow(tab, 'control-method', { ...card })
+        || insertBelow(tab, 'control-panel', { ...card })) placed = true
+  }
+  if (!placed && next.tabs[0]?.cards) {
+    const maxY = next.tabs[0].cards.reduce((m, c) => Math.max(m, c.y + c.h), 0)
+    next.tabs[0].cards.push({ ...card, x: 0, y: maxY, w: 4 })
+  }
+  return next
+}
+
 console.log('\n── v3 → v4: the Rest state card ─────────────────────────────────')
 
 // The behaviour change this accompanies is invisible: the backend now damps at rest instead
@@ -261,6 +292,82 @@ check('a tab with no cards array is skipped, not fatal', () => {
 })
 check('card keys stay unique', () => {
   const keys = tab4.cards.map((c) => c.key)
+  assert.equal(new Set(keys).size, keys.length)
+})
+
+
+console.log('\n── v4 → v5: the Input method card ───────────────────────────────')
+
+// Same failure shape as v2→v3, and the reason this migration must exist: the Control method
+// card LOSES the device selector. Without the new card an operator keeps a Control method card
+// that no longer offers Xbox or Quest, and has no way to choose a device at all.
+const v5 = migrateV4(v4)
+const tab5 = v5.tabs[0]
+
+check('adds the Input method card', () => assert.ok(types(tab5).includes('input-method')))
+check('stamps version 5', () => assert.equal(v5.version, 5))
+check('keeps every card v4 had', () =>
+  assert.ok(types(tab4).every((t) => types(tab5).includes(t))))
+check('does not mutate the input', () =>
+  assert.ok(!types(v4.tabs[0]).includes('input-method')))
+check('sits directly below Control method', () => {
+  const m = byType(tab5, 'control-method'), i = byType(tab5, 'input-method')
+  assert.equal(i.y, m.y + m.h)
+  assert.equal(i.x, m.x)
+})
+check('pushes the column below it down rather than overlapping', () => {
+  const i = byType(tab5, 'input-method'), r = byType(tab5, 'rest-mode')
+  assert.ok(r.y >= i.y + i.h, `rest-mode y=${r.y} vs input bottom ${i.y + i.h}`)
+})
+check('a card in another column keeps its position', () => {
+  const j = byType(tab5, 'joint-table')
+  assert.equal(j.x, 4); assert.equal(j.y, 0)
+})
+check('no two cards in a column overlap', () => {
+  const col = tab5.cards.filter((c) => c.x === 0).sort((a, b) => a.y - b.y)
+  for (let i = 1; i < col.length; i++) {
+    assert.ok(col[i].y >= col[i - 1].y + col[i - 1].h,
+      `${col[i - 1].type} and ${col[i].type} overlap`)
+  }
+})
+check('running it twice changes nothing', () =>
+  assert.deepEqual(migrateV4(migrateV4(v4)), v5))
+check('an already-v5 layout is returned untouched', () => {
+  const already = { version: 5, tabs: [{ id: 'x', cards: [] }] }
+  assert.equal(migrateV4(already), already)
+})
+check('falls back to Control when there is no Control method card', () => {
+  const noMethod = { version: 4, tabs: [{ id: 'c', cards: [
+    { key: 'control-panel#1', type: 'control-panel', x: 0, y: 0, w: 4, h: 8, props: {} },
+  ] }] }
+  const t = migrateV4(noMethod).tabs[0]
+  assert.ok(types(t).includes('input-method'))
+  assert.equal(byType(t, 'input-method').y, 8)
+})
+check('never leaves the card unreachable when neither anchor exists', () => {
+  const orphan = { version: 4, tabs: [{ id: 'c', cards: [
+    { key: 'imu#1', type: 'imu', x: 0, y: 0, w: 4, h: 4, props: {} },
+  ] }] }
+  assert.ok(types(migrateV4(orphan).tabs[0]).includes('input-method'))
+})
+check('does not duplicate a card that is already there', () => {
+  const twice = migrateV4({ ...clone(v5), version: 4 })
+  assert.equal(twice.tabs[0].cards.filter((c) => c.type === 'input-method').length, 1)
+})
+check('a tab with no cards array is skipped, not fatal', () => {
+  const odd = { version: 4, tabs: [{ id: 'a' }, { id: 'b', cards: [
+    { key: 'control-panel#1', type: 'control-panel', x: 0, y: 0, w: 4, h: 8, props: {} },
+  ] }] }
+  assert.ok(types(migrateV4(odd).tabs[1]).includes('input-method'))
+})
+check('the full chain from v2 lands on v5 with both cards', () => {
+  const end = migrateV4(migrateV3(migrateV2(clone(v2))))
+  assert.equal(end.version, 5)
+  assert.ok(types(end.tabs[0]).includes('control-method'))
+  assert.ok(types(end.tabs[0]).includes('input-method'))
+})
+check('card keys stay unique', () => {
+  const keys = tab5.cards.map((c) => c.key)
   assert.equal(new Set(keys).size, keys.length)
 })
 

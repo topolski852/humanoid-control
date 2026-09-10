@@ -400,9 +400,24 @@ async def set_joint_mode(request: Request, body: JointModeBody):
         return _err(str(exc), exc.status)
 
 
+class ArmMethodBody(BaseModel):
+    method: str                        # "quest_mirror" | "quest_pose" | "xbox_cartesian"
+
+
+@router.post("/api/arm_method", response_model=None)
+def set_arm_method(request: Request, body: ArmMethodBody):
+    """Pick HOW the arm maps the operator's motion (the Control method card). Distinct from the
+    input source, which picks WHICH DEVICE that motion comes from. Refused mid-session."""
+    try:
+        _service(request).set_arm_method(body.method)
+    except ControlError as exc:
+        return _err(str(exc), exc.status)
+    return _ok(_service(request).telemetry_snapshot())
+
+
 @router.post("/api/input_source", response_model=None)
 def set_input_source(request: Request, body: InputSourceBody):
-    """Pick what drives the robot (the Control method card). Refused mid-session."""
+    """Pick which DEVICE drives the robot (the Input method card). Refused mid-session."""
     try:
         _service(request).set_input_source(body.source)
     except ControlError as exc:
@@ -535,6 +550,24 @@ async def cal_arm(request: Request, limb: str):
         return _err(str(exc), exc.status)
     except Exception as exc:
         return _err(f"arm calibration failed: {exc}", 500)
+    return _cal_result(request, data)
+
+
+@router.post("/api/calibrate/legs/{limb}", response_model=None)
+async def cal_legs(request: Request, limb: str):
+    """Zero the legs from the folded, feet-together stance the operator is holding.
+
+    ``limb`` is a leg name or "both". The per-joint capture flow needs every joint driven to
+    both of its hardstops by hand; this takes one stance that already parks four joints per leg
+    against a stop and solves the rest in a single pass. Blocking (it samples the stance for
+    ~1.5 s and does SDO round-trips), so it runs off the event loop.
+    """
+    try:
+        data = await _blocking(_service(request).teach_leg_stance, limb)
+    except ControlError as exc:
+        return _err(str(exc), exc.status)
+    except Exception as exc:
+        return _err(f"leg calibration failed: {exc}", 500)
     return _cal_result(request, data)
 
 

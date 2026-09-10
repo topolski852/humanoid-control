@@ -176,6 +176,12 @@ class ControlService:
         # so behaviour is unchanged on a machine that only has the gamepad.
         self._input_source = "xbox" if self._gamepad["enabled"] else "web"
         self._ignored_writes: dict[str, int] = {}
+        # HOW an arm teleop session maps the operator onto the arm. Was derived implicitly at
+        # session start from "is the Quest driving, and is there a calibration profile"; it is
+        # now an explicit choice so the card can show it and the operator can force 'pose' even
+        # when a profile exists. None means "follow availability" — the first valid method for
+        # whatever source holds the token, which reproduces the old behaviour exactly.
+        self._arm_method: str | None = None
         # Quest bridge, attached by server.py when HUMANOID_QUEST_ENABLE is set. None means the
         # runtime has no Quest support compiled in at all — which is the normal case and must
         # stay a first-class configuration, not a degraded one.
@@ -360,6 +366,8 @@ class ControlService:
             "deadman_source": self.deadman_source(),
             "input_source": self._input_source,
             "input_sources": self.available_input_sources(),
+            # Devices only — "web" is never offered as a control method (see input_devices).
+            "input_devices": self.input_devices(),
             "ignored_writes": dict(self._ignored_writes),
             "control_clients": self._control_clients,
             "last_error": self._last_error,
@@ -376,6 +384,8 @@ class ControlService:
                 "arms": list(self._layout.arms),
                 "capabilities": list(self._layout.capabilities),
                 "sessions": self.available_sessions(),
+                "arm_method": self.arm_method,
+                "arm_methods": self.available_arm_methods(),
             },
             "joints": joints,
             "buses": buses,
@@ -762,23 +772,7 @@ class ControlService:
             raise ControlError(
                 "offline: " + ", ".join(n.replace("_joint", "") for n in offline), 409)
 
-        # Average the hold. A single sample would bake in whatever jitter happened to be on that
-        # frame; the spread is reported so a shaky hold is visible rather than silently accepted.
-        samples: dict[str, list[float]] = {n: [] for n in joints}
-        deadline = time.monotonic() + self._TEACH_SAMPLE_S
-        while time.monotonic() < deadline:
-            for n in joints:
-                st = self.client.get_cached_joint_state(n)
-                p = (st or {}).get("position")
-                if isinstance(p, (int, float)):
-                    samples[n].append(float(p))
-            time.sleep(0.02)
-        if any(not v for v in samples.values()):
-            raise ControlError("No telemetry while sampling — is the daemon running?", 503)
-
-        held = {n: sum(v) / len(v) for n, v in samples.items()}
-        spread = {n: (max(v) - min(v)) for n, v in samples.items()}
-        worst = max(spread.values()) * 180.0 / np.pi
+        held, worst = self._sample_hold(joints)
 
         results = []
         for n in joints:
@@ -833,6 +827,160 @@ class ControlService:
             "shaky": worst > self._TEACH_STEADY_DEG,
             "joints": results,
         }
+
+    # ── leg zeroing from the folded stance ───────────────────────────────────
+    def teach_leg_stance(self, limb: str = "both", mirror: bool = True) -> dict:
+        """Zero the legs from the folded, feet-together stance the operator is holding.
+
+        The per-joint flow in ``calibration.py`` needs every joint driven by hand to BOTH of its
+        hardstops, which is a long session to repeat after each power cycle. This takes one
+        stance that already parks four joints per leg against a stop, solves every joint's
+        ``position_offset`` in one pass, and verifies by reading back — a write that does not
+        land is reported rather than assumed. See ``humanoid_control.leg_calibration`` for the
+        stance and why both legs take the same targets unnegated.
+
+        Offline joints are skipped and named: a dead ESC cannot be written, so its zero has to
+        wait until it is back on the bus. Writes ``position_offset`` only; nothing is commanded
+        to move.
+        """
+        from ..leg_calibration import (covers, is_declared as stance_declares,
+                                       opposite_joint, solve_offset, stance_target)
+
+        legs = self._layout.legs
+        if not legs:
+            raise ControlError("No leg is configured.", 400)
+        if limb in ("both", "all"):
+            want = list(legs)
+        elif limb in legs:
+            want = [limb]
+        else:
+            raise ControlError(
+                f"{limb} is not configured — attached: {', '.join(legs) or 'none'}", 400)
+
+        if self._state != SessionState.CONNECTED:
+            raise ControlError(f"Connect first (state={self._state.value}).", 409)
+        if self.is_motion_active():
+            raise ControlError("A motion session is active — stop it before calibrating.", 409)
+
+        covered = [n for l in want for n in self._layout.joints_of(l) if covers(n)]
+        online = [n for n in covered if self._joint_online(n)]
+        # A dead ESC takes no writes. Name it rather than failing the whole stance: losing one
+        # joint is exactly the situation this flow exists to recover the other eleven from.
+        results = [{"joint": n, "ok": False, "source": None,
+                    "reason": "offline — ESC not on the bus"}
+                   for n in covered if n not in set(online)]
+        if not online:
+            raise ControlError("Every leg joint is offline — nothing to calibrate.", 409)
+
+        # Snapshot calibration BEFORE this run: a joint zeroed moments ago in this same pass is
+        # not independent evidence, so it must not become a mirror source mid-run.
+        with self._lock:
+            pre_calibrated = dict(self._calibrated)
+
+        # hip_roll and hip_yaw are the two the stance only DECLARES. If their twin is already
+        # calibrated, online, and NOT itself part of this run, its live reading is the better
+        # target — it carries whatever real asymmetry the stance has instead of assuming perfect
+        # squareness. Excluding the run's own joints is what makes this well-defined: in a
+        # both-legs run each twin would otherwise mirror the other, swapping two readings that
+        # this very call is about to overwrite with the declared zero anyway.
+        in_run = set(covered)
+        mirror_src: dict[str, str] = {}
+        if mirror:
+            for n in online:
+                if not stance_declares(n):
+                    continue
+                o = opposite_joint(n)
+                if (o and o not in in_run and o in self._limits
+                        and pre_calibrated.get(o) and self._joint_online(o)):
+                    mirror_src[n] = o
+
+        held, worst = self._sample_hold(sorted(set(online) | set(mirror_src.values())))
+
+        targets: dict[str, tuple[float, str]] = {}
+        for n in online:
+            src = mirror_src.get(n)
+            targets[n] = ((held[src], "mirrored") if src is not None
+                          else stance_target(n, self._limits[n]))
+
+        for n in online:
+            want_rad, source = targets[n]
+            old = self._read_offset(n)
+            if old is None:
+                results.append({"joint": n, "ok": False, "source": source,
+                                "reason": "could not read offset"})
+                continue
+            new = solve_offset(held[n], want_rad, old)
+            try:
+                self.client.apply_config(n, {"position_offset": float(new)}, timeout=10.0)
+            except Exception as exc:
+                results.append({"joint": n, "ok": False, "source": source, "reason": str(exc)})
+                continue
+            results.append({
+                "joint": n,
+                "ok": True,
+                "source": source,
+                "mirrored_from": mirror_src.get(n),
+                "was_deg": held[n] * 180.0 / np.pi,
+                "target_deg": want_rad * 180.0 / np.pi,
+                "shift_deg": (want_rad - held[n]) * 180.0 / np.pi,
+                "offset": float(new),
+            })
+        time.sleep(0.4)
+
+        # Verify from telemetry rather than trusting the ACK: a write that silently fails would
+        # otherwise leave a joint marked calibrated with the wrong zero.
+        for r in results:
+            if not r.get("ok"):
+                continue
+            st = self.client.get_cached_joint_state(r["joint"]) or {}
+            now = st.get("position")
+            r["now_deg"] = (now * 180.0 / np.pi) if isinstance(now, (int, float)) else None
+            r["error_deg"] = (None if r["now_deg"] is None
+                              else round(r["now_deg"] - r["target_deg"], 2))
+            if r["error_deg"] is None or abs(r["error_deg"]) > 3.0:
+                r["ok"] = False
+                r["reason"] = "did not land on target"
+
+        results.sort(key=lambda r: self._joints.index(r["joint"]))
+        ok = all(r.get("ok") for r in results)
+        with self._lock:
+            for r in results:
+                if r.get("ok"):
+                    self._calibrated[r["joint"]] = True
+            if all(self._calibrated.get(n, False) for n in self._joints):
+                self._joints_dropped_since_cal = False
+        done = sum(1 for r in results if r.get("ok"))
+        _log.info("teach %s from folded stance: %d/%d joints (steady to %.2f deg)",
+                  "+".join(want), done, len(results), worst)
+        return {
+            "limbs": want, "ok": ok,
+            "zeroed": done, "total": len(results),
+            "steady_deg": round(worst, 2),
+            "shaky": worst > self._TEACH_STEADY_DEG,
+            "joints": results,
+        }
+
+    def _sample_hold(self, joints: list[str]) -> tuple[dict[str, float], float]:
+        """Average each joint's position over the sampling window.
+
+        A single sample would bake in whatever jitter happened to land on that frame. The
+        worst peak-to-peak spread (degrees) is returned alongside so a shaky hold is reported
+        rather than silently accepted.
+        """
+        samples: dict[str, list[float]] = {n: [] for n in joints}
+        deadline = time.monotonic() + self._TEACH_SAMPLE_S
+        while time.monotonic() < deadline:
+            for n in joints:
+                st = self.client.get_cached_joint_state(n)
+                p = (st or {}).get("position")
+                if isinstance(p, (int, float)):
+                    samples[n].append(float(p))
+            time.sleep(0.02)
+        if any(not v for v in samples.values()):
+            raise ControlError("No telemetry while sampling — is the daemon running?", 503)
+        held = {n: sum(v) / len(v) for n, v in samples.items()}
+        worst = max((max(v) - min(v)) for v in samples.values()) * 180.0 / np.pi
+        return held, worst
 
     def _joint_online(self, name: str) -> bool:
         st = self.client.get_cached_joint_state(name)
@@ -1177,6 +1325,99 @@ class ControlService:
         self._ignored_writes.clear()
         _log.info("input source: %s", source)
 
+    def input_devices(self) -> list[str]:
+        """Input sources that are actual DEVICES someone drives the robot with.
+
+        Deliberately excludes "web". The browser is not a control method — it is the console you
+        calibrate and supervise from, and it holds the token by default only so that a machine
+        with no controller attached still has exactly one owner. Listing it alongside Xbox and
+        Quest invited the reading that a policy is a third way of driving, which it is not: the
+        policy always runs on the legs, and Xbox or Quest supplies its velocity command. With
+        neither connected the policy simply stands still.
+        """
+        return [s for s in self.available_input_sources() if s != "web"]
+
+    # ── arm control method ───────────────────────────────────────────────────
+    #
+    # WHAT the arm does with the operator's motion, as distinct from WHICH DEVICE that motion
+    # comes from (that is the input source above). Only mappings that actually exist are
+    # offered; each is valid for exactly one source, so the list changes when the token moves.
+
+    ARM_METHODS = {
+        "quest_mirror": {
+            "label": "Quest mirror",
+            "source": "quest",
+            "blurb": "Your whole arm drives the robot's, joint for joint. Needs a calibration profile.",
+        },
+        "quest_pose": {
+            "label": "Quest pose",
+            "source": "quest",
+            "blurb": "The controller's position drives the hand; the arm solves for it.",
+        },
+        "xbox_cartesian": {
+            "label": "Xbox cartesian",
+            "source": "xbox",
+            "blurb": "Sticks drive the hand along the robot's X/Y/Z axes.",
+        },
+    }
+
+    def _quest_has_profile(self) -> bool:
+        return self.quest is not None and getattr(self.quest, "_profile", None) is not None
+
+    def available_arm_methods(self) -> list[dict]:
+        """Arm mappings valid right now. Unavailable ones are returned WITH a reason rather than
+        omitted, so "why can I not pick mirror" is answerable from the card instead of being an
+        invisible property of the calibration state."""
+        if not self._layout.can("arm_teleop"):
+            return []
+        src = self._input_source
+        out = []
+        for mid, meta in self.ARM_METHODS.items():
+            reason = None
+            if meta["source"] != src:
+                reason = f"needs the {meta['source']} input source"
+            elif mid == "quest_mirror" and not self._quest_has_profile():
+                reason = "no arm calibration profile — run the arm calibration"
+            out.append({"id": mid, "label": meta["label"], "blurb": meta["blurb"],
+                        "available": reason is None, "reason": reason})
+        return out
+
+    @property
+    def arm_method(self) -> str | None:
+        """The mapping a session would use right now. An explicit choice wins while it stays
+        valid; otherwise the first available one, which is what the old implicit derivation
+        picked (mirror when the Quest has a profile, else pose, else cartesian)."""
+        usable = [m["id"] for m in self.available_arm_methods() if m["available"]]
+        if not usable:
+            return None
+        if self._arm_method in usable:
+            return self._arm_method
+        return usable[0]
+
+    def set_arm_method(self, method: str) -> None:
+        """Refused mid-session for the same reason the input source and control mode are:
+        changing what the operator's motion MEANS while the arm is moving is exactly the
+        transition nobody can supervise."""
+        # UNKNOWN and UNAVAILABLE are different failures and must not collapse into one.
+        # available_arm_methods() is empty on a layout with no arms, so checking membership in
+        # IT first reported a perfectly valid id as "unknown" and sent a 400 where the honest
+        # answer is "this robot has no arms" — a misleading message for a correct request.
+        if method not in self.ARM_METHODS:
+            raise ControlError(
+                f"unknown arm method {method!r} "
+                f"(known: {', '.join(self.ARM_METHODS)}).", 400)
+        methods = {m["id"]: m for m in self.available_arm_methods()}
+        if not methods:
+            raise ControlError(
+                f"no arm control available — layout is '{self._layout.describe()}'.", 409)
+        if not methods[method]["available"]:
+            raise ControlError(f"{methods[method]['label']} unavailable — "
+                               f"{methods[method]['reason']}.", 409)
+        if self._state in _ACTIVE_STATES:
+            raise ControlError("Disarm before switching arm control method.", 409)
+        self._arm_method = method
+        _log.info("arm method: %s", method)
+
     # ── control mode / speed / limb selection (gamepad-facing) ───────────────
     @property
     def control_mode(self) -> str:
@@ -1508,20 +1749,20 @@ class ControlService:
             # otherwise fall back to the controller-position path. Chosen once at session
             # start: the input token cannot change mid-session anyway, and switching mapping
             # under a moving arm is exactly the transition nobody can supervise.
-            quest_src = (self._session_deadman == "quest")
-            mirror_mode = bool(quest_src and self.quest is not None
-                               and getattr(self.quest, "_profile", None) is not None)
-            pose_mode = quest_src and not mirror_mode
-            if mirror_mode:
+            # The mapping is now an EXPLICIT choice (Control method card), resolved here once
+            # at session start. `arm_method` falls back to the first available method when
+            # nothing was chosen, which reproduces the old implicit derivation exactly:
+            # mirror when the Quest has a profile, else pose, else cartesian.
+            method = self.arm_method
+            if method == "quest_mirror":
                 tuning = TeleopTuning(frame="mirror")
-            elif pose_mode:
+            elif method == "quest_pose":
                 tuning = TeleopTuning(frame="pose")
             else:
                 tuning = TeleopTuning()
-            if quest_src and not mirror_mode:
-                _log.warning("arm teleop: Quest is driving but there is NO calibration "
-                             "profile — falling back to controller-position mode. Run the "
-                             "arm calibration to mirror your whole arm.")
+            if self._session_deadman == "quest" and method != "quest_mirror":
+                _log.warning("arm teleop: Quest is driving in '%s' mode, not mirror — run the "
+                             "arm calibration to mirror your whole arm.", method or "cartesian")
             teleop = ArmTeleop(ArmChain(arm_joints), tuning=tuning)
             _log.info("arm teleop: driving %s (%d joints) in '%s' frame",
                       limb, len(arm_joints), tuning.frame)
