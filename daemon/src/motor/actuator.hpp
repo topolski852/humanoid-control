@@ -78,9 +78,14 @@ public:
     // Set position target (display-frame rad).
     void set_position_target(float pos_rad);
 
-    // Clear fault and return to IDLE.
-    // Sends SDO write to zero the error register on the hardware, then clears local state.
-    void clear_fault(CanBusManager& bus);
+    // Clear fault and return to IDLE. Returns TRUE only if the motor ACKed the SDO write
+    // that zeroes its error register.
+    //
+    // The result is not advisory. The cached state is only zeroed on success, because a
+    // daemon that reports error=0 while the hardware register is still set produces a fault
+    // that "clears" at every layer and then reappears on the next slow-poll read — which is
+    // indistinguishable, from the operator's seat, from a fault that cannot be cleared at all.
+    bool clear_fault(CanBusManager& bus);
 
     // Enable or disable slow-poll SDO telemetry reads.
     // Disable during Flash Wizard commissioning to avoid generic_listener_ interference.

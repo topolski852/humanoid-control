@@ -422,7 +422,12 @@ std::string Robot::handle_command(const std::string& request) {
         std::string name = req.value("joint_name", "");
         auto it = actuator_by_name_.find(name);
         if (it == actuator_by_name_.end()) return error("unknown joint: " + name);
-        it->second->clear_fault(*bus_mgr_);
+        // Propagate the result: ack()ing a failed clear is what let a stale fault look
+        // cleared at every layer above this one.
+        if (!it->second->clear_fault(*bus_mgr_)) {
+            return error("clear_fault: no SDO ack from " + name +
+                         " (error register may still be set)");
+        }
         return ack();
     }
 

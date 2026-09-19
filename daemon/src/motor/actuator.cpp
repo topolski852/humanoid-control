@@ -424,15 +424,26 @@ void Actuator::set_position_target(float pos_rad) {
     position_target_ = pos_rad;
 }
 
-void Actuator::clear_fault(CanBusManager& bus) {
+bool Actuator::clear_fault(CanBusManager& bus) {
     using P = ParamId;
     // Zero the error register on the hardware so slow-poll reads don't re-surface the fault.
-    sdo_write_u32(bus, static_cast<uint16_t>(P::PARAM_ERROR), 0, 200);
+    //
+    // The ACK is LOAD-BEARING. This used to discard sdo_write_u32's result and zero the
+    // cached state unconditionally, so a write the motor never acknowledged still reported
+    // success all the way up to "faults cleared on 10/10 joints" — and then the 10 Hz
+    // slow-poll read brought the real register back and the fault reappeared. Observed
+    // 2026-09-19 on a healthy bus (feed and telemetry both nominal), where the only way out
+    // looked like a full power cycle.
+    const bool acked = sdo_write_u32(bus, static_cast<uint16_t>(P::PARAM_ERROR), 0, 200);
+    if (!acked) {
+        return false;   // leave cached state alone: it still reflects the hardware
+    }
     {
         std::lock_guard<std::mutex> lk(state_mutex_);
         state_.error       = 0;
         state_.joint_state = JointState::IDLE;
     }
+    return true;
 }
 
 // ── Blocking SDO write helpers ──────────────────────────────────────────────
