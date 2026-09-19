@@ -3,7 +3,8 @@ Teach an arm's zero from a known held pose.
 
 The arms have no hardstops, so ``calibration.py``'s two-capture method does not apply to them:
 there is nothing to drive against. Instead the operator holds the arm in a pose whose URDF
-angles are computable and the offsets are solved directly.
+angles are computable and the offsets are solved directly. See ``T_POSE_LEFT_DEG`` below for
+the exact hold — it is NOT the textbook untwisted T-pose, and the difference matters.
 
 This has to be done after EVERY power cycle, and flashing does not help. The AS5600 is
 single-turn absolute; behind 15:1 gearing it wraps every ~24 deg of output travel, so on
@@ -27,9 +28,15 @@ import math
 
 DEG = math.pi / 180.0
 
-# THE reference pose: arm straight out to the side, horizontal, elbow straight, forearm
-# untwisted, claw neutral. A T-pose is easy to hold accurately (any level edge gives you
-# horizontal) and it defines all five joints in one hold.
+# THE reference pose: arm straight out to the side, horizontal, elbow straight, claw neutral,
+# and the upper arm rolled so THE ELBOW BENDS HORIZONTALLY (forearm swings forward/back, not
+# up/down). A T-pose is easy to hold accurately (any level edge gives you horizontal) and it
+# defines all five joints in one hold.
+#
+# WHY THE ELBOW BENDS HORIZONTALLY. Held that way the arm carries its own weight against the
+# joint geometry instead of sagging, so the operator can hold it square for the ~1.5 s sample.
+# An untwisted hold is harder to keep level, and a T-pose that is not actually level poisons
+# shoulder_roll — the one joint here whose value is measured rather than declared.
 #
 # MEASURED — fixed by geometry:
 #   shoulder_pitch  0     no pitch when the arm is straight out to the side
@@ -40,13 +47,33 @@ DEG = math.pi / 180.0
 #   elbow_pitch     0     straight
 #
 # DECLARED — the two inline twists. A straight arm gives no geometric constraint on rotation
-# ABOUT the arm, so zero here DEFINES "untwisted" rather than measuring it. Note the URDF's own
-# zero for shoulder_yaw sits ~15 deg from this; the cost is ~15 deg of drawn forearm-plane
-# accuracy once the elbow bends, and nothing else.
+# ABOUT the arm, so the value here DEFINES the held twist rather than measuring it. That is
+# precisely why this constant must match the pose people actually hold: shoulder_yaw does not
+# detect your forearm rotation, it adopts it. Declaring 0 while holding the arm rolled 90 deg
+# bakes a 90 deg error into the zero, invisible in the T-pose itself (the joint reads its
+# target either way) and only surfacing once the elbow leaves zero — e.g. dropping to a
+# desk pose.
+#
+# -45 is the value, not 0 and not +90. Derived from measurement against the URDF limits
+# (shoulder_yaw is +-45): holding this T-pose and then dropping to a desk pose moves the joint
+# ~90 deg, which is its ENTIRE range, so the two poses sit at opposite ends. Travel is positive
+# going T-pose -> desk, which puts the T-pose hold at the negative end. The right arm gets +45
+# via MIRRORED. An earlier 0 here (and a briefly-tried +90) both put the joint outside its own
+# limits once the elbow left zero.
 T_POSE_LEFT_DEG = {
-    "shoulder_pitch": 0.0,
+    # 90, not 0. The reference hold rotates shoulder_pitch a quarter turn from relaxed so its
+    # axis goes HORIZONTAL — that is what stops the arm falling and lets the operator hold the
+    # pose unsupported. Declaring 0 describes a T-pose where pitch never moved, which bakes a
+    # 90 deg error into the zero: the arm then reads ~-90 hanging (its own limit) instead of
+    # ~0, and the render/teleop move pitch backwards, so raising the real arm lowers the
+    # drawn one. Measured both arms: relaxed lands within 2 deg of zero with this value.
+    "shoulder_pitch": 90.0,
     "shoulder_roll": 74.8,
-    "shoulder_yaw": 0.0,
+    # -90, for the same reason as shoulder_pitch above: the reference hold rotates this joint
+    # a quarter turn from relaxed too, so the elbow bends HORIZONTALLY and the arm carries its
+    # own weight. Both quarter-turns are what make the T-pose self-supporting. Verified: with
+    # -90 here a relaxed arm reads +0.8 (left) / -2.6 (right); with -45 it read ~+46.
+    "shoulder_yaw": -90.0,
     "elbow_pitch": 0.0,
     "wrist_yaw": 0.0,
 }

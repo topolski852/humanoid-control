@@ -9,6 +9,13 @@ each joint's URDF limits using its **live** device offset, so the firmware clamp
 
 Reads are via READ_CONFIG, which occasionally drops one SDO param — so ``read_live_offset``
 retries until ``position_offset`` is non-null.
+
+LIMIT TIERS. The limits pushed here are the HARD tier — the robot config's
+``position_limits`` (humanoid_lite.json), which for the arms are WIDER than the URDF. They are
+the mechanical backstop the firmware enforces, reachable from Studio and during calibration.
+The SOFT tier is the URDF range vendored in ``app/src/data/viz_kinematics.json``; ArmChain
+loads it and ``arm_profile.to_robot`` maps headset teleop onto it. The two sources are meant
+to differ — do not reconcile them with each other.
 """
 from __future__ import annotations
 

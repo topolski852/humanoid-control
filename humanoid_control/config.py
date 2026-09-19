@@ -86,6 +86,45 @@ POLICY_FRAME_MIRRORED_JOINTS = (
     "right_ankle_roll_joint",
 )
 
+# Device-frame sign for ARM joints, which have no trained policy and so are absent from
+# LegPolicyContract. +1 (the default) draws the raw device angle, which is what the visualizer
+# wants until there is real evidence — see scripts/gen_viz_kinematics.py.
+#
+# Measured 2026-09-19, with the T-pose reference corrected first (shoulder_pitch and
+# shoulder_yaw are each held a quarter turn from relaxed, so their targets are +-90, not 0).
+# Established by moving one joint at a time and watching the render:
+#   elbow_pitch    mirrored on both arms
+#   shoulder_yaw   mirrored on both arms
+# shoulder_yaw was found SECOND, and only after elbow_pitch was fixed: two reversed joints in
+# the same chain cancel each other visually, so yaw looked correct while the elbow was still
+# wrong. Expect that when checking the rest — verify one joint with the others known-good,
+# never several at once.
+#
+# THIS IS THE SINGLE SOURCE. scripts/gen_viz_kinematics.py bakes it into the bundled model and
+# /api/contract serves it live; the app refuses to draw if the two disagree, so they must come
+# from here rather than be written out twice.
+# REVERTED to empty 2026-09-19. These four were set from how the RENDER looked while the arm
+# was moved by hand. They did fix the picture — but Quest teleop then drove the arm the wrong
+# way, and `ArmProfile.to_robot` was verified offline to map operator->robot correctly on every
+# joint of both arms. A correct mapping with a negation in front of it produces exactly that.
+# The render disagreement is real and still unexplained; it must be diagnosed WITHOUT a sign
+# that also sits in the command path, because one constant feeding both is what let a
+# picture-only fix reach the motors.
+#
+# UPDATE, later on 2026-09-19 — a likely explanation, not yet acted on. The robot's PHYSICAL
+# left shoulder_pitch axis was shown to run opposite to the URDF's: the flip was removed on
+# the theory that this constant had caused it, and the operator reported the inversion
+# straight back, on a build where this dict was already empty (config.py written 15:17,
+# servers started 16:17 and 16:20). It now lives in `arm_profile.HUMAN_TO_ROBOT_SIGN`, which
+# only affects the command path.
+#
+# If the URDF's axis is wrong, the RENDER would be wrong for that joint too — which is
+# exactly the unexplained disagreement above. That points at the model, not at a sign
+# constant. The fix belongs in the URDF (app/src/data/viz_kinematics.json and whatever
+# generates it), after which BOTH the picture and the -1 in HUMAN_TO_ROBOT_SIGN go away
+# together. Until someone verifies that on the machine, nothing here changes.
+ARM_FRAME_SIGN: dict[str, float] = {}
+
 
 @dataclass(frozen=True)
 class LegPolicyContract:

@@ -442,9 +442,17 @@ def build(contract: LegPolicyContract) -> dict:
     #          the arm is drawn at its RAW device angle, so any disagreement with the physical
     #          arm is a real finding about the device frame rather than something a fudge factor
     #          has already absorbed.
+    # ARMS — measured, not derived. The note above says +1 draws the raw device angle so any
+    # disagreement with the physical arm is a real finding rather than a fudge. On 2026-09-19
+    # that finding arrived. With the T-pose reference corrected (shoulder_pitch and
+    # shoulder_yaw are each held a quarter turn from relaxed, so their targets are +-90, not 0)
+    # four of five arm joints track the physical arm correctly. elbow_pitch does not: it bends
+    # the opposite way on BOTH arms. Established by moving one joint at a time and watching the
+    # render, with the other four confirmed correct in the same pass — not inferred from a fit.
+    from humanoid_control.config import ARM_FRAME_SIGN
     contract_sign = dict(zip(contract.joint_order, contract.policy_frame_sign))
     contract_default = dict(zip(contract.joint_order, contract.default_pose))
-    sign = [int(contract_sign.get(name, 1)) for _, name in all_joints]
+    sign = [int(ARM_FRAME_SIGN.get(name, contract_sign.get(name, 1))) for _, name in all_joints]
     # default_pose likewise only exists for the contract joints; arms get 0 (drawn at zero) and
     # are flagged so the app never presents that as a meaningful "default".
     default_urdf = [clean(float(contract_default[name]) * contract_sign[name])

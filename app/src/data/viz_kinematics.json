@@ -2,8 +2,8 @@
   "_meta": {
     "schema_version": 2,
     "generated_by": "scripts/gen_viz_kinematics.py",
-    "source_urdf": "/home/nse/humanoid/humanoid-policy/source/humanoid_policy_assets/data/robots/humanoid/urdf/humanoid.urdf",
-    "source_repo_sha": "b30922c4b5bfe72d7f3614ad1d5e703b058b38f2",
+    "source_urdf": "/home/nse/humanoid-policy/source/humanoid_policy_assets/data/robots/humanoid/urdf/humanoid.urdf",
+    "source_repo_sha": "7d5b55ff14bd43d83394487fc96cd21273b645be",
     "frame": "URDF frame. Feed q_urdf[i] = joint_sign[i] * telemetry_position[i]; telemetry from the daemon is DEVICE frame.",
     "conventions": "URDF fixed-axis rpy (R = Rz*Ry*Rx); child = T(xyz)*R(rpy)*R_axis(q); +X forward, +Y left, +Z up; metres and radians.",
     "naming": "DEVICE joint names are authoritative. `urdf_name` records the URDF's name for the same joint; note the arm's 5th joint is wrist_yaw on the hardware and elbow_roll in the URDF.",

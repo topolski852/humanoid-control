@@ -48,8 +48,10 @@ export default function ArmCalibration() {
 
       <div className="text-xs text-gray-400 leading-relaxed">
         Hold the arm in a <b>T-pose</b> — straight out to the side, horizontal, elbow straight,
-        forearm untwisted — then press its button. Use a level edge to judge horizontal; the more
-        square the hold, the better the zero.
+        and the upper arm rolled so the <b>elbow would bend horizontally</b> (forearm swings
+        forward/back, not up/down) — then press its button. Held that way the arm carries its own
+        weight and stays square. Use a level edge to judge horizontal; the more square the hold,
+        the better the zero.
       </div>
 
       <div className="flex items-center gap-2 flex-wrap">

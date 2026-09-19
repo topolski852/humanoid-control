@@ -65,6 +65,21 @@ class ArmChain:
         self._axis = [np.array(j["axis"], dtype=float) for j in self._joints]
         self.limits_lower = np.array([j["limit"]["lower"] for j in self._joints])
         self.limits_upper = np.array([j["limit"]["upper"] for j in self._joints])
+        # DEVICE -> URDF frame sign, from the same vendored artifact the JS visualizer uses
+        # (`deviceToUrdf(pose, model.joint_sign)`). Telemetry arrives in the DEVICE frame; every
+        # method on this class works in the URDF frame. Callers must convert at the boundary —
+        # this class deliberately does NOT convert internally, because its outputs (tool, IK
+        # steps, limits, clamp) are all URDF too, and a hidden negation would flip some of them
+        # and not others.
+        _sign = dict(zip(model.get("joint_order", []), model.get("joint_sign", [])))
+        self.frame_sign = np.array([float(_sign.get(n, 1.0)) for n in self.joint_names])
+
+    def device_to_urdf(self, q) -> np.ndarray:
+        """Telemetry (device frame) -> URDF frame. Its own inverse: the signs are +-1."""
+        return self.frame_sign * np.asarray(q, dtype=float)
+
+    # Same operation; named for the direction so call sites read correctly.
+    urdf_to_device = device_to_urdf
 
     @property
     def n(self) -> int:
