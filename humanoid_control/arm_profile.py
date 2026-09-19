@@ -29,7 +29,7 @@ from pathlib import Path
 
 import numpy as np
 
-SCHEMA = 2   # 2: ranges stored UNWRAPPED relative to the zero
+SCHEMA = 3   # 2: ranges UNWRAPPED relative to the zero.  3: profiles keyed by (name, side)
 DEFAULT_NAME = "default"
 
 # Robot joint order this profile maps onto, proximal to distal. Matches ArmChain.
@@ -40,6 +40,69 @@ JOINTS = ("shoulder_pitch", "shoulder_roll", "shoulder_yaw", "elbow", "wrist")
 # travel for a twitch.
 MIN_HUMAN_SPAN_RAD = np.radians(12.0)
 MAX_GAIN = 3.0
+
+# Operator -> robot direction, PER SIDE, index-aligned to JOINTS.
+#
+# The human and robot joint conventions agree on most axes but not all, and where they differ
+# the operator moves one way and the robot is COMMANDED the other. This is measured on the
+# robot, not derived: with all four other joints confirmed following correctly, shoulder_pitch
+# drove backwards under Quest mirror — raise the arm, the robot lowers it.
+#
+# This belongs HERE and not in a device/URDF frame sign or a gear_ratio, both of which were
+# tried and rejected: they also change what telemetry MEANS, so they move the render and the
+# calibration zeros with them. A human-convention mismatch is a property of the retargeting
+# only, so it is corrected only in the retargeting.
+#
+# WHY IT IS PER SIDE. The URDF's arms are exact mirrors — every right-arm limit is the
+# negation of the left's (left pitch [-90,45] vs right [-45,90]; left elbow [0,90] vs right
+# [-90,0]) — but the HUMAN angle only mirrors on some axes:
+#
+#   roll, yaw, wrist   derived from u[1] (sideways), which flips sign between arms, so the
+#                      human value already mirrors and NO sign is needed.
+#   pitch              derived from u[0] (forward), which does NOT flip — forward is forward
+#                      for both arms — so the same gesture must be negated for one side.
+#   elbow              flexion magnitude, always positive, never mirrors — same treatment.
+#
+# Measured with a single global sign (2026-09-19): an operator pitch of -30 deg moved the left
+# hand 8.3 cm BACKWARD and the right hand 15.9 cm FORWARD, with joint magnitudes 2x apart. The
+# right elbow did not respond AT ALL, because its travel above r_zero is exactly 0. Making the
+# sign per-side fixed both symptoms in one step and left roll/yaw untouched.
+#
+# Each entry is DERIVED, not chosen:  sign = urdf_mirror * human_mirror
+#
+#   urdf_mirror   every right joint's limits are the exact mirror of its left counterpart
+#                 (left pitch [-90,+45] vs right [-45,+90], and so on for all five), so this
+#                 is -1 for every joint.
+#   human_mirror  measured by decomposing a gesture and its mirror image: roll, yaw and wrist
+#                 come out OPPOSITE (already mirrored, -1); pitch and elbow come out the SAME
+#                 (+1). Yaw and wrist were measured with poses that actually excite them — a
+#                 forearm swept about the limb axis — because the arm-forward poses sit on the
+#                 Euler degeneracy and answer with noise.
+#
+# LEFT shoulder_pitch CARRIES A -1, AND IT IS NOT NEGOTIABLE FROM THE URDF ALONE.
+#
+# Measured on the robot, twice, on builds with ARM_FRAME_SIGN EMPTY (config.py last written
+# 15:17, servers started 16:17 and 16:20 — so no device<->URDF negation was in play either
+# time): the operator raising their arm drives the left shoulder_pitch the wrong way. The
+# flip was briefly removed on the theory that ARM_FRAME_SIGN had caused it; the timestamps
+# rule that out, and the operator reported the inversion straight back.
+#
+# This means the robot's PHYSICAL shoulder_pitch axis runs opposite to the URDF's, so URDF
+# space and hardware disagree about which way is forward for that one joint. Until the URDF
+# is corrected the discrepancy has to live somewhere, and it lives here, in the one place
+# that only affects the teleop command path. scripts/test_arm_direction.py documents the
+# conflict rather than asserting the URDF's version of it.
+_SIGN_LEFT = (-1.0, 1.0, 1.0, 1.0, 1.0)     # shoulder_pitch: hardware disagrees with the URDF
+_SIGN_RIGHT = (1.0, 1.0, 1.0, -1.0, 1.0)    # the same mirror structure, applied to the left row
+HUMAN_TO_ROBOT_SIGN = {"left": _SIGN_LEFT, "right": _SIGN_RIGHT}
+
+SIDES = ("left", "right")
+
+
+def _side_of(side: str) -> str:
+    """Normalise 'left'/'right'/'left_arm'/'right_arm' to a bare side."""
+    s = str(side).lower()
+    return "right" if s.startswith("right") else "left"
 
 
 def default_profile_path() -> Path:
@@ -65,6 +128,11 @@ class ArmProfile:
     """One operator's arm calibration."""
 
     name: str = DEFAULT_NAME
+    # Which of the operator's arms this was captured from. A profile is per (operator, side):
+    # the two arms have genuinely different usable ranges, and mapping one arm through the
+    # other's spans produces a lopsided robot for a symmetric gesture — measured at 5.7x gain
+    # difference on shoulder_roll when both arms shared one profile.
+    side: str = "left"
     schema: int = SCHEMA
     captured_utc: str = ""
     # Angles (rad) the tracker reports when the operator's arm is RELAXED at their side.
@@ -76,29 +144,41 @@ class ArmProfile:
     hi_rad: list[float] = field(default_factory=lambda: [0.0] * len(JOINTS))
     upper_len_m: float = 0.0
     fore_len_m: float = 0.0
+    # True when this side did not come from its own capture: a schema-2 profile predates the
+    # per-side split, so it was promoted to both arms. The ranges are then one arm's, applied
+    # to both. Surfaced rather than hidden so the operator is told to recalibrate instead of
+    # being shown a half-measured profile as if it were current.
+    migrated_sideless: bool = False
 
     # ── persistence ─────────────────────────────────────────────────────────
     def to_dict(self) -> dict:
-        return {"schema": self.schema, "captured_utc": self.captured_utc,
-                "zero_rad": list(self.zero_rad), "lo_rad": list(self.lo_rad),
-                "hi_rad": list(self.hi_rad), "joints": list(JOINTS),
-                "upper_len_m": self.upper_len_m, "fore_len_m": self.fore_len_m}
+        d = {"schema": self.schema, "side": self.side,
+             "captured_utc": self.captured_utc,
+             "zero_rad": list(self.zero_rad), "lo_rad": list(self.lo_rad),
+             "hi_rad": list(self.hi_rad), "joints": list(JOINTS),
+             "upper_len_m": self.upper_len_m, "fore_len_m": self.fore_len_m}
+        if self.migrated_sideless:
+            d["migrated_sideless"] = True
+        return d
 
     @classmethod
-    def from_dict(cls, name: str, d: dict) -> "ArmProfile":
+    def from_dict(cls, name: str, d: dict, *, side: str | None = None) -> "ArmProfile":
         n = len(JOINTS)
         def _vec(key):
             v = list(d.get(key) or [])
             return (v + [0.0] * n)[:n]
-        return cls(name=name, schema=int(d.get("schema", SCHEMA)),
+        return cls(name=name,
+                   side=_side_of(side if side is not None else d.get("side", "left")),
+                   schema=int(d.get("schema", SCHEMA)),
                    captured_utc=str(d.get("captured_utc", "")),
                    zero_rad=_vec("zero_rad"), lo_rad=_vec("lo_rad"), hi_rad=_vec("hi_rad"),
                    upper_len_m=float(d.get("upper_len_m") or 0.0),
-                   fore_len_m=float(d.get("fore_len_m") or 0.0))
+                   fore_len_m=float(d.get("fore_len_m") or 0.0),
+                   migrated_sideless=bool(d.get("migrated_sideless")))
 
     @classmethod
     def from_capture(cls, captured: dict, *, name: str = DEFAULT_NAME,
-                     captured_utc: str = "") -> "ArmProfile":
+                     side: str = "left", captured_utc: str = "") -> "ArmProfile":
         """Build from CalibrationRun.captured — {pose_key: {angles: [...], ...}}.
 
         The ZERO comes from the `relaxed` pose, deliberately not the T-pose: at 90 degrees of
@@ -121,7 +201,7 @@ class ArmProfile:
         allp = zero + np.arctan2(np.sin(allp - zero), np.cos(allp - zero))
         lens = [v for v in captured.values() if v.get("upper_len")]
         return cls(
-            name=name, captured_utc=captured_utc,
+            name=name, side=_side_of(side), captured_utc=captured_utc,
             zero_rad=[float(v) for v in zero[:n]],
             lo_rad=[float(v) for v in allp.min(axis=0)[:n]],
             hi_rad=[float(v) for v in allp.max(axis=0)[:n]],
@@ -130,8 +210,13 @@ class ArmProfile:
         )
 
     # ── the mapping ─────────────────────────────────────────────────────────
-    def to_robot(self, human_rad, chain) -> np.ndarray:
+    def to_robot(self, human_rad, chain, side: str | None = None) -> np.ndarray:
         """Operator's arm angles → robot joint targets (rad), clamped to the joint limits.
+
+        ``side`` selects the operator->robot sign map (see HUMAN_TO_ROBOT_SIGN); it defaults to
+        this profile's own side. Passing it explicitly is only for callers that hold a profile
+        and a chain from different sides, which is a bug — but an explicit argument makes that
+        bug visible rather than silently mapping one arm through the other's conventions.
 
         Two-sided gain anchored at the zero, rather than a single linear fit across the whole
         range. Anchoring matters: it guarantees that a relaxed arm maps to the robot's rest
@@ -143,6 +228,7 @@ class ArmProfile:
         shoulder abducts far more than it adducts, and the robot's roll limits (-15..+75) are
         lopsided the same way. One gain would waste travel on one side and saturate the other.
         """
+        sign = HUMAN_TO_ROBOT_SIGN[_side_of(side if side is not None else self.side)]
         h = np.asarray(human_rad, dtype=float).reshape(len(JOINTS))
         z = np.asarray(self.zero_rad, dtype=float)
         # Take the SHORTEST way round from the zero. Without this a wrist at -179 deg reads
@@ -151,6 +237,16 @@ class ArmProfile:
         lo = np.asarray(self.lo_rad, dtype=float)
         hi = np.asarray(self.hi_rad, dtype=float)
 
+        # SOFT limits, deliberately NOT the firmware's. Two tiers exist:
+        #   HARD — humanoid_lite.json `position_limits`, pushed to the ESC by reconcile.py.
+        #          The mechanical backstop; what Studio and calibration may reach.
+        #   SOFT — the URDF values vendored in app/src/data/viz_kinematics.json, which is what
+        #          ArmChain loads and what this mapping uses.
+        # These two sources legitimately DISAGREE (hard is wider) and must not be "synced".
+        # It matters here more than at the clamp below: r_hi/r_lo also set the GAIN, so the
+        # operator's full arm travel maps onto the SOFT range. Feeding the hard range in would
+        # silently make headset teleop reach further for the same human motion — the opposite
+        # of why the tiers exist, since the operator has least situational awareness in a headset.
         r_lo = np.asarray(chain.limits_lower, dtype=float)
         r_hi = np.asarray(chain.limits_upper, dtype=float)
         # The robot's zero IS its URDF zero. Mapping the operator's relaxed pose onto it means
@@ -160,46 +256,85 @@ class ArmProfile:
 
         out = np.empty(len(JOINTS))
         for i in range(len(JOINTS)):
-            d = h[i] - z[i]
-            if d >= 0:
-                span = max(hi[i] - z[i], MIN_HUMAN_SPAN_RAD)
-                gain = min((r_hi[i] - r_zero[i]) / span, MAX_GAIN)
-            else:
-                span = max(z[i] - lo[i], MIN_HUMAN_SPAN_RAD)
-                gain = min((r_zero[i] - r_lo[i]) / span, MAX_GAIN)
+            # The two spans here are DIFFERENT asymmetries and must be selected separately:
+            #   span — the OPERATOR's range on the side they actually moved (raw deviation).
+            #   robot travel — the ROBOT's range on the side it is being sent (signed).
+            # Where the sign is -1 those sides are opposite, so choosing both from the same
+            # branch pairs the operator's motion with the span from their other side and the
+            # gain comes out wrong — subtly, and only on joints whose ranges are lopsided,
+            # which per the docstring above is most of them.
+            d_raw = h[i] - z[i]
+            span = max(hi[i] - z[i] if d_raw >= 0 else z[i] - lo[i], MIN_HUMAN_SPAN_RAD)
+            d = d_raw * sign[i]
+            travel = (r_hi[i] - r_zero[i]) if d >= 0 else (r_zero[i] - r_lo[i])
+            gain = min(travel / span, MAX_GAIN)
             out[i] = r_zero[i] + d * max(gain, 0.0)
         return chain.clamp(out)
 
 
 # ── store ───────────────────────────────────────────────────────────────────
+#
+# On disk:  {"schema": 3, "profiles": {"<name>": {"left": {...}, "right": {...}}}}
+#
+# Schema 2 stored ONE side-less entry per name. `_migrate` promotes such an entry to BOTH
+# sides so an existing operator keeps working exactly as before the split — the alternative,
+# guessing which arm it came from, would silently give one arm someone else's ranges. It is
+# flagged `migrated_sideless` so the UI can say "recalibrate for per-side accuracy" rather
+# than presenting a half-true profile as current.
+def _migrate(entry: dict) -> dict:
+    """One name's entry -> {side: dict}. Accepts schema-2 (side-less) and schema-3 shapes."""
+    if not isinstance(entry, dict):
+        return {}
+    if any(s in entry for s in SIDES):                  # already per-side
+        return {s: entry[s] for s in SIDES if isinstance(entry.get(s), dict)}
+    if "zero_rad" in entry:                             # schema 2: one capture, side unknown
+        return {s: {**entry, "side": s, "migrated_sideless": True} for s in SIDES}
+    return {}
+
+
 def load_all(path: Path | None = None) -> dict:
+    """{name: {side: raw_dict}} — migrated, so callers never see the schema-2 shape."""
     p = path or default_profile_path()
     if not p.is_file():
         return {}
     try:
-        return json.loads(p.read_text()).get("profiles", {}) or {}
+        raw = json.loads(p.read_text()).get("profiles", {}) or {}
     except Exception:                                    # noqa: BLE001
         return {}
+    return {name: m for name, entry in raw.items() if (m := _migrate(entry))}
 
 
-def load(name: str = DEFAULT_NAME, path: Path | None = None) -> ArmProfile | None:
-    d = load_all(path).get(name)
-    return ArmProfile.from_dict(name, d) if d else None
+def load(name: str = DEFAULT_NAME, side: str = "left",
+         path: Path | None = None) -> ArmProfile | None:
+    s = _side_of(side)
+    d = (load_all(path).get(name) or {}).get(s)
+    return ArmProfile.from_dict(name, d, side=s) if d else None
 
 
 def save(profile: ArmProfile, path: Path | None = None) -> Path:
     p = path or default_profile_path()
     all_p = load_all(p)
-    all_p[profile.name] = profile.to_dict()
+    entry = dict(all_p.get(profile.name) or {})
+    entry[_side_of(profile.side)] = profile.to_dict()   # leaves the other side untouched
+    all_p[profile.name] = entry
     _atomic_write(p, {"schema": SCHEMA, "profiles": all_p})
     return p
 
 
-def delete(name: str, path: Path | None = None) -> bool:
+def delete(name: str, side: str | None = None, path: Path | None = None) -> bool:
+    """Delete one side, or the whole operator when ``side`` is None."""
     p = path or default_profile_path()
     all_p = load_all(p)
     if name not in all_p:
         return False
-    del all_p[name]
+    if side is None:
+        del all_p[name]
+    else:
+        s = _side_of(side)
+        if s not in all_p[name]:
+            return False
+        del all_p[name][s]
+        if not all_p[name]:
+            del all_p[name]
     _atomic_write(p, {"schema": SCHEMA, "profiles": all_p})
     return True

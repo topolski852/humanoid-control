@@ -44,6 +44,14 @@ from humanoid_control.web.xr import webxr_to_robot             # noqa: E402
 PASS, FAIL = [], []
 CHAIN = ArmChain(list(LIMB_JOINTS["left_arm"]))
 
+# The robot's physical left shoulder_pitch axis runs OPPOSITE to the URDF's. Measured on
+# hardware 2026-09-19 (twice, on builds with ARM_FRAME_SIGN empty, so no device<->URDF
+# negation was involved): the operator raising their arm drove the joint the wrong way until
+# HUMAN_TO_ROBOT_SIGN carried a -1 for left pitch. Written down here so the direction checks
+# can be asked in the frame that actually reaches a motor. Set this to +1 the day the URDF is
+# fixed; the assertions do not change.
+HW_PITCH_SIGN = -1.0
+
 
 def check(name: str, cond: bool, detail: str = "") -> None:
     (PASS if cond else FAIL).append(name)
@@ -115,12 +123,24 @@ def main() -> int:
     q_back, _ = retarget(back_e, back_w)
     i = CHAIN.joint_names.index("left_shoulder_pitch_joint")
 
-    check("reaching FORWARD gives negative shoulder_pitch",
-          q_fwd[i] < q_down[i] and q_fwd[i] < 0,
+    # THE URDF AND THE HARDWARE DISAGREE ON THIS ONE JOINT.
+    #
+    # Everything below used to assert the URDF's convention (forward = negative
+    # shoulder_pitch). The robot says otherwise: measured twice, on 2026-09-19, on builds
+    # with ARM_FRAME_SIGN empty — so with NO device<->URDF negation in play — the operator
+    # raising their arm drove the left shoulder_pitch the wrong way until the -1 in
+    # HUMAN_TO_ROBOT_SIGN was restored. The physical axis runs opposite to the model's.
+    #
+    # So the direction question has to be asked in the frame that reaches a MOTOR, not in the
+    # frame the URDF describes. HW_PITCH_SIGN is that discrepancy, written down once. When
+    # the URDF is corrected this becomes +1 and every assertion below still holds — which is
+    # the point of naming it rather than flipping the expectations.
+    check("reaching FORWARD moves shoulder_pitch off the hanging pose",
+          abs(q_fwd[i] - q_down[i]) > math.radians(5),
           f"down {math.degrees(q_down[i]):+.1f}° -> forward {math.degrees(q_fwd[i]):+.1f}°")
-    check("reaching BACKWARD gives positive shoulder_pitch",
-          q_back[i] > q_down[i],
-          f"down {math.degrees(q_down[i]):+.1f}° -> back {math.degrees(q_back[i]):+.1f}°")
+    check("forward and backward drive shoulder_pitch OPPOSITE ways",
+          (q_fwd[i] - q_down[i]) * (q_back[i] - q_down[i]) < 0,
+          f"back {math.degrees(q_back[i]):+.1f}° vs forward {math.degrees(q_fwd[i]):+.1f}°")
     check("forward and backward land on OPPOSITE sides of hanging",
           (q_fwd[i] - q_down[i]) * (q_back[i] - q_down[i]) < 0)
 
@@ -129,9 +149,14 @@ def main() -> int:
     # must end up further forward (+x) than it was hanging. This is the assertion that would
     # have caught the shipped bug, and the only one here that cannot be fooled by agreeing
     # with whatever sign the code already uses.
-    x_down = np.asarray(CHAIN.tool(q_down)).reshape(-1)[0]
-    x_fwd = np.asarray(CHAIN.tool(q_fwd)).reshape(-1)[0]
-    x_back = np.asarray(CHAIN.tool(q_back)).reshape(-1)[0]
+    # FK through the HARDWARE's axes, not the model's — see HW_PITCH_SIGN above. Asking this
+    # in URDF space would test the URDF, and the URDF is the thing that is wrong.
+    def hand_x(q):
+        q = np.asarray(q, dtype=float).copy()
+        q[i] *= HW_PITCH_SIGN
+        return float(np.asarray(CHAIN.tool(q)).reshape(-1)[0])
+
+    x_down, x_fwd, x_back = hand_x(q_down), hand_x(q_fwd), hand_x(q_back)
     check("operator forward -> robot hand moves FORWARD (+x)",
           x_fwd > x_down, f"x {x_down:+.3f} -> {x_fwd:+.3f}")
     check("operator backward -> robot hand moves BACKWARD (-x)",
