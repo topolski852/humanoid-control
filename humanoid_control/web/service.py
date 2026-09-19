@@ -77,6 +77,34 @@ _MOTION_STATES = {SessionState.HOLDING, SessionState.RUNNING}
 _ACTIVE_STATES = {SessionState.ARMED, SessionState.HOLDING, SessionState.RUNNING}
 
 
+class _ArmRig:
+    """One arm's half of a teleop session: its joints, its interface, its teleop, its gate.
+
+    Both arms run inside ONE session. What is shared stays shared — E-STOP, arming, the
+    heartbeat, the fault path, the finally-rest — and only what is genuinely per arm lives
+    here. That split is the whole design: a fault on either arm still ends the session for
+    both, because it disarms the machine, while a released trigger only rests its own arm.
+
+    Built for every configured arm, so a one-arm bench produces exactly one rig and takes the
+    same code path as a two-arm robot rather than a special case.
+    """
+
+    __slots__ = ("limb", "hand", "joints", "group", "teleop", "recorder",
+                 "gate", "engaged", "engage_warn_at", "info")
+
+    def __init__(self, limb, hand, joints, group, teleop, recorder, gate):
+        self.limb = limb
+        self.hand = hand
+        self.joints = joints
+        self.group = group
+        self.teleop = teleop
+        self.recorder = recorder
+        self.gate = gate
+        self.engaged = False
+        self.engage_warn_at = 0.0
+        self.info = None
+
+
 class ControlError(Exception):
     """Raised for a rejected command. ``status`` is the HTTP code the route returns."""
 
@@ -134,11 +162,20 @@ class ControlService:
         # when the trigger engages. The run-gate is distinct from the heartbeat: heartbeat =
         # "controller alive" (loss → E-STOP); run-gate = "trigger held" (release → DAMP).
         self._run_gate = threading.Event()
+        # Per-arm gates. Both arms run in one session, each activated by its own trigger, so
+        # "the gate" is no longer a single boolean: the left arm can be driving while the
+        # right rests. `_run_gate` stays as the whole-robot gate the Xbox path sets.
+        self._run_gates: dict[str, threading.Event] = {
+            limb: threading.Event() for limb in self._layout.arms}
+        self._gate_lock = threading.Lock()
+        # Live arm rigs while an arm session runs; read by telemetry, empty otherwise.
+        self._rigs: list = []
+        self._warm_arm_chains()
         self._command_lock = threading.Lock()
         self._command = np.zeros(3, dtype=np.float32)
         self._arm_command = np.zeros(4, dtype=np.float32)   # raw sticks: lx, ly, ry, rx
-        # 6-DOF-tracker command: (displacement-since-clutch metres in robot frame, seq).
-        self._arm_pose_command: tuple[np.ndarray, int] | None = None
+        # 6-DOF-tracker command per arm: {limb: (displacement-since-clutch m, seq)}.
+        self._arm_pose_commands: dict[str, tuple[np.ndarray, int]] = {}
         self._selected = {"kind": "hold", "checkpoint": None, "limb": None}
         # Which set of things the sticks drive, and how fast. Seeded from the layout so a
         # bench arm comes up in arm mode without anyone pressing Select.
@@ -373,7 +410,7 @@ class ControlService:
             "last_error": self._last_error,
             "all_calibrated": self.all_calibrated(),
             "quest": self._xr_status(),
-            "gamepad": {**self._gamepad, "run_gate": self._run_gate.is_set(),
+            "gamepad": {**self._gamepad, "run_gate": self.any_run_gate(),
                         "input": self._gamepad_input},
             "control": {
                 "mode": self._control_mode,
@@ -382,6 +419,10 @@ class ControlService:
                 "rest": self._rest_mode,
                 "limb": self._selected.get("limb"),
                 "arms": list(self._layout.arms),
+                # Per-arm live state. `_arm_info` used to be written every tick and read by
+                # nobody; with two arms running there is a real question to answer — which
+                # arm is active, and why the other one refused to engage — so it is surfaced.
+                "arm_state": self._arm_states(),
                 "capabilities": list(self._layout.capabilities),
                 "sessions": self.available_sessions(),
                 "arm_method": self.arm_method,
@@ -430,20 +471,71 @@ class ControlService:
         """Browser heartbeat (kept as the name server.py already calls)."""
         self.mark_source_alive("web")
 
-    def _human_angles(self):
+    def _human_angles(self, hand: str | None = None):
         """The operator's own arm angles this tick, degrees, or None.
 
         Recorded alongside the robot's joints so a run log answers "did the robot match my
-        arm" directly, instead of us inferring it from hand positions.
+        arm" directly, instead of us inferring it from hand positions. ``hand`` picks which
+        of the operator's arms — each arm's recording must carry the arm that drove it, or
+        the two logs would both describe the same side.
         """
         try:
             q = self.quest
-            a = getattr(q, "_human", None) if q is not None else None
+            if q is None:
+                return None
+            a = q._h(hand).human if hand else getattr(q, "_human", None)
             if a is None:
                 return None
             return [round(float(np.degrees(v)), 2) for v in a.as_array()]
         except Exception:                                # noqa: BLE001
             return None
+
+    # The per-tick `info` dict is NOT safe to ship as-is: `target` and `hand` are numpy
+    # arrays, which the JSON encoder cannot serialise — it raises and the ENTIRE telemetry
+    # snapshot 500s, taking the whole web UI down while teleop carries on working. That is
+    # exactly what happened when this was first surfaced (2026-09-19 17:44): the arm drove
+    # fine and the operator saw a blank page.
+    #
+    # So this whitelists, rather than sanitising whatever turns up. It is also the reason to
+    # whitelist: the snapshot goes to every browser at 20 Hz, and `target`/`lead_deg`/
+    # `joint_err_deg` are per-tick diagnostics that belong in the flight recorder (which
+    # already stores them) and not in a 20 Hz broadcast.
+    _ARM_INFO_KEYS = ("engage_blocked", "limit_deg", "worst_joint", "worst_deg",
+                      "worst_joint_err_deg", "at_limit", "clipped", "hold", "commanding",
+                      "frame")
+
+    @staticmethod
+    def _arm_info_public(info) -> dict | None:
+        if not isinstance(info, dict):
+            return None
+        out = {}
+        for k in ControlService._ARM_INFO_KEYS:
+            if k not in info:
+                continue
+            v = info[k]
+            if isinstance(v, (np.generic,)):        # numpy scalar -> python
+                v = v.item()
+            elif isinstance(v, np.ndarray):         # never ship an array from here
+                continue
+            out[k] = v
+        return out or None
+
+    def _arm_states(self) -> dict:
+        """{limb: {active, engaged, info}} for every configured arm.
+
+        Read from the live rigs when a session is running, and falls back to the gate alone
+        otherwise, so the shape is the same whether or not an arm session exists.
+        """
+        out = {}
+        for limb in self._layout.arms:
+            gate = self._run_gates.get(limb)
+            out[limb] = {"active": bool(gate is not None and gate.is_set()),
+                         "engaged": False, "info": None}
+        for rig in (self._rigs or ()):
+            if rig.limb in out:
+                out[rig.limb]["engaged"] = rig.engaged
+                out[rig.limb]["info"] = self._arm_info_public(rig.info)
+        return out
 
     def _xr_status(self) -> dict:
         """Quest link status for telemetry and the flight recorder. Never raises — a status
@@ -1022,22 +1114,38 @@ class ControlService:
             raise ControlError("Daemon not running.", 503)
         if self.is_motion_active():
             raise ControlError("Stop the active session before clearing faults.", 409)
-        cleared = 0
+        cleared, failed = 0, []
         for n in self._joints:
             try:
                 self.client.clear_error(n)
                 cleared += 1
             except Exception as exc:
+                failed.append(n)
                 _log.warning("clear_error %s failed: %s", n, exc)
-        time.sleep(0.3)
+        # VERIFY BY READBACK. A successful command is not a cleared fault: the daemon writes
+        # the error register over SDO and the motor may never ACK. Wait past one slow-poll
+        # cycle (10 Hz) so the cached state reflects the hardware, then check. Counting
+        # commands that did not raise is what reported "cleared on 10/10 joints" while every
+        # joint still read 0x0040 — see Actuator::clear_fault.
+        time.sleep(0.5)
+        still = []
+        for n in self._joints:
+            st = self.client.get_cached_joint_state(n)
+            if st and int(st.get("error", 0) or 0):
+                still.append(f"{n.replace('_joint','')}=0x{int(st['error']):04x}")
+        if still or failed:
+            _log.warning("clear_faults INCOMPLETE — still faulted: %s%s",
+                         ", ".join(still) or "none",
+                         f"; command failed on {', '.join(failed)}" if failed else "")
         with self._lock:
             self.estop = self._new_estop()     # release the latched E-STOP
             self._armed = False
             self._last_error = None
             self._state = SessionState.CONNECTED
-        _log.info("faults cleared on %d/%d joints; E-STOP released; state → CONNECTED.",
-                  cleared, len(self._joints))
-        return {"cleared": cleared}
+        _log.info("faults cleared on %d/%d joints (%d still faulted after readback); "
+                  "E-STOP released; state → CONNECTED.",
+                  cleared, len(self._joints), len(still))
+        return {"cleared": cleared, "still_faulted": still, "command_failed": failed}
 
     def disarm(self) -> None:
         with self._lock:
@@ -1211,7 +1319,7 @@ class ControlService:
     def _on_session_end(self) -> None:
         with self._lock:
             self._armed = False    # require an explicit re-arm before the next motion
-            self._run_gate.clear()
+            self._clear_all_gates()
             self._session_deadman = None   # back to judging by the active input source
             if self.estop.fired:
                 self._state = SessionState.ESTOPPED
@@ -1271,16 +1379,67 @@ class ControlService:
                 raise ControlError("Disarm before changing the selected session.", 409)
             self._selected = {"kind": kind, "checkpoint": checkpoint, "limb": limb}
 
-    def set_run_gate(self, active: bool, *, source: str = "web") -> None:
-        """Deadman trigger state from the active input source: True = held (engage/run), False
-        = released (damp). Distinct from the heartbeat — a release damps; a controller loss
-        E-STOPs. Ignored (and counted) from a source that does not hold the input token."""
+    def set_run_gate(self, active: bool, *, source: str = "web",
+                     limb: str | None = None) -> None:
+        """Activation-trigger state from the active input source: True = held (engage/run),
+        False = released (damp). Distinct from the heartbeat — a release damps; a controller
+        loss E-STOPs. Ignored (and counted) from a source that does not hold the input token.
+
+        ``limb`` scopes the gate to ONE arm, which is what the per-arm triggers use. None
+        keeps the whole-robot semantics the Xbox path relies on: it already ORs both of its
+        triggers into a single gate, so it sets every arm's gate together.
+        """
         if not self._owns_input(source):
             return
-        if active:
-            self._run_gate.set()
-        else:
-            self._run_gate.clear()
+        gates = ([self._run_gate_for(limb)] if limb is not None
+                 else list(self._run_gates.values()) + [self._run_gate])
+        for g in gates:
+            g.set() if active else g.clear()
+
+    def _warm_arm_chains(self) -> None:
+        """Build and warm each arm's kinematic chain in the BACKGROUND, at startup.
+
+        `ArmChain.reach_bounds()` grids the joint limits numerically: ~1.0s per chain, and
+        GIL-heavy enough to starve the asyncio loop while it runs. Anywhere on the arming or
+        ticking path that is a stall the safety watchdogs read as a dead link — it fired a
+        spurious quest-timeout E-STOP during arming before this moved here. Paid once, up
+        front, where nothing is waiting on it and no session exists to interrupt.
+
+        Best effort: a failure here costs the first tick its second back, nothing more.
+        """
+        limbs = list(self._layout.arms)
+        if not limbs:
+            return
+
+        def warm():
+            for lb in limbs:
+                try:
+                    self.arm_chain(lb).reach_bounds()
+                except Exception as exc:                 # noqa: BLE001
+                    _log.debug("arm chain warm-up failed for %s (%s)", lb, exc)
+
+        threading.Thread(target=warm, name="arm-chain-warm", daemon=True).start()
+
+    def _run_gate_for(self, limb: str) -> threading.Event:
+        """One arm's gate, created on demand so a limb that is configured later still gets
+        one rather than silently sharing another arm's."""
+        with self._gate_lock:
+            g = self._run_gates.get(limb)
+            if g is None:
+                g = self._run_gates[limb] = threading.Event()
+            return g
+
+    def _clear_all_gates(self) -> None:
+        """Drop every arm's gate. Used at session start and end, where "the session is
+        over" must not leave one arm still believing its trigger is held."""
+        self._run_gate.clear()
+        for g in self._run_gates.values():
+            g.clear()
+
+    def any_run_gate(self) -> bool:
+        """True while ANY arm is active. This is what the session-level ladders mean by "the
+        gate": the session is running for as long as the operator is driving either arm."""
+        return self._run_gate.is_set() or any(g.is_set() for g in self._run_gates.values())
 
     # ── input source arbitration ─────────────────────────────────────────────
     #
@@ -1566,27 +1725,46 @@ class ControlService:
         with self._command_lock:
             self._arm_command = np.array([left_x, left_y, right_y, right_x], dtype=np.float32)
 
-    def set_arm_pose_command(self, delta_m, seq: int = 0, *, source: str = "web") -> None:
+    def set_arm_pose_command(self, delta_m, seq: int = 0, *, source: str = "web",
+                             limb: str | None = None) -> None:
         """Hand DISPLACEMENT since the clutch anchor, metres, robot frame — from a 6-DOF
         tracker. Kept separate from `_arm_command` rather than overloading it: a stick quad is
         a velocity and this is a position offset, and a stale value of one interpreted as the
-        other is precisely the confusion worth designing out."""
+        other is precisely the confusion worth designing out.
+
+        ``limb`` says which arm the displacement belongs to; each controller clutches
+        independently, so they cannot share one slot."""
         if not self._owns_input(source):
             return
+        target = limb or self.selected_limb()
+        if target is None:
+            return
         with self._command_lock:
-            self._arm_pose_command = (
+            self._arm_pose_commands[target] = (
                 np.asarray(delta_m, dtype=np.float32).reshape(3).copy(), int(seq))
 
-    def arm_chain(self):
-        """Kinematic chain for the selected arm. Cached — building it parses the vendored
-        URDF model, and the retargeter asks for it on every XR frame."""
-        limb = self.selected_limb()
+    def arm_pose_command(self, limb: str | None = None):
+        with self._command_lock:
+            return self._arm_pose_commands.get(limb or self.selected_limb())
+
+    def arm_limbs(self) -> tuple:
+        """Every arm configured on this robot, in layout order."""
+        return tuple(self._layout.arms)
+
+    def arm_chain(self, limb: str | None = None):
+        """Kinematic chain for one arm. Cached PER LIMB — building it parses the vendored
+        URDF model, and with both arms retargeting on every XR frame a single-entry cache
+        would thrash between them and rebuild the chain twice per frame."""
+        limb = limb or self.selected_limb()
         if limb is None:
             raise ControlError("no arm configured", 409)
-        if getattr(self, "_chain_cache", (None, None))[0] != limb:
+        cache = getattr(self, "_chain_cache", None)
+        if cache is None:
+            cache = self._chain_cache = {}
+        if limb not in cache:
             from ..arm_kinematics import ArmChain
-            self._chain_cache = (limb, ArmChain(list(self._layout.joints_of(limb))))
-        return self._chain_cache[1]
+            cache[limb] = ArmChain(list(self._layout.joints_of(limb)))
+        return cache[limb]
 
     def selected_limb(self) -> str | None:
         """Which arm a teleop session drives (first configured arm when unset)."""
@@ -1662,7 +1840,7 @@ class ControlService:
             )
             self._armed = True
             self._stop_evt.clear()
-            self._run_gate.clear()
+            self._clear_all_gates()
             # This session is judged by the source that armed it for its whole life, even if
             # the token were somehow changed underneath it.
             self._session_deadman = self._input_source
@@ -1671,8 +1849,17 @@ class ControlService:
                                  name=f"deadman-{sel_kind}", daemon=True)
             self._session_thread = t
             t.start()
-        _log.info("ARMED deadman session (kind=%s, ramp=%.1fs) — resting in %s, hold a trigger to run.",
-                  sel_kind, ramp, self._rest_mode.upper())
+        if sel_kind == "arm":
+            # Arm sessions: say what the trigger IS. Calling it a deadman told operators that
+            # letting go was the emergency stop, when releasing it rests the arm in DAMPING —
+            # which holds the arm up and is the normal way to park it. E-STOP is the stop.
+            _log.info("ARMED arm session (ramp=%.1fs) — resting in %s. Hold a controller's "
+                      "trigger to ACTIVATE that arm; release it and that arm rests (it holds "
+                      "itself, it does not drop). E-STOP and disarm apply to both arms.",
+                      ramp, self._rest_mode.upper())
+        else:
+            _log.info("ARMED deadman session (kind=%s, ramp=%.1fs) — resting in %s, "
+                      "hold a trigger to run.", sel_kind, ramp, self._rest_mode.upper())
 
     def _calibration_still_valid(self) -> bool:
         """True only if every configured joint has stayed online since calibration was set.
@@ -1736,6 +1923,7 @@ class ControlService:
         group = self.group
         teleop = None
         recorder = None
+        rigs: list[_ArmRig] = []
         if arm_mode:
             from ..arm_kinematics import ArmChain
             from ..arm_teleop import ArmTeleop, TeleopTuning
@@ -1763,18 +1951,54 @@ class ControlService:
             if self._session_deadman == "quest" and method != "quest_mirror":
                 _log.warning("arm teleop: Quest is driving in '%s' mode, not mirror — run the "
                              "arm calibration to mirror your whole arm.", method or "cartesian")
-            teleop = ArmTeleop(ArmChain(arm_joints), tuning=tuning)
+            # SHARED, PRE-WARMED chains (see _warm_arm_chains). Building a chain is free;
+            # its reach_bounds() is not — ~1.0s of numerical work per chain — and doing that
+            # here put >1s of GIL-heavy work on the arming path. The Quest heartbeat watchdog
+            # trips at 1.0s, so arming fired a SPURIOUS E-STOP before the second arm's rig
+            # was even built (observed 2026-09-19 17:45: "no frame for 1.19s"). ArmChain only
+            # assigns in __init__, so one instance per limb is safe to share across threads.
+            teleop = ArmTeleop(self.arm_chain(limb), tuning=tuning)
+            # Which branch the per-tick loop takes. Derived from tuning.frame rather than from
+            # `method`, so there is ONE source for what the session is doing — the same value
+            # the teleop itself switches on. Both names were referenced in the loop below
+            # without ever being assigned, so any armed arm session raised NameError on its
+            # first tick and surfaced as "deadman: name 'mirror_mode' is not defined".
+            mirror_mode = (tuning.frame == "mirror")
+            pose_mode = (tuning.frame == "pose")
             _log.info("arm teleop: driving %s (%d joints) in '%s' frame",
                       limb, len(arm_joints), tuning.frame)
             # Flight recorder for the whole armed session, engaged or not. Always on: the arm
             # has no policy to fall back on, and "it did not move how I expected" is only
             # answerable from the numbers afterwards.
-            try:
-                rec_dir = os.environ.get("HUMANOID_RECORD_DIR") or str(REPO_ROOT / "_arm_recording" / "runs")
-                recorder = ArmRunRecorder(rec_dir, limb, arm_joints, teleop.tuning)
-                _log.info("arm run log: %s", recorder.path)
-            except Exception as exc:
-                _log.warning("arm run log unavailable (%s) — continuing without it.", exc)
+            rec_dir = (os.environ.get("HUMANOID_RECORD_DIR")
+                       or str(REPO_ROOT / "_arm_recording" / "runs"))
+
+            # One rig per CONFIGURED arm. Driving both is the normal case; a bench with one
+            # arm simply produces one rig, so there is no single-arm branch to keep in step.
+            # The selected limb leads so its rig is index 0 and the existing single-arm names
+            # (`group`, `teleop`, `recorder`) keep pointing at the arm they always did.
+            limbs = ([limb] + [a for a in self._layout.arms if a != limb]) if limb \
+                else list(self._layout.arms)
+            for i, lb in enumerate(limbs):
+                lb_joints = arm_joints if i == 0 else list(self._layout.joints_of(lb))
+                lb_group = group if i == 0 else JointGroupInterface(self.client, lb_joints)
+                lb_teleop = teleop if i == 0 else ArmTeleop(self.arm_chain(lb), tuning=tuning)
+                lb_rec = None
+                try:
+                    lb_rec = ArmRunRecorder(rec_dir, lb, lb_joints, lb_teleop.tuning)
+                    _log.info("arm run log (%s): %s", lb, lb_rec.path)
+                except Exception as exc:
+                    _log.warning("arm run log unavailable for %s (%s) — continuing without it.",
+                                 lb, exc)
+                if i == 0:
+                    recorder = lb_rec
+                rigs.append(_ArmRig(lb, "right" if lb.startswith("right") else "left",
+                                    lb_joints, lb_group, lb_teleop, lb_rec,
+                                    self._run_gate_for(lb)))
+            self._rigs = rigs
+            _log.info("arm teleop: %d arm(s) active — %s. Each trigger ACTIVATES its own arm; "
+                      "releasing it rests that arm in DAMPING. E-STOP and disarm are global.",
+                      len(rigs), ", ".join(r.limb for r in rigs))
 
         try:
             # ARMED rest. DAMPING by default: the arm holds itself instead of dropping.
@@ -1791,19 +2015,42 @@ class ControlService:
                 self._widen_position_limits()
             next_tick = time.monotonic()
             while not self.estop.fired and not self._stop_evt.is_set():
+                # ── arm teleop: one pass per arm, each on its own activation gate ──
+                #
+                # Split out from the single-gate path below because "the trigger" is no
+                # longer one boolean: the left arm can be driving while the right rests, and
+                # each has its own engage gate, clutch and recorder. The SESSION-level
+                # concerns stay out here where they were — E-STOP and the stop event end the
+                # loop for both, and a fault inside any rig propagates to the shared handler
+                # and disarms the machine.
+                if arm_mode:
+                    any_engaged = False
+                    for rig in rigs:
+                        any_engaged |= self._rig_tick(rig, dt, mirror_mode, pose_mode)
+                    # RUNNING/HOLDING while ANY arm is driving; back to ARMED once every arm
+                    # has rested. Reported per arm in telemetry.
+                    with self._lock:
+                        if any_engaged and self._state != engaged_state:
+                            self._state = engaged_state
+                        elif not any_engaged and self._state == engaged_state:
+                            self._state = SessionState.ARMED
+                    if any_engaged:
+                        next_tick += dt
+                        sleep = next_tick - time.monotonic()
+                        if sleep > 0:
+                            time.sleep(sleep)
+                        else:
+                            next_tick = time.monotonic()
+                    else:
+                        time.sleep(0.02)          # idle damped, waiting for a trigger
+                        next_tick = time.monotonic()
+                    continue
+
                 if self._run_gate.is_set():
                     if not engaged:
                         with self._lock:
                             self._state = engaged_state
-                        if arm_mode:
-                            # ARM ENGAGE: enable POSITION (the daemon seeds the firmware target
-                            # from the live measured position, so this is jerk-free) and seed the
-                            # teleop target at the hand's ACTUAL position. Seeding every engage
-                            # is what stops the arm jumping to wherever the target was left.
-                            group.enable_position()
-                            q_now, _ = group.read_states()
-                            teleop.reset(q_now)
-                        elif manual:
+                        if manual:
                             # MANUAL ENGAGE: enable POSITION and hold where the robot is. The
                             # daemon seeds the firmware target from the live measured position on
                             # the IDLE→POSITION change and streams it every tick, so we send NO
@@ -1823,50 +2070,7 @@ class ControlService:
                         engaged = True
                         next_tick = time.monotonic()
                     group.check_health()                  # raises on fault → finally IDLEs
-                    if arm_mode:
-                        with self._command_lock:
-                            cmd = self._arm_command.copy()
-                            pose_cmd = self._arm_pose_command
-                        q_now, v_now = group.read_states()
-                        if mirror_mode:
-                            # Whole-arm mirroring. `hold` freezes the command where it is
-                            # when body tracking drops — an emulated joint is the headset
-                            # guessing where the operator's elbow is, and a guess must not
-                            # drive a motor. Freezing beats dropping to IDLE mid-motion on a
-                            # bolted-down arm; if it persists the worker releases below.
-                            tgts, hold = self.quest.mirror_command()
-                            q_target, info = teleop.step_mirror(
-                                q_now, tgts, dt, creep=(self._speed_mode == "creep"),
-                                hold=hold)
-                            # Defence in depth. The Quest source latches this release itself
-                            # (see QuestSource._on_frame): it has to, because the gate is
-                            # re-asserted there every frame while the trigger is held, so a
-                            # clear from this worker alone would be overwritten ~16 ms later
-                            # and the arm would oscillate IDLE<->POSITION at tick rate. This
-                            # clear is the motor-side backstop for that, not the mechanism.
-                            if self.quest.body_lost_too_long():
-                                _log.warning("arm teleop: body tracking lost — releasing to rest.")
-                                self._run_gate.clear()
-                        elif pose_mode:
-                            # No fresh sample yet (or the source dropped it) means HOLD, not
-                            # "reuse the last displacement" — a stale offset would keep
-                            # driving the arm after the operator's link went quiet.
-                            delta = pose_cmd[0] if pose_cmd is not None else np.zeros(3)
-                            q_target, info = teleop.step_pose(
-                                q_now, delta, dt, creep=(self._speed_mode == "creep"))
-                        else:
-                            q_target, info = teleop.step(
-                                q_now, cmd, dt, creep=(self._speed_mode == "creep"))
-                        group.send_targets(q_target)
-                        self._arm_info = info
-                        if recorder is not None:
-                            recorder.record(engaged=True, run_gate=True, sticks=cmd,
-                                            joint_pos=q_now, joint_vel=v_now,
-                                            joint_target=q_target, info=info,
-                                            speed_mode=self._speed_mode,
-                                            xr=self._xr_status(),
-                                            human=self._human_angles())
-                    elif not manual:
+                    if not manual:
                         with self._command_lock:
                             runner.command = self._command.copy()
                         runner.step()
@@ -1884,18 +2088,6 @@ class ControlService:
                         with self._lock:
                             self._state = SessionState.ARMED
                     else:
-                        if recorder is not None and arm_mode:
-                            try:
-                                with self._command_lock:
-                                    cmd = self._arm_command.copy()
-                                q_now, v_now = group.read_states(require_online=False)
-                                recorder.record(engaged=False, run_gate=False, sticks=cmd,
-                                                joint_pos=q_now, joint_vel=v_now,
-                                                speed_mode=self._speed_mode,
-                                                xr=self._xr_status(),
-                                                human=self._human_angles())
-                            except Exception:
-                                pass          # a log must never break the session
                         time.sleep(0.02)                  # idle damped, waiting for trigger
         except Exception as exc:
             _log.error("deadman session error: %s", exc)
@@ -1903,20 +2095,152 @@ class ControlService:
                 self._last_error = f"deadman: {exc}"
             self.trigger_estop("deadman-fault")
         finally:
-            try:
-                # Leaving the session. Still the configured rest state: an arm that drops
-                # the moment you disarm is the same hazard as one that drops on a released
-                # trigger. Use the rest-mode control to go limp on purpose.
-                self._rest(group)
-            except Exception as exc:
-                _log.warning("rest after deadman session failed: %s", exc)
+            # Leaving the session. Still the configured rest state: an arm that drops the
+            # moment you disarm is the same hazard as one that drops on a released trigger.
+            # Use the rest-mode control to go limp on purpose.
+            #
+            # EVERY rig is rested, each in its own try: if the first arm's rest raises (a
+            # dead bus, a faulted ESC) the second must still be told to hold itself, and the
+            # whole point of this block is that it runs when something has already gone
+            # wrong. The same goes for closing the recorders.
+            for tgt in ([r.group for r in rigs] if rigs else [group]):
+                try:
+                    self._rest(tgt)
+                except Exception as exc:
+                    _log.warning("rest after deadman session failed: %s", exc)
             if manual:
                 self._restore_position_limits()   # re-arm the firmware clamp
-            if recorder is not None:
-                recorder.close()
-                _log.info("arm run log written: %s", recorder.path)
+            for rec in ([r.recorder for r in rigs] if rigs else [recorder]):
+                if rec is None:
+                    continue
+                try:
+                    rec.close()
+                    _log.info("arm run log written: %s", rec.path)
+                except Exception as exc:          # noqa: BLE001
+                    _log.warning("closing an arm run log failed: %s", exc)
+            self._rigs = []
             self._on_session_end()
             _log.info("deadman session ended.")
+
+    def _rig_tick(self, rig: "_ArmRig", dt: float, mirror_mode: bool,
+                  pose_mode: bool) -> bool:
+        """One arm, one tick. Returns True if that arm is engaged and driving.
+
+        This is the old single-arm body, scoped to a rig. Everything it touches belongs to
+        one arm — its gate, its interface, its teleop, its recorder — so two of these run
+        side by side without sharing anything that a trigger can change. It deliberately does
+        NOT catch exceptions: a fault must reach the session handler and take the whole
+        machine down, which is the agreed behaviour for a fault on either arm.
+        """
+        if not rig.gate.is_set():
+            if rig.engaged:
+                self._rest(rig.group)             # trigger released → rest THIS arm
+                rig.engaged = False
+            elif rig.recorder is not None:
+                try:
+                    with self._command_lock:
+                        cmd = self._arm_command.copy()
+                    q_now, v_now = rig.group.read_states(require_online=False)
+                    rig.recorder.record(engaged=False, run_gate=False, sticks=cmd,
+                                        joint_pos=q_now, joint_vel=v_now,
+                                        speed_mode=self._speed_mode,
+                                        xr=self._xr_status(),
+                                        human=self._human_angles(rig.hand))
+                except Exception:
+                    pass          # a log must never break the session
+            return False
+
+        if not rig.engaged:
+            # ENGAGE GATE (mirror only), BEFORE any state change or ESC write. Mirror
+            # commands an ABSOLUTE pose, so engaging with the arm parked far from where the
+            # operator's body says it belongs slews it across that whole gap at full rate —
+            # measured 105 deg on shoulder_pitch. Make the operator close the gap instead.
+            # Refusing here leaves the arm exactly as it was: still resting, nothing
+            # commanded, no mode write. Per arm, so a refused right arm does not interrupt a
+            # left arm that is already driving. The pose and cartesian frames are NOT gated —
+            # they seed from the current position and command relative motion, so they have
+            # no gap to jump.
+            if mirror_mode:
+                tgts_chk, _ = self.quest.mirror_command(rig.hand)
+                if tgts_chk is not None:
+                    q_chk = rig.teleop.chain.device_to_urdf(rig.group.read_states()[0])
+                    err = np.degrees(np.asarray(tgts_chk, dtype=float) - q_chk)
+                    lim = rig.teleop.tuning.engage_max_err_deg
+                    if np.abs(err).max() > lim:
+                        w = int(np.argmax(np.abs(err)))
+                        rig.info = {
+                            "engage_blocked": True, "limit_deg": lim,
+                            "worst_joint": rig.joints[w].replace("_joint", ""),
+                            "worst_deg": round(float(err[w]), 1),
+                        }
+                        if time.monotonic() - rig.engage_warn_at > 2.0:
+                            rig.engage_warn_at = time.monotonic()
+                            _log.warning(
+                                "%s engage REFUSED — match the robot's pose first "
+                                "(limit %.0f deg): %s", rig.limb, lim,
+                                ", ".join(f"{n.replace('_joint','')} {e:+.0f}"
+                                          for n, e in zip(rig.joints, err)
+                                          if abs(e) > lim))
+                        return False
+            # ARM ENGAGE: enable POSITION (the daemon seeds the firmware target from the live
+            # measured position, so this is jerk-free) and seed the teleop target at the
+            # hand's ACTUAL position. Seeding every engage is what stops the arm jumping to
+            # wherever the target was left.
+            rig.group.enable_position()
+            q_now, _ = rig.group.read_states()
+            # read_states is DEVICE frame; the chain works in URDF. Convert at the boundary
+            # (see ArmChain.device_to_urdf) — without this the teleop seeds its target from a
+            # mirrored pose on any joint whose frame sign is -1, and the arm jumps on engage.
+            rig.teleop.reset(rig.teleop.chain.device_to_urdf(q_now))
+            rig.engaged = True
+
+        rig.group.check_health()                  # raises on fault → session handler IDLEs
+        with self._command_lock:
+            cmd = self._arm_command.copy()
+            pose_cmd = self._arm_pose_commands.get(rig.limb)
+        q_now, v_now = rig.group.read_states()
+        # DEVICE -> URDF for everything the chain touches. q_target comes back in URDF and is
+        # converted straight back before it reaches a motor.
+        q_now_urdf = rig.teleop.chain.device_to_urdf(q_now)
+        creep = (self._speed_mode == "creep")
+        if mirror_mode:
+            # Whole-arm mirroring. `hold` freezes the command where it is when body tracking
+            # drops — an emulated joint is the headset guessing where the operator's elbow
+            # is, and a guess must not drive a motor. Freezing beats dropping to IDLE
+            # mid-motion on a bolted-down arm; if it persists this releases below.
+            tgts, hold = self.quest.mirror_command(rig.hand)
+            q_target, info = rig.teleop.step_mirror(q_now_urdf, tgts, dt, creep=creep,
+                                                    hold=hold)
+            # Defence in depth. The Quest source latches this release itself (see
+            # QuestSource._drive_arm): it has to, because the gate is re-asserted there every
+            # frame while the trigger is held, so a clear from this worker alone would be
+            # overwritten ~16 ms later and the arm would oscillate IDLE<->POSITION at tick
+            # rate. This clear is the motor-side backstop for that, not the mechanism.
+            if self.quest.body_lost_too_long(rig.hand):
+                _log.warning("arm teleop: %s body tracking lost — releasing to rest.",
+                             rig.hand)
+                rig.gate.clear()
+        elif pose_mode:
+            # No fresh sample yet (or the source dropped it) means HOLD, not "reuse the last
+            # displacement" — a stale offset would keep driving the arm after the operator's
+            # link went quiet.
+            delta = pose_cmd[0] if pose_cmd is not None else np.zeros(3)
+            q_target, info = rig.teleop.step_pose(q_now_urdf, delta, dt, creep=creep)
+        else:
+            q_target, info = rig.teleop.step(q_now_urdf, cmd, dt, creep=creep)
+        # URDF -> DEVICE on the way out. This is the last step before a motor moves, so it
+        # must mirror the conversion on the way in exactly.
+        q_target_dev = rig.teleop.chain.urdf_to_device(q_target)
+        rig.group.send_targets(q_target_dev)
+        rig.info = info
+        if rig.recorder is not None:
+            rig.recorder.record(engaged=True, run_gate=True, sticks=cmd,
+                                joint_pos=q_now, joint_vel=v_now,
+                                joint_target=q_target_dev, info=info,
+                                speed_mode=self._speed_mode,
+                                xr=self._xr_status(),
+                                human=self._human_angles(rig.hand))
+        return True
 
     # ── ESC soft position limits (widen for manual hold) ─────────────────────
     # The firmware clamps every position target to each joint's configured position_limits

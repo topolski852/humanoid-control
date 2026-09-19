@@ -61,6 +61,22 @@ class TeleopTuning:
     # up an error that discharges violently when the joint comes free.
     joint_leash_deg: float = 8.0
 
+    # ENGAGE GATE, degrees, per joint. Mirror mode commands an ABSOLUTE pose: the operator's
+    # body says where the arm belongs, regardless of where it was parked. So the first tick
+    # after the trigger closes whatever gap exists, at full rate — measured 2026-09-19 at 105
+    # deg on shoulder_pitch, because the arm had been left at -88 while the operator stood
+    # relaxed. Refusing to engage past this makes the OPERATOR close the gap by moving their
+    # own arm to match, which is the direction that cannot surprise anyone. Only mirror is
+    # gated: the pose and cartesian frames seed from the current position and command
+    # relative motion, so they have no gap to jump.
+    #
+    # 20 deg proved too tight to USE. Matching a pose to within 20 deg on EVERY joint at once,
+    # with no feedback but a refusal message, meant the operator could rarely start mirroring
+    # at all — the gate was rejecting ordinary attempts, not dangerous ones. 40 deg still
+    # refuses the case this exists for (the measured 105 deg jump) while leaving room to get
+    # in. The leash and rate limits, not this gate, are what bound the speed once engaged.
+    engage_max_err_deg: float = 40.0
+
     # Hand speed at full stick deflection, metres/second (reach, and all Cartesian axes).
     speed_normal: float = 0.06
     speed_creep: float = 0.02

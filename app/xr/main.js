@@ -168,9 +168,21 @@ function hudDom({ step = '', instruction = '', count = '', progress = null,
 // arrival, because human_angles works from segment DIRECTIONS (joint positions), not the
 // reported orientations, which are the least trustworthy part of an inferred upper body.
 // That was 47 kB/s of traffic encoded, transmitted, parsed and thrown away.
+// BOTH arms. This list used to carry the left arm's joints only, from when one arm was
+// driven per session, and `right-shoulder` was in it purely to define the torso frame. The
+// effect once both arms were driven was subtle and worth spelling out:
+//
+//   * the right arm never moved at all — human_angles(side="right") could not find
+//     right-arm-upper/lower/wrist, returned None every frame, and the right teleop sat in
+//     `hold` with its target frozen at the seed pose;
+//   * and moving your RIGHT arm slightly moved the robot's LEFT one, because right-shoulder
+//     WAS sent and feeds the torso frame, so the left arm's decomposition shifted with it.
+//
+// One missing list, two symptoms that looked unrelated.
 const BODY_JOINTS = [
   'hips', 'chest', 'left-shoulder', 'right-shoulder',
   'left-arm-upper', 'left-arm-lower', 'left-hand-wrist-twist', 'left-hand-wrist',
+  'right-arm-upper', 'right-arm-lower', 'right-hand-wrist-twist', 'right-hand-wrist',
 ];
 
 let bodyWarned = false;

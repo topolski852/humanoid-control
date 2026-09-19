@@ -190,8 +190,12 @@ def main() -> int:
     check("no bare group.idle() left in the deadman worker",
           "group.idle()" not in worker,
           worker.count("group.idle()") and "still present" or "")
-    check("the worker rests via _rest", worker.count("self._rest(group)") >= 4,
-          f"{worker.count('self._rest(group)')} call sites")
+    # Counts ANY `self._rest(...)`, not `self._rest(group)`: with both arms driven in one
+    # session the worker rests per-rig (`self._rest(rig.group)`) and sweeps every rig in
+    # `finally`, so pinning the argument name would only measure the refactor. What matters
+    # is unchanged and is what the check above enforces — no path reaches idle() directly.
+    check("the worker rests via _rest", worker.count("self._rest(") >= 4,
+          f"{worker.count('self._rest(')} call sites")
 
     print(f"\n{len(PASS)} passed, {len(FAIL)} failed")
     if FAIL:

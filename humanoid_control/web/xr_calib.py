@@ -29,6 +29,8 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
+from ..arm_profile import SIDES
+
 _log = logging.getLogger(__name__)
 
 
@@ -90,11 +92,16 @@ class CalibrationRun:
     seq: tuple[Pose, ...] = field(default_factory=lambda: POSES)
     idx: int = 0
     t_start: float = field(default_factory=time.monotonic)
-    samples: list = field(default_factory=list)
-    captured: dict = field(default_factory=dict)
+    # Per side, because the four pose instructions ("relax", "T-pose", ...) already apply to
+    # both arms at once: the operator performs ONE gesture and both arms are measured from it.
+    # Separate ranges per side still matter — the arms are not symmetric in practice, and one
+    # profile shared across both is what floored the right elbow's gain to zero.
+    samples: dict = field(default_factory=lambda: {s: [] for s in SIDES})
+    captured: dict = field(default_factory=lambda: {s: {} for s in SIDES})
     done: bool = False
     failed_note: str = ""
     saved_to: str = ""
+    saved_sides: tuple = ()
     _settle_until: float = 0.0
 
     def __post_init__(self) -> None:
@@ -110,41 +117,64 @@ class CalibrationRun:
         return self.seq[self.idx] if self.idx < len(self.seq) else None
 
     # ── per-frame ───────────────────────────────────────────────────────────
-    def update(self, arm, joints: dict) -> None:
-        """One body-tracking sample. Never raises — a calibration bug must not kill the link."""
-        if self.done or arm is None:
+    def update(self, arms, joints: dict) -> None:
+        """One body-tracking sample. Never raises — a calibration bug must not kill the link.
+
+        ``arms`` is ``{side: HumanArm | None}``; a bare HumanArm is accepted as the left arm
+        so single-arm callers keep working. A side that is not tracked simply contributes no
+        samples — the operator can calibrate with one arm connected and the other absent.
+        """
+        if self.done:
+            return
+        if not isinstance(arms, dict):
+            arms = {"left": arms}
+        live = {s: a for s, a in arms.items() if s in SIDES and a is not None}
+        if not live:
             return
         now = time.monotonic()
         if now < self._settle_until:
             return
-        self.samples.append(arm.as_array())
+        for s, a in live.items():
+            self.samples[s].append(a.as_array())
 
         if now - self._settle_until < HOLD_S:
             return
 
-        # Hold complete. Reject it if the operator was still moving: a capture taken
-        # mid-adjustment becomes a permanent offset in every future session.
-        a = np.array(self.samples)
-        spread = float(np.degrees(ang_spread(a)).max())
         pose = self.current
         if pose is None:
             return
-        if spread > STEADY_DEG:
-            self.failed_note = f"too much movement ({spread:.0f} deg) — hold still, retrying"
-            _log.info("quest calib: %s rejected, spread %.1f deg", pose.key, spread)
+
+        # Hold complete. Reject it if the operator was still moving: a capture taken
+        # mid-adjustment becomes a permanent offset in every future session. Both arms are
+        # doing ONE gesture, so an unsteady arm retries the pose for both rather than
+        # banking a good left against a smeared right.
+        spreads = {}
+        for s in live:
+            if not self.samples[s]:
+                continue
+            spreads[s] = float(np.degrees(ang_spread(np.array(self.samples[s]))).max())
+        if not spreads:
+            return
+        worst = max(spreads, key=lambda s: spreads[s])
+        if spreads[worst] > STEADY_DEG:
+            self.failed_note = (f"too much movement in the {worst} arm "
+                                f"({spreads[worst]:.0f} deg) — hold still, retrying")
+            _log.info("quest calib: %s rejected, %s spread %.1f deg",
+                      pose.key, worst, spreads[worst])
             self._restart_pose()
             return
 
-        mean = ang_mean(a)
-        self.captured[pose.key] = {
-            "angles": [float(v) for v in mean],
-            "spread_deg": round(spread, 2),
-            "samples": len(self.samples),
-            "upper_len": float(arm.upper_len),
-            "fore_len": float(arm.fore_len),
-        }
-        _log.info("quest calib: captured %s (%d samples, spread %.1f deg)",
-                  pose.key, len(self.samples), spread)
+        for s, spread in spreads.items():
+            mean = ang_mean(np.array(self.samples[s]))
+            self.captured[s][pose.key] = {
+                "angles": [float(v) for v in mean],
+                "spread_deg": round(spread, 2),
+                "samples": len(self.samples[s]),
+                "upper_len": float(live[s].upper_len),
+                "fore_len": float(live[s].fore_len),
+            }
+            _log.info("quest calib: captured %s/%s (%d samples, spread %.1f deg)",
+                      s, pose.key, len(self.samples[s]), spread)
         self.failed_note = ""
         self.idx += 1
         if self.idx >= len(self.seq):
@@ -160,30 +190,47 @@ class CalibrationRun:
         headset and has no way to press a Save button, and a calibration that is only in
         memory is one crash away from being redone.
         """
-        try:
-            from ..arm_profile import ArmProfile, save
-            prof = ArmProfile.from_capture(self.captured, captured_utc=self.profile()["captured_utc"])
-            path = save(prof)
-            self.saved_to = str(path)
-            _log.info("quest calib: profile saved to %s", path)
-        except Exception as exc:                             # noqa: BLE001
+        from ..arm_profile import ArmProfile, save
+        stamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        saved, failed = [], []
+        for side in SIDES:
+            # A side with no `relaxed` pose has no zero reference, so there is nothing to
+            # save; that is the normal single-arm case, not an error.
+            if not self.captured.get(side, {}).get("relaxed"):
+                continue
+            try:
+                prof = ArmProfile.from_capture(self.captured[side], side=side,
+                                               captured_utc=stamp)
+                path = save(prof)
+                saved.append(side)
+                self.saved_to = str(path)
+                _log.info("quest calib: %s profile saved to %s", side, path)
+            except Exception as exc:                         # noqa: BLE001
+                failed.append(f"{side}: {exc}")
+                _log.error("quest calib: %s save FAILED (%s)", side, exc)
+        if not saved:
             self.saved_to = ""
-            self.failed_note = f"could not save: {exc}"
-            _log.error("quest calib: save FAILED (%s)", exc)
+            self.failed_note = ("could not save: " + "; ".join(failed) if failed
+                                else "no arm was tracked — nothing to save")
+        elif failed:
+            # Partial success is still usable, but must not read as a clean run.
+            self.failed_note = "saved " + ", ".join(saved) + "; " + "; ".join(failed)
+        self.saved_sides = tuple(saved)
 
     def _restart_pose(self) -> None:
-        self.samples = []
+        self.samples = {s: [] for s in SIDES}
         self._settle_until = time.monotonic() + 3.0
 
     # ── HUD ─────────────────────────────────────────────────────────────────
     def hud(self, src) -> dict:
         if self.done:
             ok = bool(self.saved_to)
+            sides = " + ".join(self.saved_sides) if self.saved_sides else ""
             return {"type": "hud", "tone": "ok" if ok else "err",
                     "step": "CALIBRATION COMPLETE",
                     "instruction": "DONE" if ok else "NOT SAVED",
                     "progress": 100,
-                    "note": ("profile saved — you can take the headset off" if ok
+                    "note": (f"{sides} profile saved — you can take the headset off" if ok
                              else self.failed_note or "the profile could not be written")}
         pose = self.current
         now = time.monotonic()
@@ -206,12 +253,20 @@ class CalibrationRun:
                 "note": pose.note}
 
     # ── result ──────────────────────────────────────────────────────────────
-    def profile(self) -> dict:
-        """The captured profile, ready to persist. Only meaningful once `done`."""
-        rel = self.captured.get("relaxed", {}).get("angles")
-        lens = [c for c in self.captured.values() if c.get("upper_len")]
+    @property
+    def captured_poses(self) -> list:
+        """Pose keys captured for at least one arm, in sequence order."""
+        return [p.key for p in self.seq
+                if any(p.key in self.captured.get(s, {}) for s in SIDES)]
+
+    def profile(self, side: str = "left") -> dict:
+        """One side's captured profile, ready to persist. Only meaningful once `done`."""
+        cap = self.captured.get(side, {})
+        rel = cap.get("relaxed", {}).get("angles")
+        lens = [c for c in cap.values() if c.get("upper_len")]
         return {
             "schema": 1,
+            "side": side,
             "captured_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
             # Zero reference from the RELAXED pose, not the T-pose — see the module docstring.
             "zero_rad": rel,
@@ -219,16 +274,26 @@ class CalibrationRun:
                             if lens else None),
             "fore_len_m": (round(float(np.mean([c["fore_len"] for c in lens])), 4)
                            if lens else None),
-            "poses": self.captured,
+            "poses": cap,
         }
+
+    def profiles(self) -> dict:
+        """{side: profile} for every side that actually captured something."""
+        return {s: self.profile(s) for s in SIDES if self.captured.get(s)}
 
     def summary(self) -> str:
         out = []
-        for p in self.seq:
-            c = self.captured.get(p.key)
-            if not c:
-                out.append(f"  {p.key:<10} (not captured)")
+        for side in SIDES:
+            cap = self.captured.get(side, {})
+            if not cap:
                 continue
-            deg = [f"{math.degrees(v):+6.1f}" for v in c["angles"]]
-            out.append(f"  {p.key:<10} {' '.join(deg)}   spread {c['spread_deg']:.1f} deg")
-        return "\n".join(out)
+            out.append(f"  [{side}]")
+            for p in self.seq:
+                c = cap.get(p.key)
+                if not c:
+                    out.append(f"    {p.key:<10} (not captured)")
+                    continue
+                deg = [f"{math.degrees(v):+6.1f}" for v in c["angles"]]
+                out.append(f"    {p.key:<10} {' '.join(deg)}   "
+                           f"spread {c['spread_deg']:.1f} deg")
+        return "\n".join(out) or "  (nothing captured)"

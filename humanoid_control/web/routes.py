@@ -18,6 +18,7 @@ from pydantic import BaseModel
 
 from ..config import REPO_ROOT
 from ..policy import bundle_issues
+from ..config import ARM_FRAME_SIGN
 from ..layout import (LIMB_BUS, LIMB_JOINTS, LIMB_LABEL, LIMB_ORDER, RobotLayout,
                       default_layout_path)
 from ..poses import DEG, delete_pose, load_poses, pose_names, resolve_pose, save_pose
@@ -210,7 +211,9 @@ def contract(request: Request):
             default.append(float(c.default_pose[i]))
             in_contract.append(True)
         else:
-            sign.append(1.0)
+            # Arms: no trained frame, so default +1 (raw device angle). ARM_FRAME_SIGN carries
+            # the few joints where measurement has since shown the device frame is mirrored.
+            sign.append(float(ARM_FRAME_SIGN.get(name, 1.0)))
             default.append(None)
             in_contract.append(False)
 
@@ -307,20 +310,30 @@ def deadman_select(request: Request, body: SelectBody):
 def get_arm_profiles(request: Request):
     """List saved operator calibration profiles."""
     from ..arm_profile import default_profile_path, load_all
+
+    def _side(v: dict) -> dict:
+        return {"captured_utc": v.get("captured_utc"),
+                "upper_len_m": v.get("upper_len_m"),
+                "fore_len_m": v.get("fore_len_m"),
+                # True when this side came from a schema-2 capture that predates the per-side
+                # split, so the UI can prompt for a recalibration instead of implying both
+                # arms were measured.
+                "migrated_sideless": bool(v.get("migrated_sideless"))}
+
     profs = load_all()
     return _ok({"path": str(default_profile_path()),
-                "profiles": {k: {"captured_utc": v.get("captured_utc"),
-                                 "upper_len_m": v.get("upper_len_m"),
-                                 "fore_len_m": v.get("fore_len_m")}
-                             for k, v in profs.items()}})
+                "profiles": {name: {side: _side(v) for side, v in sides.items()}
+                             for name, sides in profs.items()}})
 
 
 @router.delete("/api/arm_profile/{name}", response_model=None)
-def del_arm_profile(request: Request, name: str):
+def del_arm_profile(request: Request, name: str, side: str | None = None):
+    """Delete one operator. ``?side=left|right`` drops just that arm's capture."""
     from ..arm_profile import delete
-    if not delete(name):
-        return _err(f"no profile named {name!r}", 404)
-    return _ok({"deleted": name})
+    if not delete(name, side):
+        what = f"{name!r}" if side is None else f"{name!r} side {side!r}"
+        return _err(f"no profile named {what}", 404)
+    return _ok({"deleted": name, "side": side})
 
 
 @router.post("/api/quest/calibrate", response_model=None)
@@ -345,8 +358,12 @@ def quest_calibrate_status(request: Request):
     return _ok({"running": True, "done": c.done,
                 "pose": (c.current.key if c.current else None),
                 "index": c.idx, "total": len(c.seq),
-                "captured": list(c.captured), "note": c.failed_note,
-                "profile": (c.profile() if c.done else None),
+                "captured": c.captured_poses, "note": c.failed_note,
+                # One run captures both arms, so the result is per side. `profile` keeps the
+                # old single-profile key pointing at the left arm for existing clients.
+                "profiles": (c.profiles() if c.done else None),
+                "profile": (c.profile("left") if c.done else None),
+                "saved_sides": list(c.saved_sides),
                 "summary": c.summary()})
 
 

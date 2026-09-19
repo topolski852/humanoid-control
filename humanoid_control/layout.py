@@ -114,7 +114,12 @@ class RobotLayout:
         if self.has_both_legs:
             caps.append("walk")          # the trained 12-joint leg policy
         if self.arms:
-            caps.append("arm_teleop")    # direct arm control, one session per configured arm
+            caps.append("arm_teleop")    # direct arm control of the configured arm(s)
+        if len(self.arms) >= 2:
+            # Both arms driven in ONE session, each activated by its own controller
+            # trigger. Distinct from arm_teleop, which one arm alone already satisfies:
+            # a UI offering a per-hand view needs to know there is a second arm to show.
+            caps.append("dual_arm_teleop")
         if self.enabled:
             caps.append("pose")          # ramp any configured joints to named targets
         return tuple(caps)
@@ -127,6 +132,7 @@ class RobotLayout:
         reasons = {
             "walk": "the leg policy needs both legs configured",
             "arm_teleop": "no arm is configured",
+            "dual_arm_teleop": "driving both arms at once needs two arms configured",
             "pose": "no limbs are configured",
         }
         return (f"Layout is '{self.describe()}' — "

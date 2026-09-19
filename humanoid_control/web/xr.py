@@ -24,8 +24,10 @@ TWO INDEPENDENT SAFETY SIGNALS, mirroring the gamepad exactly:
 
   * Heartbeat = "this source is alive". Fed from `seq` advancing. Loss E-STOPs a live session
     via the service's presence watchdog. This is the deadman of record.
-  * Run gate  = "the trigger is held". Release → the arm goes IDLE (recoverable, NOT an
-    E-STOP), which is the existing behaviour and is deliberately unchanged.
+  * Run gate  = "the trigger is held", PER ARM. Release → that arm rests (recoverable, NOT
+    an E-STOP). The trigger is ACTIVATION, not a deadman: releasing it drops the arm to
+    DAMPING, which holds it up rather than letting it fall, so letting go is safe and is
+    how you park an arm. The stop is E-STOP, and that is global.
 
 The run gate is recomputed FROM SCRATCH every frame as
 
@@ -39,20 +41,26 @@ BUTTONS. The Quest replaces the gamepad, so it carries the gamepad's lifecycle t
 face buttons are SPLIT ACROSS CONTROLLERS on a Quest, unlike an Xbox pad — A/B are on the
 right, X/Y on the left:
 
-    trigger  hold to drive (deadman + clutch); release → IDLE and re-anchor
-    Y (left, upper)    E-STOP — unconditional
-    A (right, lower)   arm the deadman session
-    B (right, upper)   disarm
+    left trigger       hold to drive the LEFT arm (activation + clutch); release → rest
+    right trigger      hold to drive the RIGHT arm; release → rest
+    Y (left, upper)    E-STOP — unconditional, BOTH arms
+    A (right, lower)   arm the session (both arms at once)
+    B (right, upper)   disarm (both arms)
+
+Both arms are driven in ONE session and each controller activates its own arm, so the two
+can be used together or one at a time. A robot with a single arm configured simply has one
+trigger that does anything; the other reports that there is no such arm.
 
 E-STOP is honoured regardless of gate state, tracking, or whether this source holds the input
 token; the Quest's Menu and System buttons are reserved by the runtime and never reach WebXR,
 so they were not candidates. Note the trigger is NOT a panic stop: the human startle reflex is
-to clench, which holds a hold-to-run deadman ON. That is why a discrete E-STOP button and a
-second person both matter.
+to clench, which HOLDS an activation trigger on rather than releasing it. That is why a
+discrete E-STOP button and a second person both matter.
 
-Because A/B live on the right controller and Y on the left, driving the LEFT arm puts E-STOP
-on the hand that is already holding the trigger and lifecycle on the otherwise-idle hand. The
-cost is that BOTH controllers must be tracked to have every function available.
+Because A/B live on the right controller and Y on the left, the lifecycle buttons are split
+across the two hands that are now BOTH driving. They are rising-edge and independent of the
+triggers, so pressing one mid-drive works; the cost is that both controllers must be tracked
+to have every function available.
 """
 from __future__ import annotations
 
@@ -98,6 +106,11 @@ def _f(name: str, default: float) -> float:
         return default
 
 
+def _limb(hand: str) -> str:
+    """Controller hand -> the limb it drives. Same-side by construction."""
+    return "right_arm" if hand == "right" else "left_arm"
+
+
 def webxr_to_robot(p) -> np.ndarray:
     """WebXR `local-floor` (+X right, +Y up, −Z forward) → robot URDF (+X fwd, +Y left, +Z up).
 
@@ -107,6 +120,57 @@ def webxr_to_robot(p) -> np.ndarray:
     """
     p = np.asarray(p, dtype=float).reshape(3)
     return np.array([-p[2], -p[0], p[1]])
+
+
+class _Hand:
+    """Everything that belongs to ONE controller driving ONE arm.
+
+    Both arms run at once, each activated by its own trigger, so every piece of state that a
+    trigger can change has to be per hand. The split is drawn at "can one hand's trigger
+    change this": the clutch anchor, the run gate, the frozen-pose window, the body-loss
+    latch, the retargeted targets and that arm's profile all can, so they live here. The
+    LINK-level facts — the socket, the session id, the seq counter, the face buttons, the raw
+    body block — cannot, and stay on QuestSource.
+
+    Triggers are ACTIVATION, not a deadman: releasing one drops that arm to DAMPING, which
+    holds it up, rather than cutting it loose. E-STOP and arm/disarm remain global.
+    """
+
+    __slots__ = ("hand", "tracked", "trigger", "anchor", "gate", "reason",
+                 "last_pose", "last_pose_change", "body_latch", "body_usable",
+                 "body_ok", "body_ok_at", "mirror_targets", "profile",
+                 "human", "seg_upper", "seg_fore", "usable_frames", "stop_latch")
+
+    def __init__(self, hand: str) -> None:
+        self.hand = hand
+        self.reset_link("init")
+        self.profile = None
+        self.usable_frames = 0
+
+    def reset_link(self, why: str) -> None:
+        self.tracked = False
+        self.trigger = 0.0
+        self.anchor = None
+        self.gate = False
+        self.reason = why
+        self.last_pose = None
+        self.last_pose_change = 0.0
+        self.body_latch = False
+        # Set when the SESSION is stopped out from under this arm — E-STOP or disarm. The
+        # operator is normally still squeezing both triggers at that moment, and the frame
+        # path re-asserts the gate 60 times a second, so clearing the gate alone lasts one
+        # frame. Held down, this stays latched; the operator must release and press again.
+        self.stop_latch = False
+        self.body_usable = False
+        self.body_ok = False
+        # A new link starts with no body-tracking history. Leaving body_ok_at set from the
+        # previous connection would make body_lost_too_long() true the instant a fresh client
+        # attaches, on a signal from a session that is already gone.
+        self.body_ok_at = 0.0
+        self.mirror_targets = None
+        self.human = None
+        self.seg_upper = 0.0
+        self.seg_fore = 0.0
 
 
 class QuestSource:
@@ -128,38 +192,100 @@ class QuestSource:
         self._session: str | None = None
         self._last_seq: int | None = None
         self._last_rx = 0.0             # monotonic time of the last ACCEPTED frame
-        self._last_pose: np.ndarray | None = None
-        self._last_pose_change = 0.0
-        self._tracked = False
-        self._trigger = 0.0
-        self._anchor: np.ndarray | None = None
         self._btn: dict[str, bool] = {}    # rising-edge state per bound button
-        # Body tracking — observation only at this stage (see _note_body).
+        # Per-controller state. Both arms are driven at once, each by its own trigger.
+        self._hands: dict[str, _Hand] = {h: _Hand(h) for h in ("left", "right")}
+        # Body tracking — the raw block is link-level; what each arm makes of it is per hand.
         self._body = None
         self._body_avail = False
-        self._body_usable = False
         self._body_frames = 0
-        self._body_usable_frames = 0
-        self._seg_upper = 0.0
-        self._seg_fore = 0.0
         self._body_robot: dict = {}
-        self._human = None
         self._calib = None          # active CalibrationRun, if any
-        self._body_latch = False    # body tracking was lost while armed; needs a re-press
-        self._profile = None        # operator calibration, loaded at attach
-        self._mirror_targets = None # retargeted robot joint targets, or None
-        self._body_ok = False       # body tracking usable AND a profile loaded
-        self._body_ok_at = 0.0      # monotonic time body tracking was last usable
 
         self._overlay = False       # dom-overlay granted by the headset?
         self._ctrls: dict = {}      # per-hand tracked/trigger, for diagnosis
-        self._gate = False
-        self._reason = ""
         self._dropped = 0
         self._frames = 0
         self._hz = 0.0
         self._hz_t0 = 0.0
         self._hz_n0 = 0
+
+    # ── driving-hand views ──────────────────────────────────────────────────
+    #
+    # The flat names below are the DRIVING hand's values, read-only. They exist so the HUD,
+    # `status()` and anything else that only ever cared about "the arm being driven" keeps
+    # reading one arm's state after the per-hand split, instead of every call site growing a
+    # hand argument it has no opinion about. Control paths use `self._hands[hand]` directly.
+    def _h(self, hand: str | None = None) -> _Hand:
+        return self._hands[hand or self._drive_hand()]
+
+    @property
+    def _tracked(self) -> bool:
+        return self._h().tracked
+
+    @property
+    def _trigger(self) -> float:
+        return self._h().trigger
+
+    @property
+    def _anchor(self):
+        return self._h().anchor
+
+    @property
+    def _gate(self) -> bool:
+        # The service-level gate is the OR across arms: the session is running while EITHER
+        # arm is active, which is what the liveness and stall ladders mean by "the gate".
+        return any(h.gate for h in self._hands.values())
+
+    @property
+    def _reason(self) -> str:
+        return self._h().reason
+
+    def _set_reason(self, why: str) -> None:
+        """A LINK-level reason — a malformed frame, a refused button, the wrong control
+        method. None of those belong to one controller, so both arms report it."""
+        for st in self._hands.values():
+            st.reason = why
+
+    @property
+    def _profile(self):
+        return self._h().profile
+
+    @property
+    def _body_latch(self) -> bool:
+        return self._h().body_latch
+
+    @property
+    def _human(self):
+        return self._h().human
+
+    @property
+    def _mirror_targets(self):
+        return self._h().mirror_targets
+
+    @property
+    def _body_ok(self) -> bool:
+        return self._h().body_ok
+
+    @property
+    def _body_ok_at(self) -> float:
+        return self._h().body_ok_at
+
+    @property
+    def _body_usable(self) -> bool:
+        return self._h().body_usable
+
+    @property
+    def _body_usable_frames(self) -> int:
+        return self._h().usable_frames
+
+    @property
+    def _seg_upper(self) -> float:
+        return self._h().seg_upper
+
+    @property
+    def _seg_fore(self) -> float:
+        return self._h().seg_fore
 
     # ── lifecycle ───────────────────────────────────────────────────────────
     def attach(self) -> int:
@@ -185,18 +311,22 @@ class QuestSource:
 
     def reload_profile(self) -> None:
         """Pick up the operator profile from disk. Called on attach and after calibration."""
-        try:
-            from ..arm_profile import load
-            self._profile = load()
-            if self._profile is None:
-                _log.warning("quest: NO arm profile — angles carry the tracker's systematic "
-                             "offsets; run the calibration before mirroring.")
-            else:
-                _log.info("quest: arm profile %r loaded (captured %s)",
-                          self._profile.name, self._profile.captured_utc or "?")
-        except Exception as exc:                             # noqa: BLE001
-            self._profile = None
-            _log.error("quest: could not load arm profile (%s)", exc)
+        from ..arm_profile import load
+        for hand, st in self._hands.items():
+            try:
+                st.profile = load(side=hand)
+                if st.profile is None:
+                    _log.warning("quest: NO %s arm profile — angles carry the tracker's "
+                                 "systematic offsets; run the calibration before mirroring.",
+                                 hand)
+                else:
+                    note = (" (from a pre-split capture — recalibrate for per-side accuracy)"
+                            if st.profile.migrated_sideless else "")
+                    _log.info("quest: %s arm profile %r loaded (captured %s)%s",
+                              hand, st.profile.name, st.profile.captured_utc or "?", note)
+            except Exception as exc:                         # noqa: BLE001
+                st.profile = None
+                _log.error("quest: could not load the %s arm profile (%s)", hand, exc)
 
     def detach(self, conn_id: int | None = None) -> None:
         """Socket closed. If this source was the deadman for a live session, that is
@@ -220,22 +350,19 @@ class QuestSource:
     def _reset_link(self, why: str) -> None:
         self._session = None
         self._last_seq = None
-        self._last_pose = None
-        self._anchor = None
-        self._tracked = False
-        self._trigger = 0.0
         self._body = None
         self._body_avail = False
-        self._body_usable = False
-        # A new link starts with no body-tracking history. Leaving _body_ok_at set from the
-        # previous connection would make body_lost_too_long() true the instant a fresh client
-        # attaches, on a signal from a session that is already gone.
-        self._body_ok_at = 0.0
-        self._body_latch = False
-        self._reason = why
+        for st in self._hands.values():
+            st.reset_link(why)
 
-    def _release(self, why: str, *, reset_pose: bool = True) -> None:
-        """Drop the run gate and the clutch anchor. Recoverable; never an E-STOP by itself.
+    def _release(self, why: str, *, reset_pose: bool = True, hand: str | None = None) -> None:
+        """Drop one arm's run gate and clutch anchor. Recoverable; never an E-STOP by itself.
+
+        ``hand`` is the arm to release; None releases BOTH, which is right for every
+        LINK-level event — disconnect, a new XR session, a stall or a timeout — because those
+        take away the frames that drive either arm. Per-hand events (that controller lost
+        tracking, its trigger came up, its pose froze) release only their own arm, so one
+        operator hand going quiet does not drop the arm the other is still driving.
 
         ``reset_pose`` forgets the pose history, restarting the frozen-detector's window at
         the next engage. That is right for every release caused by a GAP in the stream — a
@@ -246,15 +373,17 @@ class QuestSource:
         flap the gate (and the arm) indefinitely. A freeze therefore keeps its history and
         stays released until a genuinely different pose arrives.
         """
-        if self._gate or self._anchor is not None:
-            _log.info("quest: run gate released (%s)", why)
-        self._gate = False
-        self._anchor = None
-        self._reason = why
-        if reset_pose:
-            self._last_pose = None
-            self._last_pose_change = 0.0
-        self.service.set_run_gate(False, source=SOURCE)
+        for h in ((hand,) if hand else tuple(self._hands)):
+            st = self._hands[h]
+            if st.gate or st.anchor is not None:
+                _log.info("quest: %s arm run gate released (%s)", h, why)
+            st.gate = False
+            st.anchor = None
+            st.reason = why
+            if reset_pose:
+                st.last_pose = None
+                st.last_pose_change = 0.0
+            self.service.set_run_gate(False, source=SOURCE, limb=_limb(h))
 
     # ── per-frame ───────────────────────────────────────────────────────────
     def on_frame(self, msg: dict, conn_id: int | None = None) -> None:
@@ -270,7 +399,7 @@ class QuestSource:
             # Deliberately NOT a bare `except: pass` — the counter is surfaced in telemetry so
             # a client sending garbage is visible rather than presenting as a dead link.
             self._dropped += 1
-            self._reason = f"bad frame: {exc}"
+            self._set_reason(f"bad frame: {exc}")
             if self._dropped in (1, 10, 100) or self._dropped % 500 == 0:
                 _log.warning("quest: dropped %d malformed frame(s); last: %s",
                              self._dropped, exc)
@@ -304,8 +433,6 @@ class QuestSource:
         # timestamp-free transport cannot see.
         self.service.mark_source_alive(SOURCE)
 
-        side = self._drive_hand()
-        ctrl = msg.get(side) or {}
         left = msg.get("left") or {}
         right = msg.get("right") or {}
 
@@ -341,47 +468,73 @@ class QuestSource:
                               "buttons": c.get("nButtons"),
                               "hand": c.get("isHand")}
         self._overlay = bool(msg.get("overlay"))
-        self._tracked = bool(ctrl.get("tracked"))
-        self._trigger = float(ctrl.get("trigger") or 0.0)
+
+        # ── per-arm activation ───────────────────────────────────────────────
+        # One pass per controller. Each arm is activated by ITS OWN trigger and is released
+        # on its own faults, so an untracked or idle left controller leaves the right arm
+        # driving untouched. Nothing here is a deadman: a released trigger drops that arm to
+        # DAMPING, which holds it up. E-STOP and arm/disarm stay global, above.
+        for hand in ("left", "right"):
+            self._drive_arm(hand, msg.get(hand) or {}, now)
+
+    def _drive_arm(self, hand: str, ctrl: dict, now: float) -> None:
+        """One controller's contribution: tracking, clutch, and that arm's run gate."""
+        st = self._hands[hand]
+        st.tracked = bool(ctrl.get("tracked"))
+        st.trigger = float(ctrl.get("trigger") or 0.0)
+
+        # An arm that is not configured on this machine has no gate to drive. Checked before
+        # anything else so a two-controller headset on a one-arm bench is silent rather than
+        # repeatedly releasing a limb that does not exist.
+        if _limb(hand) not in self.service.arm_limbs():
+            st.reason = "no such arm on this robot"
+            return
 
         pos = ctrl.get("p")
-        if not self._tracked or pos is None:
-            self._release("controller not tracked")
+        if not st.tracked or pos is None:
+            self._release("controller not tracked", hand=hand)
             return
 
         p_robot = self._align(webxr_to_robot(pos))
         if not np.all(np.isfinite(p_robot)):
-            self._release("non-finite pose")
+            self._release("non-finite pose", hand=hand)
             return
 
         # Frozen-value detection. EXACT equality on purpose: a live tracker always jitters, so
         # only a repeated buffer compares equal. A genuinely motionless-but-live controller
         # never trips this.
-        if self._last_pose is None or not np.array_equal(p_robot, self._last_pose):
-            self._last_pose = p_robot.copy()
-            self._last_pose_change = now
-        frozen = (now - self._last_pose_change) > FROZEN_S
+        if st.last_pose is None or not np.array_equal(p_robot, st.last_pose):
+            st.last_pose = p_robot.copy()
+            st.last_pose_change = now
+        frozen = (now - st.last_pose_change) > FROZEN_S
 
-        held = self._trigger >= self.trig_thresh
+        held = st.trigger >= self.trig_thresh
         if frozen and held:
-            if self._gate:      # log the transition, not every frame of a stuck stream
-                _log.warning("quest: pose frozen >%.1fs while the trigger is held — releasing.",
-                             FROZEN_S)
+            if st.gate:         # log the transition, not every frame of a stuck stream
+                _log.warning("quest: %s pose frozen >%.1fs while the trigger is held "
+                             "— releasing.", hand, FROZEN_S)
             # Keeps the pose history: stays released until the pose genuinely changes.
-            self._release("pose frozen", reset_pose=False)
+            self._release("pose frozen", reset_pose=False, hand=hand)
             return
 
         if not held:
-            if self._gate or self._anchor is not None:
-                self._release("trigger released")
-            # Releasing the trigger is what clears the body-loss latch below. Re-arming has
-            # to cost the operator a deliberate press.
-            self._body_latch = False
+            if st.gate or st.anchor is not None:
+                self._release("trigger released", hand=hand)
+            # Releasing the trigger is what clears the latches below. Re-activating has to
+            # cost the operator a deliberate press.
+            st.body_latch = False
+            st.stop_latch = False
+            return
+
+        # E-STOP or disarm while the trigger was held. Nothing may re-arm this arm until the
+        # operator lets go, which is the same rule body loss follows.
+        if st.stop_latch:
+            self._release("session stopped", hand=hand)
             return
 
         # BODY-LOSS LATCH (mirror mode only).
         #
-        # The deadman worker also notices `body_lost_too_long()` and clears the run gate. That
+        # The arm worker also notices `body_lost_too_long()` and clears the run gate. That
         # alone is NOT enough, and the reason is a race worth spelling out: the gate is asserted
         # HERE, once per frame at 60 Hz, for as long as the trigger is held. The worker clears it
         # at 50 Hz. So the worker's clear survives ~16 ms before this path sets it again, and the
@@ -397,36 +550,49 @@ class QuestSource:
         # Mirror mode only. Without a profile the arm is driven from the controller's position
         # and body tracking is not in the loop at all, so dropping the gate on body loss there
         # would break the working path for a signal nothing is reading.
-        if self._profile is not None:
-            if self.body_lost_too_long():
-                if not self._body_latch:
-                    _log.warning("quest: body tracking lost >%.1fs while the trigger is held "
-                                 "— releasing. Release the trigger and press again to re-arm.",
-                                 BODY_HOLD_S)
-                self._body_latch = True
-            if self._body_latch:
-                self._release("body tracking lost")
+        if st.profile is not None:
+            if self.body_lost_too_long(hand):
+                if not st.body_latch:
+                    _log.warning("quest: %s body tracking lost >%.1fs while the trigger is "
+                                 "held — releasing. Release the trigger and press again to "
+                                 "re-activate.", hand, BODY_HOLD_S)
+                st.body_latch = True
+            if st.body_latch:
+                self._release("body tracking lost", hand=hand)
                 return
 
         # Trigger held: clutch anchor on the rising edge, then command displacement from it.
         # The anchor is latched here and the arm-side anchor is latched by ArmTeleop.reset()
-        # when the deadman worker engages, so the two meet on a displacement vector and
-        # neither needs the other's coordinate system.
-        if self._anchor is None:
-            self._anchor = p_robot.copy()
-            _log.info("quest: clutch engaged — anchored at %s", p_robot.round(3))
+        # when the arm worker engages, so the two meet on a displacement vector and neither
+        # needs the other's coordinate system.
+        if st.anchor is None:
+            st.anchor = p_robot.copy()
+            _log.info("quest: %s clutch engaged — anchored at %s", hand, p_robot.round(3))
 
-        delta = (p_robot - self._anchor) * self.scale
-        self.service.set_arm_pose_command(delta, seq, source=SOURCE)
-        self._gate = True
-        self._reason = ""
-        self.service.set_run_gate(True, source=SOURCE)
+        delta = (p_robot - st.anchor) * self.scale
+        self.service.set_arm_pose_command(delta, self._last_seq, source=SOURCE,
+                                          limb=_limb(hand))
+        st.gate = True
+        st.reason = ""
+        self.service.set_run_gate(True, source=SOURCE, limb=_limb(hand))
 
     # ── body tracking (observation only for now) ────────────────────────────
     # Joints the retargeter will need. Tracked here so "is body tracking good enough on
     # this device" is answerable from data before any of it is wired to a motor.
-    BODY_REQUIRED = ("chest", "left-shoulder", "left-arm-upper", "left-arm-lower",
-                     "left-hand-wrist-twist", "left-hand-wrist")
+    BODY_REQUIRED_COMMON = ("chest",)
+    BODY_REQUIRED_SIDE = ("{s}-shoulder", "{s}-arm-upper", "{s}-arm-lower",
+                          "{s}-hand-wrist-twist", "{s}-hand-wrist")
+
+    @classmethod
+    def body_required(cls, side: str = "left") -> tuple:
+        """Joints the retargeter needs for one arm. Per side: the right arm's usability must
+        not hinge on whether the LEFT wrist happened to be in view."""
+        return cls.BODY_REQUIRED_COMMON + tuple(n.format(s=side)
+                                                for n in cls.BODY_REQUIRED_SIDE)
+
+    # Kept as the left-arm view so existing readers of the constant still resolve.
+    BODY_REQUIRED = BODY_REQUIRED_COMMON + tuple(n.format(s="left")
+                                                 for n in BODY_REQUIRED_SIDE)
 
     def _note_body(self, body) -> None:
         """Record body-tracking availability and quality. Never raises, never controls."""
@@ -437,11 +603,12 @@ class QuestSource:
             # standing made a dead feed read as live data — status showed plausible 26 cm /
             # 20 cm arm segments and usable=True while frame.body had been null throughout.
             # A stale number that looks real is worse than no number.
-            self._body_usable = False
-            self._seg_upper = 0.0
-            self._seg_fore = 0.0
+            for st in self._hands.values():
+                st.body_usable = False
+                st.seg_upper = 0.0
+                st.seg_fore = 0.0
+                st.human = None
             self._body_robot = {}
-            self._human = None
             # _body_ok and _mirror_targets are DERIVED TOO, and they are the two that drive a
             # motor. Clearing everything else but leaving these was worse than the stale
             # segment lengths this branch was originally written to fix: `_body_ok` stayed
@@ -450,19 +617,13 @@ class QuestSource:
             # entire tracking-loss ladder was dead in the one case it exists for — the body
             # block vanishing outright. Route through the same function the live path uses so
             # there is one place that decides what "usable" means.
-            self._retarget(None)
+            for h in self._hands:
+                self._retarget(None, h)
             return
         self._body_avail = True
         self._body = body
         joints = body.get("joints") or {}
-        # "usable" is stricter than "present": a joint the UA had to EMULATE is a guess,
-        # and the whole point of body tracking here is to stop guessing where the elbow is.
-        self._body_usable = all(
-            isinstance(joints.get(n), dict) and not joints[n].get("e")
-            for n in self.BODY_REQUIRED)
         self._body_frames += 1
-        if self._body_usable:
-            self._body_usable_frames += 1
         # Convert every joint into the ROBOT frame once, here, so nothing downstream has to
         # remember which convention it is holding.
         robot_joints = {}
@@ -475,44 +636,63 @@ class QuestSource:
                     pass
         self._body_robot = robot_joints
 
-        arm = human_angles(robot_joints, side=self._drive_hand())
-        self._human = arm
-        self._retarget(arm)
+        # Decompose BOTH arms from the one body block. `human_angles` is pure and the torso
+        # frame it works from is side-independent, so this is two reads of the same frame
+        # rather than two trackers.
+        arms = {}
+        for hand, st in self._hands.items():
+            # "usable" is stricter than "present": a joint the UA had to EMULATE is a guess,
+            # and the whole point of body tracking here is to stop guessing where the elbow
+            # is. Judged per side, so one occluded arm does not disqualify the other.
+            st.body_usable = all(
+                isinstance(joints.get(n), dict) and not joints[n].get("e")
+                for n in self.body_required(hand))
+            if st.body_usable:
+                st.usable_frames += 1
+            arm = human_angles(robot_joints, side=hand)
+            arms[hand] = arm
+            st.human = arm
+            self._retarget(arm, hand)
+            if arm is not None:
+                st.seg_upper = arm.upper_len
+                st.seg_fore = arm.fore_len
+
         if self._calib is not None:
             was_done = self._calib.done
-            self._calib.update(arm, robot_joints)
+            self._calib.update(arms, robot_joints)
             if self._calib.done and not was_done:
                 self.reload_profile()
-        if arm is not None:
-            self._seg_upper = arm.upper_len
-            self._seg_fore = arm.fore_len
 
     # ── retargeting ─────────────────────────────────────────────────────────
-    def _retarget(self, arm) -> None:
+    def _retarget(self, arm, hand: str | None = None) -> None:
         """Operator's arm angles → robot joint targets, via their calibration profile.
 
-        Sets `_mirror_targets` (or None) and `_body_ok`. Deliberately does NOT decide whether
-        to command anything — that is the worker's call — so this stays a pure translation
-        step that can be reasoned about on its own.
+        Sets that hand's `mirror_targets` (or None) and `body_ok`. Deliberately does NOT
+        decide whether to command anything — that is the worker's call — so this stays a pure
+        translation step that can be reasoned about on its own.
         """
-        usable = bool(self._body_usable and arm is not None and self._profile is not None)
+        h = hand or self._drive_hand()
+        st = self._hands[h]
+        usable = bool(st.body_usable and arm is not None and st.profile is not None)
         if usable:
-            self._body_ok_at = time.monotonic()
-        self._body_ok = usable
+            st.body_ok_at = time.monotonic()
+        st.body_ok = usable
         if not usable:
-            self._mirror_targets = None
-            if self._profile is None and self._body_usable:
-                self._reason = "no calibration profile — run the arm calibration"
+            st.mirror_targets = None
+            if st.profile is None and st.body_usable:
+                st.reason = "no calibration profile — run the arm calibration"
             return
         try:
-            chain = self.service.arm_chain()
-            self._mirror_targets = self._profile.to_robot(arm.as_array(), chain)
+            # That arm's own chain and its own side's profile: passing the left chain for a
+            # right-arm decomposition silently maps the gesture through mirrored joint limits.
+            chain = self.service.arm_chain(_limb(h))
+            st.mirror_targets = st.profile.to_robot(arm.as_array(), chain, side=h)
         except Exception as exc:                             # noqa: BLE001
-            self._mirror_targets = None
-            self._body_ok = False
-            self._reason = f"retarget failed: {exc}"
+            st.mirror_targets = None
+            st.body_ok = False
+            st.reason = f"retarget failed: {exc}"
 
-    def mirror_command(self):
+    def mirror_command(self, hand: str | None = None):
         """(targets, hold) for the arm worker, or (None, True) when it must freeze.
 
         HOLD, not IDLE. Body tracking drops all-or-nothing, and a brief occlusion while the
@@ -520,16 +700,18 @@ class QuestSource:
         out. It only becomes IDLE if tracking stays gone past BODY_HOLD_S, because holding a
         powered arm indefinitely on lost tracking is its own hazard.
         """
-        if self._mirror_targets is not None and self._body_ok:
-            return self._mirror_targets, False
-        gone = time.monotonic() - self._body_ok_at if self._body_ok_at else 1e9
+        st = self._h(hand)
+        if st.mirror_targets is not None and st.body_ok:
+            return st.mirror_targets, False
+        gone = time.monotonic() - st.body_ok_at if st.body_ok_at else 1e9
         return None, gone <= BODY_HOLD_S
 
-    def body_lost_too_long(self) -> bool:
+    def body_lost_too_long(self, hand: str | None = None) -> bool:
         """True once tracking has been gone long enough that holding is no longer right."""
-        if self._body_ok:
+        st = self._h(hand)
+        if st.body_ok:
             return False
-        return bool(self._body_ok_at) and (time.monotonic() - self._body_ok_at) > BODY_HOLD_S
+        return bool(st.body_ok_at) and (time.monotonic() - st.body_ok_at) > BODY_HOLD_S
 
     # ── in-headset HUD ──────────────────────────────────────────────────────
     def hud_frame(self) -> dict | None:
@@ -602,12 +784,20 @@ class QuestSource:
             except Exception as exc:                 # noqa: BLE001
                 # A refused action (uncalibrated, wrong state) is normal operator feedback,
                 # not a fault — surface it in the UI rather than killing the frame handler.
-                self._reason = str(exc)
+                self._set_reason(str(exc))
                 _log.info("quest: %s refused (%s)", name, exc)
         self._btn[name] = pressed
 
+    def _stop_all_arms(self, why: str) -> None:
+        """E-STOP and disarm are GLOBAL: every arm releases and latches, whatever each
+        operator hand happens to be doing."""
+        for hand, st in self._hands.items():
+            st.stop_latch = True
+            self._release(why, hand=hand)
+
     def _on_estop(self) -> None:
         _log.error("quest: Y pressed — E-STOP.")
+        self._stop_all_arms("E-STOP")
         self.service.trigger_estop("quest-estop")
 
     def _dispatch(self, fn, label: str) -> None:
@@ -630,7 +820,7 @@ class QuestSource:
             except Exception as exc:                 # noqa: BLE001
                 # A refused action (uncalibrated, wrong state) is operator feedback, not a
                 # fault. Surface it on the HUD.
-                self._reason = str(exc)
+                self._set_reason(str(exc))
                 _log.info("quest: %s refused (%s)", label, exc)
         try:
             loop = asyncio.get_running_loop()
@@ -640,18 +830,19 @@ class QuestSource:
         loop.run_in_executor(None, run)
 
     def _on_arm(self) -> None:
-        """A → arm the deadman session. Only when the Quest actually holds the input token:
-        arming a session this source cannot then drive would strand the operator in ARMED
-        with a trigger that does nothing."""
+        """A → arm the session, both arms at once. Only when the Quest actually holds the
+        input token: arming a session this source cannot then drive would strand the
+        operator in ARMED with triggers that do nothing."""
         if not self._owns():
-            self._reason = "not the active control method"
+            self._set_reason("not the active control method")
             return
         _log.info("quest: A pressed — arming.")
         self._dispatch(self.service.arm_deadman, "arm")
 
     def _on_disarm(self) -> None:
-        """B → disarm. Allowed regardless of the token: stopping is never gated."""
+        """B → disarm BOTH arms. Allowed regardless of the token: stopping is never gated."""
         _log.info("quest: B pressed — disarming.")
+        self._stop_all_arms("disarmed")
         self._dispatch(self.service.disarm_deadman, "disarm")
 
     def _owns(self) -> bool:
@@ -696,9 +887,45 @@ class QuestSource:
         c, s = math.cos(self.yaw), math.sin(self.yaw)
         return np.array([c * v[0] - s * v[1], s * v[0] + c * v[1], v[2]])
 
+    @staticmethod
+    def _angles_deg(a) -> dict | None:
+        if a is None:
+            return None
+        return {"shoulder_pitch": round(math.degrees(a.shoulder_pitch), 2),
+                "shoulder_roll": round(math.degrees(a.shoulder_roll), 2),
+                "shoulder_yaw": round(math.degrees(a.shoulder_yaw), 2),
+                "elbow": round(math.degrees(a.elbow), 2),
+                "wrist": round(math.degrees(a.wrist), 2)}
+
+    def _hand_status(self, hand: str) -> dict:
+        st = self._hands[hand]
+        return {
+            "limb": _limb(hand),
+            "tracked": st.tracked,
+            "trigger": round(st.trigger, 3),
+            "anchored": st.anchor is not None,
+            "gate": st.gate,
+            "active": st.gate,          # the trigger is ACTIVATION, not a deadman
+            "reason": st.reason,
+            "body_ok": st.body_ok,
+            "body_usable": st.body_usable,
+            "usable_pct": (round(100.0 * st.usable_frames / self._body_frames, 1)
+                           if self._body_frames else None),
+            "upper_arm_m": round(st.seg_upper, 4) or None,
+            "forearm_m": round(st.seg_fore, 4) or None,
+            "angles_deg": self._angles_deg(st.human),
+            "profile": (None if st.profile is None else {
+                "name": st.profile.name,
+                "captured_utc": st.profile.captured_utc,
+                "migrated_sideless": st.profile.migrated_sideless}),
+        }
+
     def status(self) -> dict:
         age = (time.monotonic() - self._last_rx) if self._last_rx else None
         return {
+            # Per-controller state. The flat keys below remain the DRIVING hand's view so
+            # existing readers keep working; `arms` is what a dual-arm UI should read.
+            "arms": {h: self._hand_status(h) for h in self._hands},
             "enabled": True,
             "connected": self._connected,
             "session": self._session,
@@ -732,13 +959,7 @@ class QuestSource:
                 # whole snapshot is pushed to EVERY browser at 20 Hz, so a debug field costs
                 # bandwidth and JSON encoding forever. Read them from the flight recorder,
                 # which is where per-tick detail belongs.
-                "angles_deg": (None if self._human is None else {
-                    "shoulder_pitch": round(math.degrees(self._human.shoulder_pitch), 2),
-                    "shoulder_roll": round(math.degrees(self._human.shoulder_roll), 2),
-                    "shoulder_yaw": round(math.degrees(self._human.shoulder_yaw), 2),
-                    "elbow": round(math.degrees(self._human.elbow), 2),
-                    "wrist": round(math.degrees(self._human.wrist), 2),
-                }),
+                "angles_deg": self._angles_deg(self._human),
             },
             "overlay": self._overlay,
             "conn_id": self._conn_id,

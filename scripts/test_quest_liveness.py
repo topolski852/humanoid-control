@@ -118,15 +118,23 @@ def body(*, emulated: bool = False, present: bool = True):
     return {"joints": {n: {"p": pp, "e": emulated} for n, pp in j.items()}}
 
 
-def give_profile(q):
-    """Attach a calibration profile so the source runs in MIRROR mode."""
+def give_profile(q, hand=None):
+    """Attach a calibration profile so the source runs in MIRROR mode.
+
+    Profiles are per (operator, side) now, so this writes one to BOTH hands unless a hand is
+    named — the tests below drive whichever arm the layout selected and should not have to
+    know which that is.
+    """
     from humanoid_control.arm_profile import ArmProfile, JOINTS
     n = len(JOINTS)
-    q._profile = ArmProfile(name="test", captured_utc="2026-01-01T00:00:00Z",
-                            zero_rad=[0.0] * n,
-                            lo_rad=[-1.2] * n, hi_rad=[1.2] * n,
-                            upper_len_m=0.26, fore_len_m=0.22)
-    return q._profile
+    prof = None
+    for h in ([hand] if hand else list(q._hands)):
+        prof = ArmProfile(name="test", side=h, captured_utc="2026-01-01T00:00:00Z",
+                          zero_rad=[0.0] * n,
+                          lo_rad=[-1.2] * n, hi_rad=[1.2] * n,
+                          upper_len_m=0.26, fore_len_m=0.22)
+        q._hands[h].profile = prof
+    return prof
 
 
 def spy_gate(svc):
@@ -134,9 +142,12 @@ def spy_gate(svc):
     resulting flag — the bug this catches is a gate re-ASSERTED 60 times a second."""
     calls = []
     real = svc.set_run_gate
-    def wrapped(active, *, source="web"):
+    # **kw, not a fixed signature: the gate is now scoped per arm (`limb=`), and a spy that
+    # drops the argument would raise inside the frame handler, get swallowed as a bad frame,
+    # and leave the gate stuck up — turning this spy into the very bug it watches for.
+    def wrapped(active, **kw):
         calls.append(bool(active))
-        return real(active, source=source)
+        return real(active, **kw)
     svc.set_run_gate = wrapped
     return calls
 
@@ -162,30 +173,30 @@ def main() -> int:
     print("\n── the happy path: trigger drives, release stops ────────────────")
     svc, q = build()
     q.on_frame(frame(1, p=(0, 0, 0), trigger=0.0))
-    check("trigger released → no run gate", svc._run_gate.is_set() is False)
+    check("trigger released → no run gate", svc.any_run_gate() is False)
     check("a frame marks the source alive", svc.source_alive("quest") is True)
 
     q.on_frame(frame(2, p=(0, 0, 0), trigger=0.9))
-    check("trigger held → run gate set", svc._run_gate.is_set() is True)
+    check("trigger held → run gate set", svc.any_run_gate() is True)
     check("clutch anchors on the trigger's rising edge", q.status()["anchored"] is True)
     check("anchoring frame commands ~zero displacement",
-          float(np.linalg.norm(svc._arm_pose_command[0])) < 1e-6)
+          float(np.linalg.norm(svc.arm_pose_command()[0])) < 1e-6)
 
     # Move 10 cm along WebXR -Z (forward) → robot +X.
     q.on_frame(frame(3, p=(0, 0, -0.1), trigger=0.9))
-    delta = svc._arm_pose_command[0]
+    delta = svc.arm_pose_command()[0]
     check("displacement is measured from the anchor, in robot frame",
           np.allclose(delta, [0.1, 0.0, 0.0], atol=1e-6), str(delta))
 
     q.on_frame(frame(4, p=(0, 0, -0.1), trigger=0.0))
-    check("trigger release drops the run gate", svc._run_gate.is_set() is False)
+    check("trigger release drops the run gate", svc.any_run_gate() is False)
     check("trigger release discards the anchor", q.status()["anchored"] is False)
 
     q.on_frame(frame(5, p=(0, 0, -0.1), trigger=0.9))
     q.on_frame(frame(6, p=(0, 0, -0.1), trigger=0.9))
     check("re-press re-anchors at the NEW position (ratchet, no jump)",
-          float(np.linalg.norm(svc._arm_pose_command[0])) < 1e-6,
-          str(svc._arm_pose_command[0]))
+          float(np.linalg.norm(svc.arm_pose_command()[0])) < 1e-6,
+          str(svc.arm_pose_command()[0]))
 
     print("\n── scale ────────────────────────────────────────────────────────")
     svc, q = build()
@@ -193,23 +204,23 @@ def main() -> int:
     q.on_frame(frame(1, p=(0, 0, 0), trigger=0.9))
     q.on_frame(frame(2, p=(0, 0, -0.2), trigger=0.9))
     check("scale halves the commanded displacement",
-          np.allclose(svc._arm_pose_command[0], [0.1, 0, 0], atol=1e-6),
-          str(svc._arm_pose_command[0]))
+          np.allclose(svc.arm_pose_command()[0], [0.1, 0, 0], atol=1e-6),
+          str(svc.arm_pose_command()[0]))
 
     print("\n── LADDER: 200 ms stall → IDLE, no E-STOP ───────────────────────")
     svc, q = build(live_session=True)
     q.on_frame(frame(1, p=(0, 0, 0), trigger=0.9))
-    check("gate is up before the stall", svc._run_gate.is_set() is True)
+    check("gate is up before the stall", svc.any_run_gate() is True)
     clock.advance(0.1)
     q.tick()
-    check("100 ms of silence does NOT drop the gate", svc._run_gate.is_set() is True)
+    check("100 ms of silence does NOT drop the gate", svc.any_run_gate() is True)
     clock.advance(0.15)          # 250 ms total
     q.tick()
-    check("250 ms of silence drops the run gate", svc._run_gate.is_set() is False)
+    check("250 ms of silence drops the run gate", svc.any_run_gate() is False)
     check("a stall does NOT E-STOP", svc.estop.fired is False)
     q.on_frame(frame(2, p=(0, 0, 0), trigger=0.9))
     check("the gate recovers by itself on the next frame",
-          svc._run_gate.is_set() is True)
+          svc.any_run_gate() is True)
 
     print("\n── LADDER: 1 s silence → E-STOP ─────────────────────────────────")
     svc, q = build(live_session=True)
@@ -228,31 +239,31 @@ def main() -> int:
     clock.advance(2.0)
     q.tick()
     check("silence while idle drops the gate but does NOT E-STOP",
-          svc.estop.fired is False and svc._run_gate.is_set() is False)
+          svc.estop.fired is False and svc.any_run_gate() is False)
 
     print("\n── LADDER: tracking loss → IDLE ─────────────────────────────────")
     svc, q = build(live_session=True)
     q.on_frame(frame(1, p=(0, 0, 0), trigger=0.9))
     q.on_frame(frame(2, p=(0, 0, 0), trigger=0.9, tracked=False))
-    check("untracked controller drops the run gate", svc._run_gate.is_set() is False)
+    check("untracked controller drops the run gate", svc.any_run_gate() is False)
     check("tracking loss does NOT E-STOP", svc.estop.fired is False)
     check("tracking loss discards the anchor", q.status()["anchored"] is False)
     q.on_frame(frame(3, p=(0, 0, 0), trigger=0.9))
     check("tracking recovery re-anchors rather than resuming the old frame",
           q.status()["anchored"] is True
-          and float(np.linalg.norm(svc._arm_pose_command[0])) < 1e-6)
+          and float(np.linalg.norm(svc.arm_pose_command()[0])) < 1e-6)
 
     print("\n── LADDER: frozen pose while the trigger is held ────────────────")
     svc, q = build(live_session=True)
     for i in range(1, 4):
         q.on_frame(frame(i, p=(0, 0, -0.05), trigger=0.9))
         clock.advance(0.05)
-    check("gate is up while the pose is fresh", svc._run_gate.is_set() is True)
+    check("gate is up while the pose is fresh", svc.any_run_gate() is True)
     for i in range(4, 20):                     # seq advances, pose IDENTICAL
         q.on_frame(frame(i, p=(0, 0, -0.05), trigger=0.9))
         clock.advance(0.05)
     check("a bit-identical pose for >500 ms drops the gate",
-          svc._run_gate.is_set() is False, q.status()["reason"])
+          svc.any_run_gate() is False, q.status()["reason"])
     check("a frozen pose does NOT E-STOP", svc.estop.fired is False)
     check("the source still reads alive (seq IS advancing)",
           svc.source_alive("quest") is True)
@@ -260,19 +271,19 @@ def main() -> int:
     for i in range(20, 40):
         q.on_frame(frame(i, p=(0, 0, -0.05), trigger=0.9))
         clock.advance(0.05)
-        if svc._run_gate.is_set():
+        if svc.any_run_gate():
             break
     check("a frozen sender stays released (the gate does not flap)",
-          svc._run_gate.is_set() is False, "gate re-engaged on a still-frozen stream")
+          svc.any_run_gate() is False, "gate re-engaged on a still-frozen stream")
     q.on_frame(frame(40, p=(0, 0, -0.20), trigger=0.9))    # pose finally moves
     check("the gate returns once the pose genuinely changes",
-          svc._run_gate.is_set() is True, q.status()["reason"])
+          svc.any_run_gate() is True, q.status()["reason"])
     # A genuinely moving controller must never trip it.
     svc, q = build(live_session=True)
     for i in range(1, 40):
         q.on_frame(frame(i, p=(0, 0, -0.05 - i * 1e-6), trigger=0.9))   # micrometre jitter
         clock.advance(0.05)
-    check("micrometre jitter is NOT treated as frozen", svc._run_gate.is_set() is True)
+    check("micrometre jitter is NOT treated as frozen", svc.any_run_gate() is True)
 
     # Regression (found end-to-end, not by the checks above): a stall normally ENDS with the
     # operator having held still through the gap, so the first frame back carries the same
@@ -283,10 +294,10 @@ def main() -> int:
     q.on_frame(frame(1, p=(0, 0, -0.05), trigger=0.9))
     clock.advance(0.9)                     # stall past STALL_S, still under LOSS_S
     q.tick()
-    check("stall released the gate (setup)", svc._run_gate.is_set() is False)
+    check("stall released the gate (setup)", svc.any_run_gate() is False)
     q.on_frame(frame(2, p=(0, 0, -0.05), trigger=0.9))     # SAME pose, link is back
     check("recovering on an UNCHANGED pose is not mistaken for a frozen sender",
-          svc._run_gate.is_set() is True, q.status()["reason"])
+          svc.any_run_gate() is True, q.status()["reason"])
     check("recovery after a stall re-anchors", q.status()["anchored"] is True)
 
     print("\n── LADDER: new XR session discards the anchor ───────────────────")
@@ -294,8 +305,8 @@ def main() -> int:
     q.on_frame(frame(1, p=(0, 0, 0), trigger=0.9, session="s1"))
     q.on_frame(frame(2, p=(0, 0, -0.3), trigger=0.9, session="s2"))
     check("a session-id change re-anchors instead of jumping",
-          float(np.linalg.norm(svc._arm_pose_command[0])) < 1e-6,
-          str(svc._arm_pose_command[0]))
+          float(np.linalg.norm(svc.arm_pose_command()[0])) < 1e-6,
+          str(svc.arm_pose_command()[0]))
 
     print("\n── LADDER: disconnect during a live session → E-STOP ────────────")
     svc, q = build(live_session=True)
@@ -320,7 +331,7 @@ def main() -> int:
     check("Y E-STOPs even when the Quest holds no input token",
           svc.estop.fired is True)
     check("a non-owner's pose command is still dropped",
-          svc._arm_pose_command is None)
+          svc.arm_pose_command() is None)
 
     svc, q = build()
     q.on_frame(frame(1, p=(0, 0, 0), trigger=0.0, b=True, tracked=False))
@@ -383,7 +394,7 @@ def main() -> int:
     q.on_frame(frame(5, p=(0, 0, 0), trigger=0.9))
     q.on_frame(frame(3, p=(0, 0, -1.0), trigger=0.9))     # replay / reorder
     check("an out-of-order seq is rejected, not acted on",
-          float(np.linalg.norm(svc._arm_pose_command[0])) < 1e-6)
+          float(np.linalg.norm(svc.arm_pose_command()[0])) < 1e-6)
     check("a rejected frame is counted", q.status()["dropped"] >= 1)
 
     before = q.status()["dropped"]
@@ -396,7 +407,7 @@ def main() -> int:
     q.on_frame(frame(1, p=(0, 0, 0), trigger=0.9))
     q.on_frame(frame(2, p=(float("nan"), 0, 0), trigger=0.9))
     check("a non-finite pose drops the gate instead of commanding NaN",
-          svc._run_gate.is_set() is False)
+          svc.any_run_gate() is False)
 
     print("\n── which controller drives ──────────────────────────────────────")
     svc, q = build()
@@ -424,14 +435,14 @@ def main() -> int:
 
     for _ in range(30):
         push(trig=0.9)
-    check("body good + trigger held → gate on", svc._run_gate.is_set())
+    check("body good + trigger held → gate on", svc.any_run_gate())
 
     calls = spy_gate(svc)
     # Body tracking drops. Trigger STAYS HELD, exactly as it would if the operator's arm
     # swung out of the headset's view mid-motion.
     for _ in range(int(xr_mod.BODY_HOLD_S * 60) + 30):
         push(trig=0.9, present=False)
-    check("body lost past BODY_HOLD_S → gate released", not svc._run_gate.is_set())
+    check("body lost past BODY_HOLD_S → gate released", not svc.any_run_gate())
 
     # THE REGRESSION. Hundreds more frames, trigger still held. Not one may re-assert.
     calls.clear()
@@ -439,7 +450,7 @@ def main() -> int:
         push(trig=0.9, present=False)
     check("trigger still held: the gate is never re-asserted",
           True not in calls, f"{calls.count(True)} of {len(calls)} calls asked to re-arm")
-    check("...and it stays released", not svc._run_gate.is_set())
+    check("...and it stays released", not svc.any_run_gate())
 
     # Tracking comes BACK, trigger never released. Must still stay down: re-arming a moving
     # arm without the operator asking is the thing the latch exists to prevent.
@@ -447,7 +458,7 @@ def main() -> int:
     for _ in range(120):
         push(trig=0.9)
     check("tracking recovers mid-hold: still latched until a re-press",
-          True not in calls and not svc._run_gate.is_set())
+          True not in calls and not svc.any_run_gate())
 
     # Release, then press again. That is the deliberate act that re-arms.
     for _ in range(5):
@@ -455,17 +466,17 @@ def main() -> int:
     check("releasing the trigger clears the latch", q._body_latch is False)
     for _ in range(30):
         push(trig=0.9)
-    check("a fresh press re-arms", svc._run_gate.is_set())
+    check("a fresh press re-arms", svc.any_run_gate())
 
     print("\n── an EMULATED joint is a guess, and counts as lost ─────────────")
     clk = Clock(); xr_mod.time.monotonic = clk
     svc, q = build(live_session=True); give_profile(q); n = 0
     for _ in range(30):
         push(trig=0.9)
-    check("measured body → armed", svc._run_gate.is_set())
+    check("measured body → armed", svc.any_run_gate())
     for _ in range(int(xr_mod.BODY_HOLD_S * 60) + 30):
         push(trig=0.9, emu=True)
-    check("emulated joints do not keep the gate alive", not svc._run_gate.is_set())
+    check("emulated joints do not keep the gate alive", not svc.any_run_gate())
 
     print("\n── NO profile: body loss must not touch the controller path ─────")
     # Without a calibration the arm is driven from the controller's POSITION and body
@@ -478,13 +489,14 @@ def main() -> int:
     # "whatever this machine happens to have on disk" — passing on a fresh checkout and
     # failing the moment anyone actually calibrated. State the precondition instead of
     # inheriting it.
-    q._profile = None
+    for st in q._hands.values():
+        st.profile = None
     for _ in range(30):
         push(trig=0.9)
-    check("pose mode arms without a profile", svc._run_gate.is_set())
+    check("pose mode arms without a profile", svc.any_run_gate())
     for _ in range(int(xr_mod.BODY_HOLD_S * 60) + 60):
         push(trig=0.9, present=False)
-    check("pose mode is unaffected by body-tracking loss", svc._run_gate.is_set())
+    check("pose mode is unaffected by body-tracking loss", svc.any_run_gate())
 
     print("\n── a reconnect does not inherit the old link's body history ─────")
     clk = Clock(); xr_mod.time.monotonic = clk
