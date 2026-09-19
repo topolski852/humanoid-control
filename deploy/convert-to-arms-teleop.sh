@@ -29,6 +29,7 @@ STUDIO=/home/nse/humanoid-studio
 CFG_SRC="$STUDIO/configs/humanoid_lite.json"
 CFG_ARMS="$STUDIO/configs/humanoid_arms.json"
 CAN_RULES=/etc/udev/rules.d/99-humanoid-can.rules
+LAYOUT=/home/nse/.config/humanoid-control/robot_layout.json
 DAEMON_UNIT=/etc/systemd/system/humanoid-daemon.service
 WEB_UNIT=/etc/systemd/system/humanoid-web.service
 UNITS=(humanoid-daemon humanoid-web humanoid-imu-init)
@@ -86,9 +87,17 @@ if [ "$DO_VERIFY" = 1 ]; then
     printf "    %-22s %-10s %s\n" "$u" "$(systemctl is-enabled $u 2>&1)" "$(systemctl is-active $u 2>&1)"
   done
   echo "  daemon config : $(grep -oE '\-\-config [^ ]+' "$DAEMON_UNIT" | head -1)"
-  echo "  imu flag      : $(grep -q -- '--imu-device' "$DAEMON_UNIT" && echo 'STILL PRESENT (bad)' || echo 'removed (good)')"
+  # Inspect ONLY the ExecStart line: the script inserts an explanatory comment that
+  # mentions --imu-device, and a whole-file grep matches that comment instead.
+  echo "  imu flag      : $(grep -E '^ExecStart' "$DAEMON_UNIT" | grep -q -- '--imu-device' && echo 'STILL PRESENT (bad)' || echo 'removed (good)')"
   echo "  quest bridge  : $(grep -qE '^Environment=HUMANOID_QUEST_ENABLE=1' "$WEB_UNIT" && echo 'enabled (good)' || echo 'NOT enabled (bad)')"
-  echo "  gamepad       : $(grep -qE '^Environment=HUMANOID_GAMEPAD_ENABLE=1' "$WEB_UNIT" && echo 'ENABLED — will steal the input token (bad)' || echo 'off (good)')"
+  if [ -f "$LAYOUT" ]; then
+    echo "  robot layout  : $(python3 -c "import json;d=json.load(open('$LAYOUT'));print(','.join(k for k,v in d['limbs'].items() if v['enabled']) or 'NONE', '| imu_expected='+str(d['imu']['expected']))" 2>/dev/null)"
+  else
+    echo "  robot layout  : MISSING — web UI will default to LEGS ONLY (bad)"
+  fi
+  # Any uncommented assignment means ON, whatever the value.
+  echo "  gamepad       : $(grep -qE '^Environment=HUMANOID_GAMEPAD_ENABLE=' "$WEB_UNIT" && echo 'ENABLED — will steal the input token (bad)' || echo 'off (good)')"
   exit 0
 fi
 
@@ -114,6 +123,15 @@ OLD_HOSTNAME=$(hostname)
 hostnamectl set-hostname "$NEW_HOSTNAME"
 if [ -f /etc/hosts ]; then
   backup /etc/hosts
+  # Rewrite the 127.0.1.1 line outright. Searching for $OLD_HOSTNAME is not enough: on a
+  # clone where someone already changed the hostname by hand, /etc/hosts still carries the
+  # ORIGINAL machine's name and would never match.
+  if grep -qE '^127\.0\.1\.1[[:space:]]' /etc/hosts; then
+    sed -i -E "s/^(127\.0\.1\.1[[:space:]]+).*/\1${NEW_HOSTNAME}/" /etc/hosts
+  else
+    printf '127.0.1.1\t%s\n' "$NEW_HOSTNAME" >> /etc/hosts
+  fi
+  # and sweep up any other stale references to the old name
   sed -i "s/\b${OLD_HOSTNAME}\b/${NEW_HOSTNAME}/g" /etc/hosts
 fi
 ok "hostname $OLD_HOSTNAME -> $NEW_HOSTNAME"
@@ -175,6 +193,31 @@ EOPY
 chown nse:nse "$CFG_ARMS"
 ok "wrote $CFG_ARMS"
 
+# ── 4b. Machine-local robot layout (which limbs are attached HERE) ───────────
+# Separate from the daemon config: humanoid_control/layout.py reads this to decide which
+# limbs the web UI serves. When the file is ABSENT it defaults to legs-only, so without
+# this the teleop box would come up showing two legs and no arms.
+say "Writing machine-local robot layout -> $LAYOUT"
+mkdir -p "$(dirname "$LAYOUT")"
+cat > "$LAYOUT" <<EOL
+{
+  "_meta": {
+    "schema_version": 1,
+    "note": "What hardware is attached to THIS machine. Written by convert-to-arms-teleop.sh; safe to hand-edit, and the web Settings tab rewrites it."
+  },
+  "robot_name": "humanoid_arms_teleop",
+  "limbs": {
+    "left_leg": {"enabled": false},
+    "right_leg": {"enabled": false},
+    "left_arm": {"enabled": true},
+    "right_arm": {"enabled": true}
+  },
+  "imu": {"expected": false}
+}
+EOL
+chown -R nse:nse "$(dirname "$LAYOUT")"
+ok "arms enabled, legs disabled, imu_expected=false"
+
 # ── 5. Daemon unit: arms config, no IMU ──────────────────────────────────────
 say "Rewriting $DAEMON_UNIT (arms config, IMU removed)"
 backup "$DAEMON_UNIT"
@@ -189,7 +232,9 @@ say "Rewriting $WEB_UNIT (Quest bridge on, gamepad off)"
 backup "$WEB_UNIT"
 # Gamepad must not be enabled: it takes the input token at startup and the
 # headset's writes would be silently dropped as ignored_writes.
-sed -i -E 's|^Environment=HUMANOID_GAMEPAD_ENABLE=1|Environment=HUMANOID_GAMEPAD_ENABLE=0|' "$WEB_UNIT"
+# NB: server.py tests `os.environ.get("HUMANOID_GAMEPAD_ENABLE")` for truthiness, so ANY
+# value -- "0" included -- turns the gamepad ON. It must be UNSET, not set to zero.
+sed -i -E 's|^Environment=HUMANOID_GAMEPAD_ENABLE=.*|# HUMANOID_GAMEPAD_ENABLE intentionally unset (any value, even 0, enables it).|' "$WEB_UNIT"
 # Quest bridge: nothing else starts it.
 if grep -qE '^Environment=HUMANOID_QUEST_ENABLE=' "$WEB_UNIT"; then
   sed -i -E 's|^Environment=HUMANOID_QUEST_ENABLE=.*|Environment=HUMANOID_QUEST_ENABLE=1|' "$WEB_UNIT"

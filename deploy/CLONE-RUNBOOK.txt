@@ -1,0 +1,152 @@
+CLONING nse-MINI-S  ->  nse-ARMS   (arms-only Quest teleop machine)
+===================================================================
+You run Clonezilla TWICE: once HERE to capture, once THERE to restore.
+
+Media (already prepared):
+  CLONEZILLA  14.5G FAT32  - boot this on both machines
+  CZ_IMAGES   116G  ext4   - holds the image
+
+*** IDENTIFY DISKS BY LABEL AND SIZE, NEVER BY LETTER. ***
+sda/sdb/sdc are assigned in the order the kernel enumerates devices and they
+CHANGE between boots. On 2026-09-10 the image stick was sdb before a reboot
+and sdc after it. Every time Clonezilla shows you a device list, read the
+LABEL (CZ_IMAGES / CLONEZILLA) and the SIZE (116G / 14.5G / 476.9G), and pick
+on that basis. The internal SSD is the 476.9G one, model "512GB SSD".
+
+===================================================================
+PHASE A - CAPTURE THE IMAGE.  Do this on nse-MINI-S (the humanoid PC).
+===================================================================
+A0. *** DE-ENERGIZE THE ESC / MOTOR BUS FIRST. ***
+    On 2026-09-10 a shorted ESC collapsed the rail mid-capture and killed the
+    PC 24 minutes in. The image looked complete - Clonezilla's own log said
+    "Finished!" - but ~12 GB of compressed data was still in the write cache
+    and never reached the stick. It was silently truncated and unusable.
+    The ESCs cannot short if they are not powered. Cut robot power for the
+    ~25 minutes this takes. This is the single highest-value step here.
+
+A1. Leave both USB sticks plugged in. Reboot.
+A2. At the AZW splash tap F7 for the boot menu (if that does nothing,
+    tap DEL for BIOS setup and use "Boot Override"). Pick the UEFI
+    entry for the CLONEZILLA stick.
+    If it refuses to boot, disable Secure Boot in BIOS and retry.
+A3. GRUB menu -> "Clonezilla live (Default settings, VGA...)" -> Enter
+A4. Language -> English
+A5. Keyboard -> "Keep the default keyboard layout"
+A6. -> "Start_Clonezilla"
+A7. -> "device-image"
+A8. -> "local_dev"
+A9. It asks you to insert a USB drive. Just press Enter, wait for the
+    device scan to finish, press Enter again.
+A10. Pick the partition holding images: the one labelled CZ_IMAGES,
+     ext4, ~116G. Its letter varies - go by the label.
+     NOT the 476.4G ext4 partition; that is the humanoid's root filesystem.
+A11. Directory in that partition -> "." (the top level)
+A12. It prints a df summary -> press Enter
+A13. -> "Beginner" mode
+A14. -> "savedisk"
+A15. Image name -> accept the default, or type:  humanoid-mini-s-2026-09-10
+A16. Source disk -> select the 476.9G disk, model "512GB SSD".
+     Highlight it, press SPACE to tick it, then Enter.
+     *** Confirm by SIZE: 476.9G is the internal SSD. The 116G and 14.5G
+     *** entries are your two USB sticks. Do not tick those. ***
+A17. Filesystem check -> "-sfsck  Skip checking/repairing"
+A18. Check the saved image afterwards -> YES, let it check.
+     Slower, but a corrupt image means a wasted trip to the other PC.
+A19. Encryption -> "-senc  Not to encrypt"
+A20. When finished -> choose "-p reboot"  (NOT poweroff)
+     Rebooting lands you back in Ubuntu so the image can be verified before
+     you carry it anywhere, and a clean shutdown forces the write cache out
+     to the stick.
+A21. Press Enter, then answer "y" to the confirmation.
+A22. Wait. Roughly 25-30 minutes. Do not touch the robot while it runs.
+
+A23. *** VERIFY BEFORE YOU TRAVEL. Do not skip this. ***
+     Back in Ubuntu, test that the compressed stream is complete end to end:
+        zstd -t /media/nse/CZ_IMAGES/<image-dir>/sda2.ext4-ptcl-img.zst ; echo "exit=$?"
+        zstd -t /media/nse/CZ_IMAGES/<image-dir>/sda1.vfat-ptcl-img.zst ; echo "exit=$?"
+     Both must print exit=0 and say nothing else. Takes ~20 min for the big one.
+     "Read error (39) : premature end" means TRUNCATED - delete and redo.
+     Clonezilla's log saying "Finished!" is NOT sufficient evidence; it was
+     wrong once already. Only this test proves the data is all there.
+
+NOTE: Beginner mode does not ask about compression - it uses its default.
+That is fine. Compression is only offered in Expert mode.
+
+===================================================================
+PHASE B - RESTORE.  Do this on the NEW PC.
+===================================================================
+B1. Unplug both sticks from the humanoid PC, plug both into the new PC.
+    LEAVE THE ARM CAN ADAPTERS UNPLUGGED for now.
+B2. Boot the CLONEZILLA stick exactly as in A2-A6.
+B3. -> "device-image" -> "local_dev" -> Enter -> Enter
+B4. Pick the partition labelled CZ_IMAGES (~116G ext4) -> then choose the
+    directory that holds the image -> Enter
+B5. -> "Beginner" -> "restoredisk"
+B6. Pick the image you just made.
+B7. Pick the TARGET disk = the new PC's internal SSD.
+    *** THIS ERASES THAT DISK COMPLETELY. Read the name and size on
+    *** screen and be certain it is the internal SSD, not a USB stick.
+B8. When finished -> "-p poweroff"
+B9. It asks "Are you sure?" TWICE because it is destructive. Answer y both times.
+B10. Wait for it to finish and power off. Remove both sticks.
+
+===================================================================
+PHASE C - CONVERT TO THE ARMS MACHINE.  First boot of the NEW PC.
+===================================================================
+The clone still thinks it is the humanoid: same hostname, same machine-id,
+same SSH host keys, full-body config, leg CAN serials, IMU expected.
+Fix that BEFORE plugging in the CAN adapters.
+
+C1. Boot the new PC normally and log in as nse (same password as here).
+    humanoid-daemon will be running and failing - that is expected, it is
+    looking for leg CAN interfaces that do not exist.
+C2. Plug in ONE arm CAN adapter. Read its serial:
+       sudo /home/nse/humanoid-control/deploy/convert-to-arms-teleop.sh --discover
+    Write down the ID_SERIAL_SHORT value. Unplug it, plug in the other,
+    run it again, write that one down too.
+C3. Run the conversion with both serials:
+       sudo /home/nse/humanoid-control/deploy/convert-to-arms-teleop.sh \
+           --hostname nse-ARMS \
+           --left-arm-serial  <LEFT_SERIAL> \
+           --right-arm-serial <RIGHT_SERIAL>
+C4. Reboot. Plug in BOTH arm adapters.
+C5. Check the interfaces came up:
+       ip -br link show type can
+    Expect can_left_arm and can_right_arm, both UP.
+C6. Check everything else:
+       sudo /home/nse/humanoid-control/deploy/convert-to-arms-teleop.sh --verify
+
+What C3 changes:
+  * hostname -> nse-ARMS; fresh machine-id; fresh SSH host keys
+  * 99-humanoid-can.rules -> your arm serials, named can_left_arm/can_right_arm
+  * generates humanoid_arms.json -> the 10 arm joints only, 12 leg joints dropped
+  * humanoid-daemon -> uses the arms config, --imu-device removed (no IMU here)
+  * humanoid-web -> HUMANOID_QUEST_ENABLE=1, HUMANOID_GAMEPAD_ENABLE=0
+    (the gamepad would otherwise grab the input token and your headset
+     writes would be silently dropped as ignored_writes)
+  * leaves all three humanoid units DISABLED
+Every file it edits is backed up beside it as *.pre-arms. Safe to re-run.
+
+===================================================================
+PHASE D - BEFORE YOU COMMAND ANY MOTION
+===================================================================
+D1. Set a web password. Two robots now serve 0.0.0.0:8000 with no auth:
+       sudo systemctl edit humanoid-web
+       [Service]
+       Environment=HUMANOID_WEB_PASSWORD=<something long>
+D2. The arm calibration inside humanoid_arms.json was copied from the
+    humanoid. Electrical offsets, gear signs and position offsets are
+    PER-ROBOT. Verify or re-run calibration on these arms first.
+D3. Only then enable the stack:
+       sudo systemctl enable --now humanoid-daemon humanoid-web
+
+===================================================================
+IF SOMETHING GOES WRONG
+===================================================================
+* Stick will not boot -> disable Secure Boot in BIOS.
+* No boot menu on F7 -> DEL into BIOS, use "Boot Override" / set boot order.
+* Clonezilla cannot see CZ_IMAGES -> at A10 make sure you picked sdb1,
+  and that you pressed Enter through the device-scan prompt.
+* Restored PC boots as nse-MINI-S -> normal, you have not run Phase C yet.
+* No can_left_arm/can_right_arm after C4 -> the serials were wrong.
+  Re-run --discover and re-run C3; it is safe to run repeatedly.
