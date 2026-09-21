@@ -39,6 +39,10 @@
       <h1>Quest arm teleop</h1>
       <p class="sub">Passthrough. A second person must be present before you enter.</p>
       <button id="enter" disabled>Checking WebXR…</button>
+      <!-- Same passthrough session, but it also starts the guided operator calibration.
+           It has to live here, on the flat page: once you are immersed there is no way back
+           to this page, and the calibration needs the session running to see your body. -->
+      <button id="calibrate" disabled>Calibrate arms</button>
       <div id="status">not connected</div>
       <ul>
         <li><b>Trigger</b> — hold to drive, release to stop. Release also re-anchors, so you
@@ -46,6 +50,8 @@
         <li><b>Y</b> (left, upper) — <b>E-STOP</b>. Works at any time, even disarmed or
             untracked. Latched; clear it by reconnecting from the control page.</li>
         <li><b>A</b> (right, lower) — arm &nbsp;·&nbsp; <b>B</b> (right, upper) — disarm</li>
+        <li><b>X</b> (left, lower) — cancel calibration, or dismiss the result card. Does
+            nothing when you are not calibrating.</li>
         <li>The trigger is not a panic stop: under startle you will clench, not release.
             Use <b>Y</b>.</li>
       </ul>

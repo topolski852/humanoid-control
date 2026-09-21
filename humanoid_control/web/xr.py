@@ -98,6 +98,22 @@ FROZEN_S = 0.5
 # — so tracking loss HOLDS, and only becomes IDLE if it persists.
 BODY_HOLD_S = 3.0
 
+# ── calibration lifetime ────────────────────────────────────────────────────────
+# How long a finished calibration run keeps the HUD before it hands back to the normal
+# display. It exists so the operator can READ the result; it is not a safety interval.
+#
+# Until this existed a finished run was never cleared at all: `_calib` was set to None in
+# exactly one place, reachable only from a desktop DELETE, so the headset stayed pinned to
+# the completion card through trigger pulls, E-STOP, disarm, and even leaving and re-entering
+# the session — while the arm drove normally behind a card reading "you can take the headset
+# off". X dismisses it early; this is the backstop for an operator who presses nothing.
+CALIB_DWELL_S = 5.0
+# A run that has received no body sample for this long will never progress: the capture only
+# advances on tracked frames, and `_note_body`'s empty-body branch returns before reaching
+# the calibration at all. Rather than stall mid-pose indefinitely, end it and say why.
+# Comfortably longer than BODY_HOLD_S so an ordinary occlusion does not abandon a run.
+CALIB_STALL_S = 10.0
+
 
 def _f(name: str, default: float) -> float:
     try:
@@ -304,6 +320,12 @@ class QuestSource:
                          "(An old browser tab left running? It will now be ignored.)")
         self._connected = True
         self._reset_link("connected")
+        # A FINISHED run must not greet the next session. `QuestSource` outlives the socket,
+        # so re-entering passthrough used to come straight back to the old completion card.
+        # An UNFINISHED run is left alone on purpose: a brief link blip should not throw away
+        # poses the operator already held still for.
+        if self._calib is not None and self._calib.is_ended:
+            self._calib = None
         self.reload_profile()
         _log.info("quest: client attached as #%d (scale=%.2f, yaw=%.0f deg, trigger>=%.2f)",
                   self._conn_id, self.scale, math.degrees(self.yaw), self.trig_thresh)
@@ -448,6 +470,10 @@ class QuestSource:
         self._edge("estop", bool(left.get("b")), self._on_estop)
         self._edge("arm", bool(right.get("a")), self._on_arm)
         self._edge("disarm", bool(right.get("b")), self._on_disarm)
+        # X (left, lower) — the only way out of a calibration from inside the headset. The
+        # client has always sent this button and the server has never read it, so this takes
+        # a free binding rather than overloading one that already means something.
+        self._edge("calib_x", bool(left.get("a")), self._on_calib_x)
 
         # Body tracking — OBSERVE ONLY at this stage. Recorded and surfaced so we can
         # measure what the headset actually delivers before any of it drives a joint;
@@ -765,14 +791,49 @@ class QuestSource:
         }
 
     def start_calibration(self, seq=None):
-        """Begin the guided calibration. Returns the sequencer."""
+        """Begin the guided calibration. Returns the sequencer.
+
+        Refuses to replace a run that is still IN PROGRESS: this used to overwrite whatever
+        was there, so a double-press of the page button silently threw away three captured
+        poses and restarted at one, with nothing on the HUD to say why. An ENDED run is only
+        being displayed, so replacing that is free.
+        """
         from .xr_calib import CalibrationRun
+        cur = self._calib
+        if cur is not None and not cur.is_ended:
+            raise RuntimeError(
+                f"calibration already running (pose {cur.idx + 1} of {len(cur.seq)}) — "
+                f"press X to cancel it first")
         self._calib = CalibrationRun(seq) if seq else CalibrationRun()
         _log.info("quest: calibration started")
         return self._calib
 
     def cancel_calibration(self) -> None:
         self._calib = None
+
+    def _expire_calib(self) -> None:
+        """Retire a calibration run that is finished or stuck. Called from the watchdog.
+
+        The watchdog owns this rather than the frame path because the stall case is defined
+        by frames NOT arriving: `_note_body` returns early on an empty body block, so nothing
+        in the receive path runs while tracking is gone.
+        """
+        c = self._calib
+        if c is None:
+            return
+        now = time.monotonic()
+        if c.is_ended:
+            if now - c.ended_at > CALIB_DWELL_S:
+                self._calib = None
+                _log.info("quest: calibration card cleared (%s) — HUD handed back",
+                          c.end_reason)
+            return
+        # Never started receiving: judge the stall from when the run was created, so a
+        # calibration begun with body tracking unavailable ends with a reason instead of
+        # sitting on POSE 1 forever.
+        since = c.last_sample_at or c.t_start
+        if now - since > CALIB_STALL_S:
+            c.end("tracking")
 
     # ── buttons ─────────────────────────────────────────────────────────────
     def _edge(self, name: str, pressed: bool, action) -> None:
@@ -829,6 +890,25 @@ class QuestSource:
             return
         loop.run_in_executor(None, run)
 
+    def _on_calib_x(self) -> None:
+        """X → get me out of this calibration screen.
+
+        One button, two meanings that are really the same one: cancel a run in progress, or
+        dismiss a finished one without waiting out the dwell. It deliberately does NOT start
+        a run — starting belongs to the page button, where a refusal ("disarm first") can be
+        read on a monitor. A stray X press with no calibration open does nothing at all.
+        """
+        c = self._calib
+        if c is None:
+            return
+        if c.is_ended:
+            self._calib = None
+            _log.info("quest: X pressed — calibration card dismissed.")
+            return
+        _log.info("quest: X pressed — calibration cancelled at pose %d of %d.",
+                  c.idx + 1, len(c.seq))
+        c.end("cancelled")
+
     def _on_arm(self) -> None:
         """A → arm the session, both arms at once. Only when the Quest actually holds the
         input token: arming a session this source cannot then drive would strand the
@@ -852,6 +932,9 @@ class QuestSource:
     def tick(self) -> None:
         """Called by the server watchdog. The receive path only runs when frames ARRIVE, so
         silence has to be noticed from the outside."""
+        # Before the connection guard below: a finished run must still be retired when the
+        # link has gone quiet, or the completion card would be waiting on the next reconnect.
+        self._expire_calib()
         if not self._connected or self._last_rx == 0.0:
             return
         age = time.monotonic() - self._last_rx

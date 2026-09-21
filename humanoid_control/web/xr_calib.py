@@ -69,14 +69,17 @@ class Pose:
 
 # Deliberately few, and each one earns its place.
 POSES: tuple[Pose, ...] = (
-    Pose("relaxed", "ARM RELAXED AT YOUR SIDE",
-         "let it hang naturally, elbow straight — this is the zero"),
-    Pose("tpose", "ARM STRAIGHT OUT TO THE SIDE",
-         "shoulder height, elbow straight — measures your arm's length"),
-    Pose("forward", "ARM STRAIGHT OUT IN FRONT",
-         "shoulder height, elbow straight"),
-    Pose("elbow90", "UPPER ARM DOWN, FOREARM FORWARD",
-         "elbow bent to a right angle"),
+    # BOTH ARMS, every pose. One pass captures a profile per side, and the operator only
+    # knows to move both if the HUD says so — posing one arm silently banks whatever the
+    # other happened to be doing as that side's calibration.
+    Pose("relaxed", "BOTH ARMS RELAXED AT YOUR SIDES",
+         "let them hang naturally, elbows straight — this is the zero"),
+    Pose("tpose", "BOTH ARMS STRAIGHT OUT TO THE SIDES",
+         "shoulder height, elbows straight — measures your arms' length"),
+    Pose("forward", "BOTH ARMS STRAIGHT OUT IN FRONT",
+         "shoulder height, elbows straight"),
+    Pose("elbow90", "UPPER ARMS DOWN, FOREARMS FORWARD",
+         "both elbows bent to a right angle"),
     # NO reach-up pose. The decomposition deliberately puts its singularity at "arm
     # straight up" because the robot cannot reach there — so asking the OPERATOR to go there
     # samples exactly the degenerate region. Measured: it returned roll 152 deg with yaw
@@ -91,7 +94,11 @@ class CalibrationRun:
 
     seq: tuple[Pose, ...] = field(default_factory=lambda: POSES)
     idx: int = 0
-    t_start: float = field(default_factory=time.monotonic)
+    # Set in __post_init__, NOT via default_factory. A default_factory binds the
+    # `time.monotonic` function object when the class is created, so it silently ignores a
+    # patched clock while `_settle_until` beside it honours one — two fields on the same run
+    # disagreeing about what time it is. It is also the fallback the stall check ages from.
+    t_start: float = 0.0
     # Per side, because the four pose instructions ("relax", "T-pose", ...) already apply to
     # both arms at once: the operator performs ONE gesture and both arms are measured from it.
     # Separate ranges per side still matter — the arms are not symmetric in practice, and one
@@ -102,6 +109,17 @@ class CalibrationRun:
     failed_note: str = ""
     saved_to: str = ""
     saved_sides: tuple = ()
+    # TERMINAL STATE. A run has to be able to hand the HUD back, and it has three ways to
+    # finish: all four poses captured, the operator cancelling, or body tracking going away
+    # long enough that it will never progress. All three land here so the completion card can
+    # SAY which one happened — an abort that merely makes the card vanish leaves the operator
+    # guessing. `done` stays "all four poses captured" because the GET route reports it.
+    ended_at: float = 0.0
+    end_reason: str = ""            # "done" | "cancelled" | "tracking"
+    # Monotonic time of the last banked sample, for the stall check. The run cannot notice
+    # its own stall: `_note_body`'s empty-body branch returns before ever calling update(),
+    # so nothing here runs while tracking is gone. QuestSource.tick() does the checking.
+    last_sample_at: float = 0.0
     _settle_until: float = 0.0
 
     def __post_init__(self) -> None:
@@ -109,12 +127,28 @@ class CalibrationRun:
         # calls len(self.seq). Coerce rather than trust the caller.
         if not self.seq:
             self.seq = POSES
+        now = time.monotonic()
+        self.t_start = now
         # A moment to read the first instruction before sampling starts.
-        self._settle_until = time.monotonic() + 3.0
+        self._settle_until = now + 3.0
 
     @property
     def current(self) -> Pose | None:
         return self.seq[self.idx] if self.idx < len(self.seq) else None
+
+    @property
+    def is_ended(self) -> bool:
+        """True once the run has finished for ANY reason and is only being displayed."""
+        return bool(self.ended_at)
+
+    def end(self, reason: str) -> None:
+        """Move to the terminal state. Idempotent: the first reason wins, so a stall check
+        racing the last capture cannot relabel a successful run as abandoned."""
+        if self.ended_at:
+            return
+        self.end_reason = reason
+        self.ended_at = time.monotonic()
+        _log.info("quest calib: run ended (%s)", reason)
 
     # ── per-frame ───────────────────────────────────────────────────────────
     def update(self, arms, joints: dict) -> None:
@@ -124,7 +158,7 @@ class CalibrationRun:
         so single-arm callers keep working. A side that is not tracked simply contributes no
         samples — the operator can calibrate with one arm connected and the other absent.
         """
-        if self.done:
+        if self.is_ended:
             return
         if not isinstance(arms, dict):
             arms = {"left": arms}
@@ -132,6 +166,9 @@ class CalibrationRun:
         if not live:
             return
         now = time.monotonic()
+        # Set BEFORE the settle gate: a run that is still counting down its 3 s is receiving
+        # tracking perfectly well and must not be judged stalled.
+        self.last_sample_at = now
         if now < self._settle_until:
             return
         for s, a in live.items():
@@ -180,6 +217,7 @@ class CalibrationRun:
         if self.idx >= len(self.seq):
             self.done = True
             self._persist()
+            self.end("done")
         else:
             self._restart_pose()
 
@@ -222,16 +260,44 @@ class CalibrationRun:
         self._settle_until = time.monotonic() + 3.0
 
     # ── HUD ─────────────────────────────────────────────────────────────────
+    def _end_card(self) -> dict:
+        """The terminal card. Shown for a few seconds, then QuestSource clears the run and
+        the normal HUD comes back — so it says what happened, not "take the headset off".
+
+        The OK decision comes from `saved_sides`, not from `saved_to`. `_persist` writes
+        `saved_to` once per side, so it holds only the LAST path: with the left arm saved and
+        the right one failing it is still truthy, and this card used to read as a clean
+        success while one arm had no profile at all. `failed_note` is surfaced for the same
+        reason — the ok branch used to drop it on the floor.
+        """
+        dismiss = "press X to continue"
+        if self.end_reason == "cancelled":
+            return {"type": "hud", "tone": "warn", "step": "CALIBRATION CANCELLED",
+                    "instruction": "NOT SAVED", "progress": 0,
+                    "note": f"nothing was changed — {dismiss}"}
+        if self.end_reason == "tracking":
+            return {"type": "hud", "tone": "err", "step": "CALIBRATION ABORTED",
+                    "instruction": "BODY TRACKING LOST", "progress": 0,
+                    "note": ("the headset stopped reporting your arms — stand where it can "
+                             f"see you and start again · {dismiss}")}
+        ok = bool(self.saved_sides)
+        sides = " + ".join(self.saved_sides) if self.saved_sides else ""
+        if ok and self.failed_note:          # partial: one arm saved, the other did not
+            return {"type": "hud", "tone": "warn", "step": "CALIBRATION INCOMPLETE",
+                    "instruction": f"{sides.upper()} ONLY", "progress": 100,
+                    "note": f"{self.failed_note} · {dismiss}"}
+        if ok:
+            return {"type": "hud", "tone": "ok", "step": "CALIBRATION COMPLETE",
+                    "instruction": f"{sides.upper()} SAVED", "progress": 100,
+                    "note": f"hold a trigger to drive · {dismiss}"}
+        return {"type": "hud", "tone": "err", "step": "CALIBRATION COMPLETE",
+                "instruction": "NOT SAVED", "progress": 100,
+                "note": (self.failed_note or "the profile could not be written")
+                        + f" · {dismiss}"}
+
     def hud(self, src) -> dict:
-        if self.done:
-            ok = bool(self.saved_to)
-            sides = " + ".join(self.saved_sides) if self.saved_sides else ""
-            return {"type": "hud", "tone": "ok" if ok else "err",
-                    "step": "CALIBRATION COMPLETE",
-                    "instruction": "DONE" if ok else "NOT SAVED",
-                    "progress": 100,
-                    "note": (f"{sides} profile saved — you can take the headset off" if ok
-                             else self.failed_note or "the profile could not be written")}
+        if self.is_ended:
+            return self._end_card()
         pose = self.current
         now = time.monotonic()
         n = len(self.seq)

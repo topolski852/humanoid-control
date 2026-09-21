@@ -344,7 +344,12 @@ def quest_calibrate(request: Request):
         return _err("Quest bridge not enabled (HUMANOID_QUEST_ENABLE).", 409)
     if svc.is_motion_active():
         return _err("Stop the current motion session before calibrating.", 409)
-    svc.quest.start_calibration()
+    try:
+        svc.quest.start_calibration()
+    except RuntimeError as exc:
+        # A run is already in progress. 409, not 500: this is the operator double-pressing
+        # the button, and the message tells them how to get out of the one they have.
+        return _err(str(exc), 409)
     return _ok(svc.telemetry_snapshot())
 
 
@@ -355,7 +360,12 @@ def quest_calibrate_status(request: Request):
     c = getattr(svc.quest, "_calib", None) if svc.quest else None
     if c is None:
         return _ok({"running": False})
-    return _ok({"running": True, "done": c.done,
+    return _ok({# `running` now means "still capturing". An ended run lingers only long
+                # enough to be read on the HUD, and a poller that could not tell the two
+                # apart had no way to know whether a run had just finished or finished
+                # twenty minutes ago.
+                "running": not c.is_ended, "done": c.done,
+                "ended": c.is_ended, "end_reason": c.end_reason,
                 "pose": (c.current.key if c.current else None),
                 "index": c.idx, "total": len(c.seq),
                 "captured": c.captured_poses, "note": c.failed_note,

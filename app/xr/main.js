@@ -23,7 +23,15 @@ const TX_HZ = 60;              // Quest renders at 72–120; the arm loop runs a
 const SEND_FAIL_LIMIT_MS = 200; // give up (and let the server's stall timer fire) past this
 
 const $enter = document.getElementById('enter');
+const $calibrate = document.getElementById('calibrate');
 const $status = document.getElementById('status');
+
+// Both entry buttons move together: either one opens the same session, so while one is
+// running the other must not be pressable.
+function buttons(disabled) {
+  $enter.disabled = disabled;
+  $calibrate.disabled = disabled;
+}
 
 let ws = null;
 let seq = 0;
@@ -240,13 +248,13 @@ function send(obj) {
 }
 
 // ── session ─────────────────────────────────────────────────────────────────
-async function start() {
-  $enter.disabled = true;
+async function start({ calibrate = false } = {}) {
+  buttons(true);
   try {
     await connect();
   } catch (e) {
     show(String(e.message || e), 'err');
-    $enter.disabled = false;
+    buttons(false);
     return;
   }
 
@@ -268,7 +276,7 @@ async function start() {
     });
   } catch (e) {
     show(`could not start XR: ${e.message || e}`, 'err');
-    $enter.disabled = false;
+    buttons(false);
     return;
   }
 
@@ -293,7 +301,7 @@ async function start() {
   } catch (e) {
     show(`could not set up the XR render layer: ${e.message || e}`, 'err');
     try { await session.end(); } catch { /* already gone */ }
-    $enter.disabled = false;
+    buttons(false);
     return;
   }
 
@@ -329,7 +337,7 @@ async function start() {
     send({ seq: ++seq, t: performance.now(), session: sessionId,
            head: null, left: { tracked: false }, right: { tracked: false } });
     try { ws && ws.close(); } catch { /* already gone */ }
-    $enter.disabled = false;
+    buttons(false);
     $enter.textContent = 'Re-enter passthrough';
     show('session ended — arm stopped');
   });
@@ -416,6 +424,42 @@ async function start() {
   };
   session.requestAnimationFrame(onFrame);
   show('connected — hold the trigger to drive');
+
+  // Start the guided calibration, if that is the button that was pressed.
+  //
+  // AFTER the render loop, deliberately, for two reasons. requestSession must stay the first
+  // thing the click does — it needs the user gesture, and an `await fetch` before it risks
+  // spending that gesture on the network instead. And the run arms a settle timer the moment
+  // it is created, so starting it only once frames are flowing means that countdown begins
+  // roughly when the operator is actually in passthrough, not while they are still lifting
+  // the headset onto their head.
+  if (calibrate) await startCalibration();
+}
+
+// The page's only REST call. Everything else here rides the websocket, but starting a run is
+// a one-shot command with a reply worth reading, and the server already owns the endpoint.
+async function startCalibration() {
+  const token = new URLSearchParams(location.search).get('token');
+  const url = `/api/quest/calibrate${token ? `?token=${encodeURIComponent(token)}` : ''}`;
+  try {
+    const r = await fetch(url, { method: 'POST' });
+    if (r.ok) return;
+    // The refusals are real and actionable — "disarm first", "a run is already going" — so
+    // they belong in the HEADSET, not only on a monitor the operator cannot read. The
+    // server pushes its own HUD at 8 Hz and will overwrite this shortly, which is fine: by
+    // then either the run is live or the operator has taken the headset off to look.
+    let why = `HTTP ${r.status}`;
+    try {
+      const j = await r.json();
+      why = (j && (j.error || j.detail)) || why;
+    } catch { /* not JSON — keep the status code */ }
+    hud({ tone: 'err', step: 'CALIBRATION NOT STARTED', instruction: 'REFUSED', note: why });
+    show(`calibration refused: ${why}`, 'err');
+  } catch (e) {
+    const why = String(e.message || e);
+    hud({ tone: 'err', step: 'CALIBRATION NOT STARTED', instruction: 'NO REPLY', note: why });
+    show(`calibration request failed: ${why}`, 'err');
+  }
 }
 
 // ── boot ────────────────────────────────────────────────────────────────────
@@ -446,7 +490,11 @@ async function start() {
          'err');
     return;
   }
-  $enter.disabled = false;
+  buttons(false);
   $enter.textContent = 'Enter passthrough';
-  $enter.addEventListener('click', start);
+  // Bound through arrow functions, not passed directly: addEventListener hands the listener
+  // a MouseEvent, and `start` now takes an options object — passing it raw would make
+  // `event.calibrate` the flag, which is undefined and would silently never calibrate.
+  $enter.addEventListener('click', () => start());
+  $calibrate.addEventListener('click', () => start({ calibrate: true }));
 })();
