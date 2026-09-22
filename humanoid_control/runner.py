@@ -56,7 +56,8 @@ class PolicyRunner:
         _rec_dir = os.environ.get("HUMANOID_RECORD_DIR")
         if _rec_dir:
             from .recorder import StepRecorder
-            self._recorder = StepRecorder(_rec_dir, contract.joint_order)
+            self._recorder = StepRecorder(_rec_dir, contract.joint_order,
+                                          policy_hz=1.0 / contract.policy_dt)
             print(f"[runner] recording policy ticks -> {self._recorder.path}", file=sys.stderr)
 
     # --- lifecycle -------------------------------------------------------

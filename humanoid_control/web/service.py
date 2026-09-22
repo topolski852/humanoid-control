@@ -55,8 +55,9 @@ def _arm_hz() -> float:
 _ARM_HZ = _arm_hz()
 
 # A commanded position older than this is no longer treated as a live target in telemetry.
-# Generous relative to the 50 Hz policy loop: a finished ramp legitimately stops resending
-# while the robot still holds that pose, and that hold IS the current command.
+# Generous relative to every loop that writes one (the leg policy at 25 Hz, arm teleop at
+# _ARM_HZ): a finished ramp legitimately stops resending while the robot still holds that
+# pose, and that hold IS the current command.
 _TARGET_STALE_S = 5.0
 
 
@@ -170,6 +171,9 @@ class ControlService:
         self._gate_lock = threading.Lock()
         # Live arm rigs while an arm session runs; read by telemetry, empty otherwise.
         self._rigs: list = []
+        # Set once every configured arm's reach_bounds() has been computed — see
+        # _warm_arm_chains for why chain EXISTENCE is not the same signal.
+        self.chains_warm = threading.Event()
         self._warm_arm_chains()
         self._command_lock = threading.Lock()
         self._command = np.zeros(3, dtype=np.float32)
@@ -1399,24 +1403,36 @@ class ControlService:
     def _warm_arm_chains(self) -> None:
         """Build and warm each arm's kinematic chain in the BACKGROUND, at startup.
 
-        `ArmChain.reach_bounds()` grids the joint limits numerically: ~1.0s per chain, and
+        `ArmChain.reach_bounds()` grids the joint limits numerically: ~0.95s per chain, and
         GIL-heavy enough to starve the asyncio loop while it runs. Anywhere on the arming or
         ticking path that is a stall the safety watchdogs read as a dead link — it fired a
         spurious quest-timeout E-STOP during arming before this moved here. Paid once, up
         front, where nothing is waiting on it and no session exists to interrupt.
 
-        Best effort: a failure here costs the first tick its second back, nothing more.
+        ``chains_warm`` is SET WHEN THE WORK IS DONE, not when the chains exist. Constructing
+        a chain takes ~0.5 ms and populates ``_chain_cache``; the ~950 ms per arm happens
+        afterwards inside reach_bounds(). So "is `_chain_cache` populated" answers a
+        different question from "has the warm-up finished", and anything that waits on the
+        former is still waiting on a cold chain. Callers that need the real answer wait on
+        this event.
+
+        Best effort: a failure here costs the first tick its second back, nothing more — the
+        event is set either way, so a broken chain cannot leave a waiter hanging.
         """
         limbs = list(self._layout.arms)
         if not limbs:
+            self.chains_warm.set()      # nothing to warm; already as warm as it gets
             return
 
         def warm():
-            for lb in limbs:
-                try:
-                    self.arm_chain(lb).reach_bounds()
-                except Exception as exc:                 # noqa: BLE001
-                    _log.debug("arm chain warm-up failed for %s (%s)", lb, exc)
+            try:
+                for lb in limbs:
+                    try:
+                        self.arm_chain(lb).reach_bounds()
+                    except Exception as exc:             # noqa: BLE001
+                        _log.debug("arm chain warm-up failed for %s (%s)", lb, exc)
+            finally:
+                self.chains_warm.set()
 
         threading.Thread(target=warm, name="arm-chain-warm", daemon=True).start()
 
@@ -2005,9 +2021,10 @@ class ControlService:
             #
             # Two wrong comments stood here before this one, in both directions, and the
             # honest version is: the firmware watchdog DOES run in DAMPING, and the daemon
-            # feeds it (Actuator::tick). Neither half is optional. docs/HANDOFF.md still
-            # claims the watchdog cannot fire in DAMPING; that claim cost this repo the same
-            # bug twice, and the hardware is the authority.
+            # feeds it (Actuator::tick). Neither half is optional. The firmware docs claimed
+            # otherwise and that cost this repo the same bug twice; docs/HANDOFF.md §2
+            # ("Watchdog → DAMPING") now records the correction, and the hardware is the
+            # authority over both.
             self._rest(group)
             if manual:
                 # Disable the firmware position clamp for the whole armed session so a trigger-
@@ -2260,8 +2277,11 @@ class ControlService:
                 _log.warning("position_limits write %s failed: %s", name, exc)
 
     def _widen_position_limits(self, joints=None) -> None:
-        # Scoped to the joints being commanded: dropping the firmware clamp on a limb we are not
-        # driving would remove a safety net for no benefit.
+        # CAN be scoped to the joints being commanded — dropping the firmware clamp on a limb
+        # we are not driving would remove a safety net for no benefit. Both current callers
+        # (manual capture-hold, and the manual deadman session) command every configured joint,
+        # so both take the default and widen the whole layout. _restore_position_limits always
+        # restores the whole layout, so a narrower widen must not outlive its session.
         w = self._MANUAL_WIDE_LIMIT_RAD
         self._write_position_limits({n: (-w, w) for n in (joints or self._joints)})
         _log.warning("MANUAL hold: ESC soft position limits widened to ±%.1f rad "

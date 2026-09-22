@@ -31,8 +31,12 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 API = "http://127.0.0.1:8000/api/status"
-REQUIRED = ("chest", "left-shoulder", "left-arm-upper", "left-arm-lower",
-            "left-hand-wrist-twist", "left-hand-wrist")
+# From the retargeter, not a copy: a local list here drifted from what human_angles reads
+# (it omitted `hips` and the opposite shoulder, which define the torso frame), so this
+# script's "joints present" count was measured against the wrong denominator.
+from humanoid_control.arm_retarget import required as _required   # noqa: E402
+
+REQUIRED = _required("left")
 
 
 def status() -> dict:

@@ -18,8 +18,9 @@ public:
     explicit UdpServer(uint16_t listen_port);
     ~UdpServer();
 
-    // Start the receive thread. handler is called for each incoming JSON message;
-    // the returned string is sent back to the sender. Must be called before spin().
+    // Set the handler called for each incoming JSON message; the string it returns is sent
+    // back to the sender. Must be called before start() — the receive thread reads it without
+    // synchronisation, so setting it afterwards is a data race, not merely late.
     void set_handler(Handler handler);
 
     // Start listening (launches background thread).

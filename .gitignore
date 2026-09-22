@@ -31,3 +31,7 @@ _arm_recording/
 docs/measurements/*.frames.jsonl
 docs/measurements/*.ticks.jsonl
 docs/measurements/.*.out
+
+# Extracted humanoid-studio app (unpacked snap/flatpak squashfs). Local scratch for reading
+# the studio backend; not part of this repo and ~1M lines, so it must never be staged.
+squashfs-root/

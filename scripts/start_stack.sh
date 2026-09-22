@@ -123,7 +123,14 @@ echo "[3/4] web server"
 if web_up; then
   ok "already running"
 else
+  # SAME CONFIG AS THE DAEMON, explicitly. Without HUMANOID_CONFIG the web layer runs
+  # resolve_robot_config_path(), whose first candidate is ~/.config/humanoid-studio/ — the
+  # copy this script picks $CONFIG to AVOID. The two halves of the stack then disagree about
+  # the robot: measured on this machine, 55 differences including the old asymmetric leg
+  # gains and OPPOSITE hip_pitch gear_ratio signs. deploy/humanoid-web.service already sets
+  # this; the bench path did not, so the startup log named a config the daemon was not using.
   ( cd "$REPO" && PYTHONUNBUFFERED=1 HUMANOID_WEB_HOST=0.0.0.0 HUMANOID_WEB_PORT=8000 \
+      HUMANOID_CONFIG="$CONFIG" \
       HUMANOID_GAMEPAD_ENABLE=${HUMANOID_GAMEPAD_ENABLE:-1} \
       HUMANOID_QUEST_ENABLE=${HUMANOID_QUEST_ENABLE:-1} \
       setsid nohup .venv/bin/python -m humanoid_control.web \

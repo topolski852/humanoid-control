@@ -15,10 +15,13 @@ robot entirely from the controller:
   LT or RT            deadman trigger — HOLD (either one) to engage. RELEASE → rest.
 
   LEG mode   Left stick  = walk vx/vy      Right stick X = yaw (wz)
-  ARM mode   Left stick X = shoulder_pitch    Left stick Y = shoulder_roll
-             Right stick X = shoulder_yaw      Right stick Y = elbow_pitch
-             One stick, one joint — no IK, no coupling. Cartesian and spherical frames also
-             exist (TeleopTuning.frame) but trade this predictability for convenience.
+  ARM mode   Left stick X = shoulder_roll     Left stick Y = shoulder_pitch
+             Right stick X = shoulder_yaw     Right stick Y = elbow_pitch
+             One stick, one joint — no IK, no coupling. Cartesian, spherical, pose and
+             mirror frames also exist (TeleopTuning.frame) but trade this predictability
+             for convenience. The binding lives in TeleopTuning.joint_map = (1, 0, 3, 2),
+             indexed by stick in the order (left_x, left_y, right_y, right_x); pitch and
+             roll were written the wrong way round here for as long as this file existed.
 
 E-STOP IS ON START, NOT B. B is disarm — an orderly stop through the session. E-STOP bypasses
 everything via the priority port. Do not conflate them.

@@ -5,10 +5,14 @@
 // the telemetry broadcast loop, and the UDP command server.
 //
 // Thread model:
-//   - Control thread (200 Hz, SCHED_FIFO):  drain_all → tick all joints → snapshot telemetry
-//   - Telemetry thread (10–100 Hz, normal): read telemetry snapshot → broadcast JSON
-//   - UDP server thread (normal):           receive commands → enqueue to command_queue_
-//   - Priority thread (normal):             port 9002 — ESTOP only, never blocked by apply_config
+//   - Control thread (200 Hz, SCHED_FIFO):  E-Stop check → drain_all → tick all joints
+//   - Telemetry thread (10–100 Hz, normal): read each Actuator::state() → broadcast JSON
+//   - UDP server thread (normal):           receive a command and RUN handle_command INLINE.
+//       There is no command queue. Commands execute on the receive thread, which is why the
+//       blocking ones (APPLY_ALL_CONFIGS, READ_CONFIG, CALIBRATE_DEVICE) hold that thread for
+//       seconds at a time and why E-Stop has its own port and its own thread below.
+//   - Priority thread (normal):             port 9002 — ESTOP only; sets estop_pending_ and
+//       returns immediately, so it is never blocked by an apply_config on 9001.
 //   - Main thread:                          start / stop only
 
 #include "config/config_loader.hpp"

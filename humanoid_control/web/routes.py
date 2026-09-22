@@ -2,8 +2,10 @@
 REST routes for the web control layer. All responses use the {success, data, error}
 envelope (matches the frontend ``app/src/api.js``).
 
-Read-only routes are open; every mutating route is gated by ``require_auth`` (a no-op unless
-``HUMANOID_WEB_PASSWORD`` is set) at include time in ``server.py``. Blocking robot calls
+EVERY route here is gated by ``require_auth`` — ``server.py`` attaches it to the whole router
+at include time, so it covers the read-only GETs as well as the mutating routes. It is a no-op
+unless ``HUMANOID_WEB_PASSWORD`` is set, which is why this reads as "open" on a trusted LAN and
+why the docstring used to claim the GETs were exempt. They are not. Blocking robot calls
 (connect/disconnect/stop/load-policy) run in a threadpool so the event loop stays responsive.
 """
 from __future__ import annotations

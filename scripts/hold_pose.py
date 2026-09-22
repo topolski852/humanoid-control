@@ -9,6 +9,10 @@ exercises the full command path + safety scaffolding with no learned net.
 SAFETY: only run with the user present and the robot supported/gantried. Requires the
 explicit ``--i-am-present`` flag. E-stop: press ENTER/'q' or Ctrl-C.
 
+Base state comes from the daemon's IMU, matching run_policy.py and the web path. ZeroPolicy
+ignores the observation entirely, so it changes nothing here — it is wired the same way on
+purpose, so this script cannot be copied as a template for one that does read it.
+
     python scripts/hold_pose.py --i-am-present [--ramp 5] [--seconds 20]
 """
 import _bootstrap  # noqa: F401
@@ -18,7 +22,7 @@ import sys
 
 from humanoid_control import (
     LegPolicyContract, LIVE_ROBOT_CONFIG_PATH, resolve_robot_config_path, PolicyRunner, ZeroPolicy,
-    UprightStubBaseState, EstopController,
+    TelemetryBaseState, EstopController,
 )
 from humanoid_control.daemon import DaemonClient, RobotConfig
 
@@ -43,7 +47,8 @@ async def main() -> int:
     estop = EstopController(client)  # SIGINT + keyboard kill armed
     runner = PolicyRunner(
         client, contract, ZeroPolicy(contract.num_joints),
-        base_source=UprightStubBaseState(), estop=estop, ramp_seconds=args.ramp,
+        base_source=TelemetryBaseState(lambda: {"base": client.latest_base()}),
+        estop=estop, ramp_seconds=args.ramp,
     )
     await runner.connect()                     # no motion
     if not runner.prepare():                   # MOTION: enable + ramp to default_pose

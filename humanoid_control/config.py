@@ -47,12 +47,38 @@ ROBOT_CONFIG_CANDIDATES = (
 )
 
 
+def _warn_about_rivals(chosen: Path) -> None:
+    """Say out loud when more than one robot config exists on this machine.
+
+    THE FAILURE THIS CATCHES. These copies drift, and the drift is invisible: measured on the
+    bench machine, the two differed in 55 fields including the whole leg gain set (the old
+    asymmetric kp 10.5-68.4 against the uniform kp=45 the deployed policy was trained on) and
+    OPPOSITE ``gear_ratio`` signs on both hip_pitch joints. Nothing downstream notices, because
+    each copy is internally consistent.
+
+    It also catches the split-stack case, which is worse than picking the wrong file: the daemon
+    takes its config from ``--config`` and this function answers only for the PYTHON side, so
+    the two halves can be driving different robots while both logs look healthy. Point the
+    daemon's ``--config`` and ``$HUMANOID_CONFIG`` at the same path.
+    """
+    others = [p for p in ROBOT_CONFIG_CANDIDATES if p.exists() and p != chosen]
+    if not others:
+        return
+    _log.warning(
+        "more than one robot config exists on this machine — using %s, ignoring %s. "
+        "These copies DRIFT (gains, gear signs, limits). Make sure the daemon's --config "
+        "names the same file, or set $HUMANOID_CONFIG to whichever one is authoritative.",
+        chosen, ", ".join(str(p) for p in others))
+
+
 def resolve_robot_config_path() -> Path | None:
     """First existing robot config: ``$HUMANOID_CONFIG`` then ``ROBOT_CONFIG_CANDIDATES``.
 
     Returns None when none exist (the runtime then runs telemetry-only and refuses to connect).
     An explicit ``$HUMANOID_CONFIG`` that does not exist is reported rather than skipped — a
     typo'd override must not silently fall through to a different robot's gains.
+
+    Whichever copy wins, a second one existing is reported — see :func:`_warn_about_rivals`.
     """
     env = os.environ.get("HUMANOID_CONFIG")
     if env:
@@ -64,6 +90,7 @@ def resolve_robot_config_path() -> Path | None:
     for p in ROBOT_CONFIG_CANDIDATES:
         if p.exists():
             _log.info("robot config: %s", p)
+            _warn_about_rivals(p)
             return p
     _log.warning("no robot config found; searched: %s",
                  ", ".join(str(p) for p in ROBOT_CONFIG_CANDIDATES))
@@ -90,39 +117,37 @@ POLICY_FRAME_MIRRORED_JOINTS = (
 # LegPolicyContract. +1 (the default) draws the raw device angle, which is what the visualizer
 # wants until there is real evidence — see scripts/gen_viz_kinematics.py.
 #
-# Measured 2026-09-19, with the T-pose reference corrected first (shoulder_pitch and
-# shoulder_yaw are each held a quarter turn from relaxed, so their targets are +-90, not 0).
-# Established by moving one joint at a time and watching the render:
-#   elbow_pitch    mirrored on both arms
-#   shoulder_yaw   mirrored on both arms
-# shoulder_yaw was found SECOND, and only after elbow_pitch was fixed: two reversed joints in
-# the same chain cancel each other visually, so yaw looked correct while the elbow was still
-# wrong. Expect that when checking the rest — verify one joint with the others known-good,
-# never several at once.
+# CURRENTLY EMPTY, deliberately. Every arm joint therefore takes +1 and is drawn raw. Nothing
+# below describes entries that exist; it records why there are none, because "the render is
+# wrong for shoulder_pitch" is a live, unresolved finding and the obvious fix belongs here.
 #
-# THIS IS THE SINGLE SOURCE. scripts/gen_viz_kinematics.py bakes it into the bundled model and
-# /api/contract serves it live; the app refuses to draw if the two disagree, so they must come
-# from here rather than be written out twice.
-# REVERTED to empty 2026-09-19. These four were set from how the RENDER looked while the arm
-# was moved by hand. They did fix the picture — but Quest teleop then drove the arm the wrong
-# way, and `ArmProfile.to_robot` was verified offline to map operator->robot correctly on every
-# joint of both arms. A correct mapping with a negation in front of it produces exactly that.
-# The render disagreement is real and still unexplained; it must be diagnosed WITHOUT a sign
-# that also sits in the command path, because one constant feeding both is what let a
+# THIS IS THE SINGLE SOURCE for whatever it does contain. scripts/gen_viz_kinematics.py bakes
+# it into the bundled model and /api/contract serves it live; the app refuses to draw if the
+# two disagree, so they must come from here rather than be written out twice.
+#
+# WHY IT IS EMPTY. Four entries were set on 2026-09-19 from how the RENDER looked while the
+# arm was moved by hand (elbow_pitch and shoulder_yaw, both arms). They did fix the picture —
+# but Quest teleop then drove the arm the wrong way, and `ArmProfile.to_robot` was verified
+# offline to map operator->robot correctly on every joint of both arms. A correct mapping with
+# a negation in front of it produces exactly that. So they were reverted: this constant feeds
+# BOTH the picture and the command path, and one constant feeding both is what let a
 # picture-only fix reach the motors.
 #
-# UPDATE, later on 2026-09-19 — a likely explanation, not yet acted on. The robot's PHYSICAL
-# left shoulder_pitch axis was shown to run opposite to the URDF's: the flip was removed on
-# the theory that this constant had caused it, and the operator reported the inversion
-# straight back, on a build where this dict was already empty (config.py written 15:17,
-# servers started 16:17 and 16:20). It now lives in `arm_profile.HUMAN_TO_ROBOT_SIGN`, which
-# only affects the command path.
+# (A note on finding them, worth keeping: shoulder_yaw was only identified after elbow_pitch
+# was fixed, because two reversed joints in the same chain cancel each other visually. Verify
+# one joint with the others known-good, never several at once.)
 #
-# If the URDF's axis is wrong, the RENDER would be wrong for that joint too — which is
-# exactly the unexplained disagreement above. That points at the model, not at a sign
-# constant. The fix belongs in the URDF (app/src/data/viz_kinematics.json and whatever
-# generates it), after which BOTH the picture and the -1 in HUMAN_TO_ROBOT_SIGN go away
-# together. Until someone verifies that on the machine, nothing here changes.
+# WHAT THE REAL CAUSE LOOKS LIKE. The robot's PHYSICAL left shoulder_pitch axis runs opposite
+# to the URDF's. The flip was removed on the theory that this constant had caused it, and the
+# operator reported the inversion straight back on a build where this dict was already empty
+# (config.py written 15:17, servers started 16:17 and 16:20). The correction now lives in
+# `arm_profile.HUMAN_TO_ROBOT_SIGN`, which only affects the command path.
+#
+# If the URDF's axis is wrong, the RENDER is wrong for that joint too — which is exactly the
+# unexplained disagreement above. That points at the model, not at a sign constant. The fix
+# belongs in the URDF (app/src/data/viz_kinematics.json and whatever generates it), after
+# which BOTH the picture and the -1 in HUMAN_TO_ROBOT_SIGN go away together. Until someone
+# verifies that on the machine, nothing here changes.
 ARM_FRAME_SIGN: dict[str, float] = {}
 
 

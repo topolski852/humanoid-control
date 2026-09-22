@@ -24,7 +24,8 @@ policy runner (Python)  ──UDP :9001/:9000──▶  daemon (C++, owns CAN @2
   - `layout.py` — **which limbs are attached to this machine** (see *Robot layout* below).
     Deliberately separate from the policy contract: the contract is the sim↔real interface
     the trainer agreed to, not a description of the hardware in the room.
-  - `base_state.py` — pluggable base state (upright stub now → IMU telemetry later).
+  - `base_state.py` — pluggable base state: `TelemetryBaseState` reads the daemon's `base`
+    block (live IMU), `UprightStubBaseState` is the explicit no-IMU fallback.
   - `observation.py` / `action.py` — obs assembly (45) and action→target mapping + clamps.
   - `policy.py` — Policy ABC + Zero/Onnx/Torch loaders.
   - `safety.py` — E-stop (port 9002), keyboard kill, ramp-to-pose.
@@ -40,9 +41,16 @@ policy runner (Python)  ──UDP :9001/:9000──▶  daemon (C++, owns CAN @2
 ```bash
 cd daemon && make                 # build the daemon
 # ensure the leg CAN adapters are powered (can_left_leg / can_right_leg come up)
-./build/humanoid_daemon --config /home/nse/humanoid-studio/configs/humanoid_lite.json &
+# --imu-device is what ENABLES the IMU: no robot config ships an `imu` block, so without it
+# the daemon logs `imu: disabled` and telemetry carries `base: null` forever.
+./build/humanoid_daemon --config ~/humanoid-studio/configs/humanoid_lite.json \
+                        --imu-device /dev/humanoid_imu &
 cd .. && pip install -r requirements.txt
 python scripts/smoke_test.py --connect --seconds 3    # read-only telemetry (no motion)
+```
+Or bring the whole stack up in order, which handles all of the above:
+```bash
+scripts/start_stack.sh            # CAN → daemon → web server, each waited on, not slept
 ```
 Motion (user present, robot supported/gantried, E-stop = ENTER/'q'/Ctrl-C):
 ```bash
@@ -79,8 +87,16 @@ Env: `HUMANOID_WEB_HOST`/`HUMANOID_WEB_PORT`, `HUMANOID_CONFIG` (robot config),
 > **Which robot config?** There is more than one copy of `humanoid_lite.json` on a typical
 > machine and they drift — the studio GUI writes to `~/.config/humanoid-studio/`, the repo
 > checkout keeps its own. `resolve_robot_config_path()` searches `$HUMANOID_CONFIG` → the
-> studio user config → the repo copy and **logs which one won** at startup. Point the daemon's
-> `--config` at the same file, or you will run gains you did not set.
+> studio user config → the repo copy, **logs which one won**, and now **warns when a second
+> copy exists**. Point the daemon's `--config` and `$HUMANOID_CONFIG` at the same file, or you
+> will run gains you did not set.
+>
+> This is not hypothetical. Measured on the bench machine, the two copies differed in **55
+> fields**: `~/.config/humanoid-studio/` carried the retired asymmetric leg gains (kp 10.5–68.4
+> / kd 0.5–9.8) and **opposite `gear_ratio` signs on both hip_pitch joints**, while
+> `~/humanoid-studio/configs/` carried the uniform kp=45 / kd=1.5 the deployed walk policy was
+> trained on. `deploy/*.service` and `scripts/start_stack.sh` both pin the latter for the daemon
+> *and* the web layer; a hand-started server that omits `$HUMANOID_CONFIG` will not.
 
 ## Robot layout (which limbs are attached)
 The app drives whatever is actually plugged in — legs on a gantry, a single arm on the bench,
@@ -117,9 +133,14 @@ is `{side}_wrist_yaw_joint` on the hardware and `elbow_roll` in the URDF. The ma
 ## Safety (non-negotiable)
 Never drive the robot beyond a supported/gantry dry-run without a human present. Targets
 are always clamped to per-joint `position_limits`; the runner ramps to the default pose on
-start (never steps); E-stop (priority port 9002) and a keyboard kill are always armed. The
-upright base-state stub can hold a pose but **cannot** close a real balance loop — keep the
-robot supported until the IMU lands.
+start (never steps); E-stop (priority port 9002) and a keyboard kill are always armed.
+
+The IMU has landed, but **keep the robot supported anyway**, for two separate reasons. First,
+the balance loop is unproven — `default_pose` was measured leaning ~10° forward and statically
+unstable. Second, the daemon only reads the IMU when started with `--imu-device`; without it,
+telemetry carries `base: null` and the runtime silently substitutes the upright stub, which
+tells the policy the robot is perfectly level and perfectly still. Check the daemon log does not
+say `imu: disabled`, or run with `scripts/run_policy.py --require-imu` to make it a refusal.
 
 ## Config is shared, not forked
 The robot's live per-joint config (gains, offsets, gear signs, limits — updated by
@@ -131,6 +152,11 @@ at `/home/nse/humanoid-studio/configs/humanoid_lite.json`. Point the daemon
 - ✅ M1 daemon smoke test (all 12 legs enumerate, IDLE, live telemetry, fw v3.2.0)
 - ✅ M2 vendored client + config load + canonical order + 50 Hz telemetry stream
 - ✅ M4 obs/action plumbing validated offline (zero-policy identity, safety clamp)
-- ✅ M5 PolicyRunner + ONNX/Torch loaders (code complete; untested with a real net)
+- ✅ M5 PolicyRunner + ONNX/Torch loaders
+- ✅ IMU: external WitMotion sensor read by the daemon, `base` telemetry block live,
+  mounting rotation confirmed identity (x-fwd / y-left / z-up)
+- ✅ Wireless web control, gamepad + Quest input arbitration, per-limb layout
+- ✅ Arm teleop (no trained arm policy — teleop only, see *Robot layout* above)
 - ⏳ M3 hold-pose and M6 supported squat→stand — **require the user present + support**
+- ⏳ Balance: unproven. `default_pose` leans ~10° forward and is statically unstable.
 - Trainer contract exported to `POLICY_CONTRACT.md` / `configs/leg_policy_params.json`

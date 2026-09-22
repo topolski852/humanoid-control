@@ -15,8 +15,12 @@ trainer side; don't hand-copy numbers. This doc explains it.
 > `configs/leg_policy_params.json` to keep sim and hardware in sync.
 
 ## 1. Scope
-- **Legs only, 12 joints.** Arms are parked/disabled (no CAN adapters connected).
-- Task: squat → stand. Not walking.
+- **Legs only, 12 joints.** This contract covers the trained leg policy and nothing else. The
+  robot now has arms and they are driven (teleop, no trained policy) — but they are outside this
+  contract by design, and `humanoid_control.layout` is what describes the hardware in the room.
+  Adding an arm must not widen the joint set the policy commands.
+- Task: the deployed bundle is a **walk** policy offset from its stand pose; the original
+  squat → stand task is what the contract was first written for.
 
 ## 2. Canonical joint order (indices 0–11)
 Left leg then right leg, each `[hip_roll, hip_yaw, hip_pitch, knee_pitch, ankle_pitch, ankle_roll]`:
@@ -35,22 +39,31 @@ Concatenated in this exact field order (matches Berkeley `rl_controller` and
 | slice | field | notes |
 |--|--|--|
 | 0:3 | `command` | velocity command (3,) — zero for stand-up |
-| 3:6 | `base_ang_vel` | rad/s, base frame (IMU; **stub = 0** for now) |
-| 6:9 | `projected_gravity` | gravity unit vec in base frame (IMU; **stub = [0,0,−1]**) |
+| 3:6 | `base_ang_vel` | rad/s, base frame — live, from the daemon's `base` block |
+| 6:9 | `projected_gravity` | gravity unit vec in base frame — live, from the daemon's `base` block |
 | 9:21 | `joint_pos − default_pose` | 12, canonical order (**relative to default**) |
 | 21:33 | `joint_vel` | 12, canonical order |
 | 33:45 | `prev_action` | 12, previous clipped (pre-scale) action |
 
 ## 4. Action (12)
 ```
-target = clip(action, action_limit_lower, action_limit_upper) * action_scale + default_pose
-target = clamp(target, position_limit_lower, position_limit_upper)   # hard safety
-prev_action = clip(action)   # pre-scale, fed back into the next obs
+clipped     = clip(action, action_limit_lower, action_limit_upper)
+target      = policy_frame_sign * (clipped * action_scale) + default_pose
+target      = clamp(target, position_limit_lower, position_limit_upper)   # hard safety
+prev_action = clipped   # pre-scale, UNFLIPPED, fed back into the next obs
 ```
 `action_scale = 0.25`. The clip bounds are the trainer's exported `action_limit_lower/upper`
 (**±4.0**), carried in the contract's `action` block. The runtime previously clipped at ±100,
 letting the policy drive targets it never saw in training (observed |action| 10.17 on 2026-08-24);
 fixed 2026-08-24 in `ActionMapper`.
+
+**`policy_frame_sign` is not optional and is easy to omit.** The network works in the URDF frame,
+which is left/right mirrored; `default_pose` and the position limits here are DEVICE frame, which
+is not. The map is `−1` on `right_hip_roll`, `right_hip_yaw` and `right_ankle_roll`, `+1`
+everywhere else, and it is its own inverse — `observation.py` applies it to `joint_pos − default`
+and `joint_vel` on the way in, `action.py` applies it to the scaled action on the way out.
+`prev_action` is stored unflipped because it is the network's own output going straight back into
+the network's own observation.
 
 ## 5. Timing
 `policy_dt = 0.04 s` (25 Hz policy). `control_dt = 0.004 s`. The daemon runs its own 200 Hz
@@ -75,25 +88,26 @@ trained with them. `kp`→firmware `position_kp`, `kd`→`velocity_kp` (acts as 
 
 | idx | joint | kp | kd | effort | Kt | gear | default_pose |
 |--|--|--|--|--|--|--|--|
-| 0 | left_hip_roll | 45.0 | 1.50 | 6.0 | 0.08958 | +15 | +0.0296 |
-| 1 | left_hip_yaw | 45.0 | 1.50 | 12.0 | 0.08958 | −15 | +0.0038 |
-| 2 | left_hip_pitch | 45.0 | 1.50 | 9.5 | 0.08958 | +15 | +0.9817 |
-| 3 | left_knee_pitch | 45.0 | 1.50 | 11.0 | 0.08958 | +15 | +2.4435 |
-| 4 | left_ankle_pitch | 45.0 | 1.50 | 6.0 | 0.06588 | +15 | −0.7854 |
-| 5 | left_ankle_roll | 45.0 | 1.50 | 7.0 | 0.06588 | +15 | +0.0136 |
-| 6 | right_hip_roll | 45.0 | 1.50 | 6.0 | 0.08958 | −15 | +0.0296 |
-| 7 | right_hip_yaw | 45.0 | 1.50 | 6.0 | 0.08958 | +15 | +0.0038 |
-| 8 | right_hip_pitch | 45.0 | 1.50 | 9.5 | 0.08958 | −15 | +0.9817 |
-| 9 | right_knee_pitch | 45.0 | 1.50 | 11.0 | 0.08958 | −15 | +2.4435 |
-| 10 | right_ankle_pitch | 45.0 | 1.50 | 6.0 | 0.06588 | −15 | −0.7854 |
-| 11 | right_ankle_roll | 45.0 | 1.50 | 7.0 | 0.06588 | −15 | +0.0136 |
+| 0 | left_hip_roll | 45.0 | 1.50 | 6.0 | 0.08958 | +15 | +0.1100 |
+| 1 | left_hip_yaw | 45.0 | 1.50 | 12.0 | 0.08958 | −15 | +0.0000 |
+| 2 | left_hip_pitch | 45.0 | 1.50 | 9.5 | 0.08958 | +15 | −0.2400 |
+| 3 | left_knee_pitch | 45.0 | 1.50 | 11.0 | 0.08958 | +15 | +0.8300 |
+| 4 | left_ankle_pitch | 45.0 | 1.50 | 6.0 | 0.06588 | +15 | −0.5600 |
+| 5 | left_ankle_roll | 45.0 | 1.50 | 7.0 | 0.06588 | +15 | −0.0700 |
+| 6 | right_hip_roll | 45.0 | 1.50 | 6.0 | 0.08958 | −15 | +0.1100 |
+| 7 | right_hip_yaw | 45.0 | 1.50 | 6.0 | 0.08958 | +15 | +0.0000 |
+| 8 | right_hip_pitch | 45.0 | 1.50 | 9.5 | 0.08958 | −15 | −0.2400 |
+| 9 | right_knee_pitch | 45.0 | 1.50 | 11.0 | 0.08958 | −15 | +0.8300 |
+| 10 | right_ankle_pitch | 45.0 | 1.50 | 6.0 | 0.06588 | −15 | −0.5600 |
+| 11 | right_ankle_roll | 45.0 | 1.50 | 7.0 | 0.06588 | −15 | −0.0700 |
 
 Notes:
-- ⚠️ The `default_pose` column above is the **original squat→stand** pose and is stale for the
-  walk bundle. The machine-readable defaults are authoritative:
-  `configs/leg_policy_params.json` (device frame, what the runner uses) and
-  `policies/walk/leg_policy_contract.json` (URDF frame, as exported by the trainer). The walk
-  policy's offset is the **stand** pose (hip_pitch −0.24, knee +0.83, ankle_pitch −0.56).
+- ℹ️ The table above is **generated from `configs/leg_policy_params.json`**, which stays the
+  authoritative machine-readable copy — regenerate rather than hand-edit. `default_pose` is the
+  walk bundle's **stand** pose in DEVICE frame (hip_pitch −0.24, knee +0.83, ankle_pitch −0.56);
+  `policies/walk/leg_policy_contract.json` holds the same pose in URDF frame, where the three
+  mirrored right-leg joints carry the opposite sign (see §4). It previously showed the original
+  squat→stand pose and had drifted from both.
 - ⚠️ **`left_knee_pitch` torque-direction inversion — no longer reproducing; cause NOT confirmed.**
   On 2026-08-21 it held on enable but ran away from any commanded target into a hardstop
   (err 1.32 rad, pinned 96.8% of the run). It was NOT a `gear_ratio` sign issue — `gear_ratio`
@@ -132,11 +146,23 @@ URDF `position_limits`**. It's a deep squat — the intended start for squat→s
 [`configs/policy_starting_pose.json`](configs/policy_starting_pose.json) for provenance.
 
 ## 8. Base state / IMU
-No IMU yet. `base_ang_vel` and `projected_gravity` come from an upright **stub**
-(`[0,0,−1]`, `0`). When the daemon publishes a `base` telemetry block (planned — see
-`docs/DAEMON_SPEC.md §9`), swap `UprightStubBaseState` → `TelemetryBaseState`; nothing else
-changes. A stubbed base can hold/track a pose but **cannot close a real balance loop** —
-keep the robot supported until the IMU lands.
+**The IMU has landed.** An external WitMotion sensor is read by the daemon, which publishes the
+`base` telemetry block (`docs/DAEMON_SPEC.md §9`, `docs/HANDOFF.md §7`) carrying `quaternion`,
+`angular_velocity` and a daemon-computed `projected_gravity`. The runtime consumes it through
+`TelemetryBaseState`; `UprightStubBaseState` remains only as the explicit no-IMU fallback.
+
+Two things still gate an unsupported stand, and neither is the sensor:
+
+1. **The daemon must be started with `--imu-device`.** No robot config ships an `imu` block, so
+   without the flag the daemon logs `imu: disabled` and telemetry carries `base: null` forever —
+   and the runtime then falls back to the stub, which tells the policy the robot is perfectly
+   level and perfectly still. Six of the 45 observations, fabricated, behind one stderr warning.
+   `deploy/humanoid-daemon.service` and `scripts/start_stack.sh` both pass it.
+2. **The balance loop is unproven.** Real orientation is necessary, not sufficient: `default_pose`
+   was measured leaning ~10° forward and statically unstable. Keep the robot supported.
+
+`PolicyRunner(require_valid_base=True)` turns a missing `base` block into a refusal rather than a
+silent stub; `scripts/run_policy.py --require-imu` exposes it.
 
 ## 9. Trainer alignment (resolved 2026-07-01, `humanoid-policy`)
 - ✅ `joint_order` and obs field order — locked; trainer's legs obs group matches exactly.
@@ -148,10 +174,10 @@ keep the robot supported until the IMU lands.
   set in the trainer's `HUMANOID_BIPED_WALK_CFG` / `HUMANOID_BIPED_SQUAT_CFG` (still per-joint
   dicts so re-asymmetrizing is a value edit). The old left/right asymmetry is retired — the ESCs
   are now flashed to the uniform bench-tuned values, so sim and hardware match.
-- ⚠️ **IMU prerequisite for hardware stand-up:** the trainer policy observes real
-  `base_ang_vel` / `projected_gravity`, but this runtime still feeds the upright **stub** (§8).
-  A stubbed base cannot close a balance loop — wire live base telemetry (`docs/DAEMON_SPEC.md §9`)
-  before running a stand-up policy unsupported. Training can proceed in parallel.
+- ✅ **IMU prerequisite for hardware stand-up:** the trainer policy observes real
+  `base_ang_vel` / `projected_gravity`, and the runtime now feeds them from the daemon's `base`
+  block (§8). Still confirm the daemon log does not say `imu: disabled` before any unsupported
+  run, and note that the balance loop itself remains unproven.
 - ℹ️ Joint names differ by a `leg_` prefix only (trainer `leg_left_hip_roll_joint` vs runtime
   `left_hip_roll_joint`); the mapping is **positional** and the trainer export strips the prefix,
   so no runtime change is required.

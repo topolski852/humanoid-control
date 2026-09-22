@@ -325,12 +325,15 @@ def main() -> int:
     from humanoid_control.layout import LIMB_JOINTS as _LJ
 
     svc, q = build()
-    # The warm-up runs in a background thread at construction; give it room to finish.
-    for _ in range(60):
-        if all(getattr(svc, "_chain_cache", {}).get(lb) is not None
-               for lb in ("left_arm", "right_arm")):
-            break
-        _time.sleep(0.1)
+    # WAIT ON THE COMPLETION EVENT, not on _chain_cache. Constructing a chain takes ~0.5 ms
+    # and populates the cache; the ~950 ms per arm of reach_bounds() runs afterwards. The
+    # warm thread does left-construct, left-warm, right-construct, right-warm — so "both
+    # limbs are in _chain_cache" first becomes true while the RIGHT arm is still cold, and
+    # the timing check below then raced the warm thread: 1118 ms one run, 0 ms the next.
+    # ControlService.chains_warm is set when the work is genuinely done.
+    svc.chains_warm.wait(timeout=30.0)
+    check("the chains report themselves warm", svc.chains_warm.is_set(),
+          "ControlService.chains_warm")
     check("both arm chains are warmed at startup",
           set(getattr(svc, "_chain_cache", {})) >= {"left_arm", "right_arm"},
           str(sorted(getattr(svc, "_chain_cache", {}))))

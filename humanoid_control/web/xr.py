@@ -72,7 +72,7 @@ import time
 
 import numpy as np
 
-from ..arm_retarget import human_angles
+from ..arm_retarget import human_angles, required as retarget_required
 
 _log = logging.getLogger(__name__)
 
@@ -602,23 +602,25 @@ class QuestSource:
         st.reason = ""
         self.service.set_run_gate(True, source=SOURCE, limb=_limb(hand))
 
-    # ── body tracking (observation only for now) ────────────────────────────
-    # Joints the retargeter will need. Tracked here so "is body tracking good enough on
-    # this device" is answerable from data before any of it is wired to a motor.
-    BODY_REQUIRED_COMMON = ("chest",)
-    BODY_REQUIRED_SIDE = ("{s}-shoulder", "{s}-arm-upper", "{s}-arm-lower",
-                          "{s}-hand-wrist-twist", "{s}-hand-wrist")
-
+    # ── body tracking ───────────────────────────────────────────────────────
+    # Which joints have to be present-and-measured for a frame to count as usable.
+    #
+    # DELEGATED to arm_retarget, which is the module that actually reads them. Keeping a
+    # second list here drifted: this one carried only the driven arm's own chain plus
+    # `chest`, omitting `hips` and the OPPOSITE shoulder — and those two are not part of any
+    # arm, they define the torso frame (arm_retarget.torso_frame). So `body_usable` could
+    # report True for a frame that human_angles then decomposed to None, which reads on the
+    # HUD and in telemetry as "tracking is fine, the arm just is not following".
+    #
+    # Per side, still: the right arm's usability must not hinge on whether the LEFT wrist
+    # happened to be in view.
     @classmethod
     def body_required(cls, side: str = "left") -> tuple:
-        """Joints the retargeter needs for one arm. Per side: the right arm's usability must
-        not hinge on whether the LEFT wrist happened to be in view."""
-        return cls.BODY_REQUIRED_COMMON + tuple(n.format(s=side)
-                                                for n in cls.BODY_REQUIRED_SIDE)
+        """Joints the retargeter needs for one arm — ``arm_retarget.required(side)``."""
+        return retarget_required(side)
 
-    # Kept as the left-arm view so existing readers of the constant still resolve.
-    BODY_REQUIRED = BODY_REQUIRED_COMMON + tuple(n.format(s="left")
-                                                 for n in BODY_REQUIRED_SIDE)
+    # The left-arm view, kept as a constant so existing readers still resolve.
+    BODY_REQUIRED = retarget_required("left")
 
     def _note_body(self, body) -> None:
         """Record body-tracking availability and quality. Never raises, never controls."""

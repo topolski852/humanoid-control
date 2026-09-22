@@ -27,16 +27,35 @@ from dataclasses import dataclass
 
 import numpy as np
 
-# Joints this module needs. A capture missing any of them cannot be retargeted.
+# Joints this module needs, per side. THE SINGLE SOURCE: anything that decides whether a
+# body-tracking sample is usable must ask here, or it will answer for a different set than
+# the one :func:`human_angles` actually reads and report "usable" for samples that
+# decompose to None. ``humanoid_control.web.xr.QuestSource.body_required`` delegates to it
+# for exactly that reason.
 #
-# NOTE `arm-upper`, NOT `shoulder`. The spec exposes both, and they are different points:
-# `left-shoulder` sits at the clavicle/scapula end, `left-arm-upper` at the glenohumeral
-# joint where the humerus actually starts. Measured on this operator, shoulder→elbow is
-# 40.8 cm while arm-upper→elbow is 26.2 cm — the first is an upper arm plus half a
-# collarbone, and using it skewed the segment DIRECTION as well as its length.
-REQUIRED = ("chest", "hips", "left-arm-upper", "left-arm-lower",
-            "left-hand-wrist-twist", "left-hand-wrist",
-            "left-shoulder", "right-shoulder")
+# BOTH SHOULDERS AND `hips` ARE REQUIRED FOR EITHER ARM, which is the part that is easy to
+# get wrong: they are not part of the arm chain at all, they define the TORSO FRAME (see
+# :func:`torso_frame`), and without that frame the arm angles describe which way the
+# operator is facing rather than their posture. A per-side list built only from the driven
+# arm's own joints therefore looks complete and is not.
+#
+# NOTE `arm-upper`, NOT `shoulder`, for the chain itself. The spec exposes both, and they
+# are different points: `left-shoulder` sits at the clavicle/scapula end, `left-arm-upper`
+# at the glenohumeral joint where the humerus actually starts. Measured on this operator,
+# shoulder→elbow is 40.8 cm while arm-upper→elbow is 26.2 cm — the first is an upper arm
+# plus half a collarbone, and using it skewed the segment DIRECTION as well as its length.
+TORSO_REQUIRED = ("chest", "hips", "left-shoulder", "right-shoulder")
+_ARM_REQUIRED = ("{s}-arm-upper", "{s}-arm-lower",
+                 "{s}-hand-wrist-twist", "{s}-hand-wrist")
+
+
+def required(side: str = "left") -> tuple[str, ...]:
+    """Body-tracking joints :func:`human_angles` needs to decompose ``side``'s arm."""
+    return TORSO_REQUIRED + tuple(n.format(s=side) for n in _ARM_REQUIRED)
+
+
+# The left-arm view, kept as a module constant for readers that want one set.
+REQUIRED = required("left")
 
 
 def _unit(v: np.ndarray) -> np.ndarray:

@@ -1,17 +1,31 @@
 """
-Cartesian arm teleop: stick deflection in, joint targets out.
+Arm teleop: operator input in, joint targets out.
 
 Deliberately free of I/O so it can be tested without a robot — the caller feeds it the measured
-joint angles and a stick command, and gets back joint targets to send.
+joint angles and a command, and gets back joint targets to send.
 
-**Sticks command VELOCITY, not position.** Deflection sets how fast the hand moves; releasing
+FIVE FRAMES, three entry points. ``tuning.frame`` selects which:
+
+    joint      (default)  one stick, one joint, no IK          -> step()
+    spherical             elevation / azimuth / reach sticks   -> step()
+    cartesian             X / Y / Z sticks                     -> step()
+    pose                  a 6-DOF tracker's hand displacement  -> step_pose()
+    mirror                the operator's own joint angles      -> step_mirror()
+
+**Sticks command VELOCITY, not position.** Deflection sets how fast the arm moves; releasing
 stops it where it is. Position-mapped sticks would teleport the arm whenever the stick re-centres
 or a frame is dropped, and would make the reachable set depend on where the stick happened to be.
 
-The target point is integrated in Cartesian space and the IK chases it. That ordering matters:
-integrating in joint space instead would make a straight-line hand motion impossible, and letting
-the target run away from the arm (past its reach, or into a limit) would wind up an error the arm
-can never work off. `_leash` below keeps the target within reach of where the hand actually is.
+NOTHING CHASES A FREE-RUNNING TARGET any more. An earlier design integrated a point in Cartesian
+space and had the IK chase it; that wound up an error the arm could never work off whenever it
+was blocked, and clamping the runaway target back into the workspace DEFLECTED it, so commanding
+one axis produced motion in another. Every frame now solves for joint motion directly and lets
+the hand follow, which makes the commanded point achievable by construction — see :meth:`step`.
+``_leash`` is the leftover of that design and is documented as unused.
+
+What every frame still shares: the command is integrated from ITS OWN last value and leashed to
+the encoder (so a joint may lead far enough to actually move, but no further), a per-tick rate
+cap, and ``chain.clamp`` — joint limits enforced in exactly one place.
 """
 from __future__ import annotations
 
@@ -26,15 +40,22 @@ from .arm_kinematics import ArmChain
 class TeleopTuning:
     """Speeds and safety envelope. Defaults are deliberately slow — first-run values."""
 
-    # Which coordinates the sticks drive. "spherical" is the default because it matches the
-    # mechanism: the shoulder is a 2-DOF gimbal that AIMS the arm and the elbow sets reach, so
+    # Which coordinates the input drives. "joint" is the DEFAULT: one stick moves exactly one
+    # joint, with no IK and no coupling, and that predictability is worth more on a bench demo
+    # than convenience is.
+    #
+    # Of the two IK stick frames, prefer "spherical" over "cartesian" — it matches the
+    # mechanism. The shoulder is a 2-DOF gimbal that AIMS the arm and the elbow sets reach, so
     # elevation/azimuth/reach are the arm's own degrees of freedom. Cartesian XYZ asks the
     # gimbal for motions it can only approximate — from the hanging pose, world "up" costs
     # ~306 rad of joint motion per metre against ~44 for the identical-looking "raise", so the
     # arm stalls against its own geometry and feels blocked.
+    #
     # "pose" is the 6-DOF-tracker frame (Quest controller): the caller supplies an absolute
-    # hand displacement rather than a stick deflection, and ArmTeleop.step_pose is used
-    # instead of step. Position only — see step_pose on why orientation is not tracked.
+    # hand displacement rather than a stick deflection, and ArmTeleop.step_pose is used instead
+    # of step. Position only — see step_pose on why orientation is not tracked.
+    # "mirror" is whole-arm body tracking, via step_mirror: the operator's own joint angles,
+    # retargeted through their calibration profile, drive the robot's joint for joint.
     frame: str = "joint"   # "joint" | "cartesian" | "spherical" | "pose" | "mirror"
 
     # JOINT mode: which joint each stick axis drives, indexed by stick in the order
@@ -492,16 +513,23 @@ class ArmTeleop:
         """One teleop tick.
 
         ``command`` is the RAW stick quad ``(left_x, left_y, right_y, right_x)`` in [-1, 1],
-        already sign-corrected so "up"/"right" are positive. What the axes mean depends on
-        ``tuning.frame``:
+        already sign-corrected so "up"/"right" are positive. This method serves the three
+        STICK frames; ``pose`` and ``mirror`` have their own entry points (:meth:`step_pose`,
+        :meth:`step_mirror`). What the axes mean depends on ``tuning.frame``:
 
-          cartesian (default)  left_y  -> +X forward
+          joint (the default)  one stick, one joint, no IK — the binding is
+                               ``tuning.joint_map``: left_x -> shoulder_roll,
+                               left_y -> shoulder_pitch, right_y -> elbow_pitch,
+                               right_x -> shoulder_yaw
+          spherical            left_x  -> azimuth, left_y -> elevation, right_y -> reach
+          cartesian            left_y  -> +X forward
                                left_x  -> +Y robot-left
                                right_y -> +Z up
-          spherical            left_x  -> azimuth, left_y -> elevation, right_y -> reach
 
-        ``right_x`` drives the WRIST in both frames, as a direct joint rate — it is an inline
-        twist that does not move the hand, so it has no place in a position solve.
+        In the spherical and cartesian frames ``right_x`` drives the WRIST as a direct joint
+        rate — it is an inline twist that does not move the hand, so it has no place in a
+        position solve. The joint frame reaches the wrist through ``joint_map`` like any
+        other joint, so it takes no separate path.
 
         VELOCITY CONTROL, NOT TARGET CHASING. Earlier this integrated a Cartesian target and
         had the IK chase it, which fails in two ways: the target runs away whenever the arm

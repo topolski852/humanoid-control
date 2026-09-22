@@ -34,7 +34,7 @@ def _l(x):
 
 
 class StepRecorder:
-    def __init__(self, out_dir: str, joint_order):
+    def __init__(self, out_dir: str, joint_order, policy_hz: float = 25.0):
         os.makedirs(out_dir, exist_ok=True)
         self.path = os.path.join(out_dir, f"run_{time.time_ns()}_{os.getpid()}.jsonl")
         self._f = open(self.path, "w", buffering=1)  # line-buffered: each frame hits disk
@@ -47,7 +47,10 @@ class StepRecorder:
         self._f.write(json.dumps({"_meta": {
             "joint_order": list(joint_order),
             "obs_layout": _OBS_LAYOUT,
-            "policy_hz": 25,
+            # From the contract, not a literal: this header is what an offline replay uses to
+            # put the ticks back on a timeline, so a hardcoded 25 would silently mis-time every
+            # recording the moment policy_dt changed.
+            "policy_hz": policy_hz,
         }}) + "\n")
 
     def record(self, *, base, joint_pos, joint_vel, obs, action, targets, command) -> None:

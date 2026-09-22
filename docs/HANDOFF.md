@@ -573,18 +573,33 @@ re-derives them at runtime.
 
 ---
 
-## 7. PLANNED — IMU integration (contract)
+## 7. IMU integration (contract) — IMPLEMENTED
 
-**Status: not yet implemented.** The robot currently has **no IMU**, and there are no IMU
-fields anywhere in firmware, daemon, or backend today (verified: no `imu`/`quaternion`/
-`projected_gravity`/`base` references in `daemon/src` or `backend/humanoid`).
+**Status: shipped.** An external WitMotion-family serial/USB sensor (Hiwonder IM10A, CH340) is
+read **at the daemon level** by `daemon/src/imu/witmotion_reader.cpp`. **No ESC-firmware
+change** — the IMU is not on the CAN bus, so control/trainer code targets daemon telemetry.
 
-The IMU will be added **at the daemon level** — an external serial/USB sensor read by the
-daemon. **No ESC-firmware change.** So control/trainer code should target the daemon telemetry,
-not CAN.
+**Enabled by the `--imu-device` FLAG, not by the config.** Neither robot config on this machine
+ships an `imu` block, so `config_loader` leaves `imu.enabled=false` and a daemon started without
+the flag logs `imu: disabled` and emits `base: null` forever. `deploy/humanoid-daemon.service`
+and `scripts/start_stack.sh` both pass `--imu-device /dev/humanoid_imu` (a udev symlink — see
+`deploy/99-humanoid-imu.rules`). A config `imu` block works too, if one is ever added.
 
-**Intended telemetry addition** (design so your code can target it now): the `TELEMETRY` frame
-(§6.2) gains a top-level `"base"` block:
+Conventions, now fixed rather than provisional:
+
+- quaternion order is **`[w, x, y, z]`**, frame types `0x59` (quaternion) and `0x52` (gyro)
+- `projected_gravity` is computed **on the daemon**, by a `quat_rotate_inverse` written to match
+  `humanoid_control.base_state.quat_rotate_inverse` exactly, so Python consumes it directly
+- `mounting_rotation` is a `[w,x,y,z]` quaternion rotating IMU→base; **identity, confirmed on
+  this robot** (x-forward / y-left / z-up)
+- a missing, disabled or **stale** IMU is signalled as `base: null`, never a stale object
+  (`staleness_ms`, default 100)
+
+Python consumes it via `base_state.TelemetryBaseState`, which yields `valid=False` on
+`base: null`; `PolicyRunner` then warns once and falls back to the upright stub unless
+`require_valid_base=True`.
+
+The `TELEMETRY` frame (§6.2) carries a top-level `"base"` block:
 
 ```jsonc
 "base": {
@@ -595,9 +610,7 @@ not CAN.
 ```
 
 `projected_gravity` is the standard learned-locomotion observation (gravity direction expressed
-in the base frame; ≈ `[0,0,-1]` when upright). **TODO at implementation time:** confirm the
-exact quaternion order/handedness, units, sensor mounting frame, and update rate — treat the
-field names above as the stable contract and the numeric conventions as provisional.
+in the base frame; ≈ `[0,0,-1]` when upright).
 
 ---
 
@@ -623,11 +636,11 @@ direct-CAN Python bus. Do not model new control code on them. What still matters
 
 ## 9. Next steps
 
-- **`humanoid-control` (new repo, to create):** the learned-policy runner — start with a
-  **legs-only stand-up policy**. Plug in at the daemon UDP boundary per §6. (The repo does not
-  exist in this tree yet as of this writing.)
-- **IMU work (§7):** add the external serial/USB IMU at the daemon level and emit the `base`
-  telemetry block. Confirm quaternion/gravity conventions when implementing.
+- **`humanoid-control`:** created, and this document now lives inside it. The learned-policy
+  runner plugs in at the daemon UDP boundary per §6.
+- **IMU work (§7):** done — reader, `base` telemetry block and conventions all landed. What is
+  still open is the *balance loop*: the policy now receives real orientation, but standing
+  unsupported has not been demonstrated. Keep the robot supported.
 - **Firmware:** source of record is **`humanoid-esc-firmware`**
   (github.com/topolski852/humanoid-esc-firmware). Current firmware is **v3.2.0** (boots
   DISABLED, watchdog → DAMPING, POSITION-mode sign fixes described in §2).

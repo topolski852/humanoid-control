@@ -52,9 +52,14 @@ async def main() -> int:
                     offline += 1
                 else:
                     row.append(f"{name.split('_joint')[0]:>16}={st['position']:+.3f}")
-            if k % max(1, int(args.hz // 5)) == 0:  # ~5 lines/sec
+            if k % max(1, int(args.hz // 5)) == 0:  # ~5 rows/sec
                 tag = f" [{offline} offline — run with --connect]" if offline else ""
-                sys.stdout.write("  " + "  ".join(row[:6]) + tag + "\n")
+                # EVERY joint, six per line. This used to slice row[:6] while announcing all
+                # twelve, so the right leg was never shown and a right-leg joint reading
+                # nonsense looked like a healthy robot.
+                for start in range(0, len(row), 6):
+                    sys.stdout.write("  " + "  ".join(row[start:start + 6])
+                                     + (tag if start == 0 else "") + "\n")
             await asyncio.sleep(period)
         print("\nsmoke test done.")
         return 0

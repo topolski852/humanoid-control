@@ -41,11 +41,11 @@
       "joint_vel(12)",
       "prev_action(12)"
     ],
-    "note": "joint_pos fed relative to default_pose. projected_gravity stub=[0,0,-1] until IMU lands."
+    "note": "joint_pos fed relative to default_pose. base_ang_vel / projected_gravity come from the daemon's `base` telemetry block (external WitMotion IMU); the daemon only reads it when started with --imu-device, and reports base:null otherwise, in which case the runtime falls back to an upright stub ([0,0,-1], 0) and says so."
   },
   "action": {
     "num_actions": 12,
-    "formula": "target = clip(action, action_limit_lower, action_limit_upper)*action_scale + default_pose, then clamp to [position_limit_lower, position_limit_upper]",
+    "formula": "clipped = clip(action, action_limit_lower, action_limit_upper); target = policy_frame_sign * (clipped * action_scale) + default_pose; then clamp to [position_limit_lower, position_limit_upper]. policy_frame_sign is -1 on right_hip_roll/right_hip_yaw/right_ankle_roll and +1 elsewhere: the trainer exports in the URDF frame, which is left/right mirrored, while default_pose and the limits here are DEVICE frame, which is not. prev_action stores `clipped`, pre-scale and unflipped, because that is what the trainer feeds back.",
     "action_limit_lower": -4.0,
     "action_limit_upper": 4.0,
     "action_limit_source": "humanoid-policy trainer export policies/walk/policy_latest.yaml (action_limit_lower/upper). The trainer clips pre-scale actions to this range during training; the runtime previously clipped at +/-100, letting the policy command targets far outside the trained range (observed |action| up to 10.17 on 2026-08-24)."

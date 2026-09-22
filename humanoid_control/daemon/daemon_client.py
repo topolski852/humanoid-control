@@ -680,10 +680,11 @@ class DaemonClient:
         """Configure one joint (DISABLED → IDLE) without touching other motors.
         Uses _directly_connected so only this joint appears in telemetry.
 
-        Must follow the same two-phase sequence as APPLY_ALL_CONFIGS:
+        Must follow the same wake-then-configure sequence as APPLY_ALL_CONFIGS:
         (1) wake: send NMT IDLE so firmware stops ignoring SDO writes,
-        (2) config: write all parameters via SDO.
-        Skipping the wake phase leaves the motor in DISABLED — firmware
+        (2) settle: wait for the motor to become SDO-responsive,
+        (3) config: write all parameters via SDO.
+        Skipping the wake leaves the motor in DISABLED — firmware
         silently drops SDO writes while disabled."""
         # Phase 1: wake — transition the daemon state machine to IDLE so the
         # control loop sends NMT IDLE to the motor on its next tick.
@@ -699,7 +700,9 @@ class DaemonClient:
         self._send_command({"type": "STORE_TO_FLASH", "joint_name": joint_name})
 
     def read_device_config(self, joint_name: str) -> dict:
-        # READ_CONFIG reads 23 params with up to 100ms each = ~2.3s; use a generous timeout.
+        # READ_CONFIG reads 24 params (robot.cpp PARAMS) at up to 300 ms each = 7.2 s worst
+        # case; the 30 s ceiling leaves room for a slow bus without the Python side giving up
+        # while the daemon is still reading.
         resp = self._send_command({"type": "READ_CONFIG", "joint_name": joint_name}, timeout=30.0)
         if resp.get("type") != "CONFIG":
             raise DaemonError(f"READ_CONFIG failed: {resp}")
