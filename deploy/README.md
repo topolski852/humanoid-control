@@ -67,6 +67,18 @@ python3 -m venv .venv
 # 3. Build the web UI (Node 18+); produces app/dist that the server serves
 cd app && npm install && npm run build && cd ..
 
+# 3b. Install the CAN udev rule — THE LEGS DO NOT COME UP WITHOUT IT.
+# Names each CANable adapter by USB serial (can_left_leg / can_right_leg), sets 1 Mbps,
+# txqueuelen 1000, and brings it up on plug-in and at boot.
+#
+# DELIBERATELY NOT VENDORED HERE. It is maintained in humanoid-studio/configs/ and the
+# serials in it are per-robot; a second copy in this repo is exactly the drift that bit the
+# robot config (see the root README, "Which robot config?"). Install it from there:
+sudo cp ~/humanoid-studio/configs/99-humanoid-can.rules /etc/udev/rules.d/
+sudo udevadm control --reload-rules && sudo udevadm trigger
+ip -br link show type can      # → can_left_leg / can_right_leg, both UP
+# Re-map the serials on a new robot or new adapters — the file documents how.
+
 # 4. Install the IMU udev rule (stable /dev/humanoid_imu on plug-in / boot)
 sudo cp deploy/99-humanoid-imu.rules /etc/udev/rules.d/
 sudo udevadm control --reload-rules && sudo udevadm trigger

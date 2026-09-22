@@ -4,10 +4,16 @@
 #
 # WHY THE ORDER MATTERS. Each layer assumes the one below it already answers:
 #
-#   1. CAN interface   the daemon opens a socket on it at startup and never retries.
-#                      Start the daemon first and it runs blind — the joints read
-#                      OFFLINE forever with no error, because the bus it wanted did
-#                      not exist when it looked.
+#   1. CAN interface   the daemon's recovery here is ASYMMETRIC, so the order still
+#                      matters even though it is not fatal. A bus that is absent at
+#                      STARTUP is retried: CanBusManager::drain_all reopens closed
+#                      interfaces once a second, so a daemon that beat udev to it
+#                      picks the bus up within a second of it appearing.
+#                      A bus that drops LATER is NOT recovered — SocketCan::recv
+#                      logs the error and returns false without closing the fd, so
+#                      is_open() stays true, the reopen path never runs, and the
+#                      socket sits bound to a dead interface until the daemon is
+#                      restarted. Bring CAN up first and neither case can bite.
 #   2. daemon          the web server's DaemonClient binds its telemetry port and
 #                      starts a receive loop the moment it constructs. Start the web
 #                      server first and it spends its life talking to nobody; the
