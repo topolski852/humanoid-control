@@ -73,10 +73,43 @@ sudo udevadm control --reload-rules && sudo udevadm trigger
 ls -l /dev/humanoid_imu        # → symlink to ttyUSBx
 
 # 5. Install the units
-sudo cp deploy/humanoid-daemon.service deploy/humanoid-web.service /etc/systemd/system/
+sudo cp deploy/humanoid-daemon.service deploy/humanoid-web.service \
+        deploy/humanoid-cpu-performance.service /etc/systemd/system/
 sudo systemctl daemon-reload
+sudo systemctl enable --now humanoid-cpu-performance.service
 sudo systemctl enable --now humanoid-daemon.service humanoid-web.service
 ```
+
+## CPU governor — required, not an optimisation
+
+`humanoid-cpu-performance.service` pins every core to the `performance` governor at boot,
+ordered **before** the daemon. Install it on any machine that runs the control loop.
+
+The daemon's control loop has a 5 ms budget (200 Hz) on a SCHED_FIFO thread pinned to CPU 0.
+Under the distro default `powersave` governor an idle machine drops CPU 0 to roughly 1.5 GHz
+of its 3.4 GHz and the loop misses deadlines. Measured on the bench PC, same binary, machine
+otherwise idle:
+
+| governor | control-loop overruns / minute |
+|--|--|
+| `powersave` | 21–24, each 2.5–4.5 ms on a 5 ms period |
+| `performance` | **0** |
+
+**BUSY MASKS IT, which is why it went unnoticed for months.** While anything else is loading
+the machine the clocks stay up and the loop is clean; the overruns only appear once the box
+goes quiet — exactly when an operator would assume conditions are at their best. It surfaced
+on 2026-09-22 only because a daemon restart happened to coincide with the end of a long build,
+making it look like a regression in the daemon rather than a property of the idle machine.
+
+Check it whenever timing looks wrong, and before taking any sim2real measurement:
+
+```bash
+cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor    # → performance
+journalctl -u humanoid-daemon.service --since -60s | grep -c overrun   # → 0
+```
+
+`systemctl disable --now humanoid-cpu-performance.service` reverts the machine to `powersave`;
+the unit's `ExecStop` puts it back rather than leaving the cores pinned.
 
 ## IMU (external WitMotion 10-axis AHRS)
 The `humanoid-daemon.service` `ExecStart` passes `--imu-device /dev/humanoid_imu`, so on boot

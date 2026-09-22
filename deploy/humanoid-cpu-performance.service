@@ -1,0 +1,29 @@
+[Unit]
+Description=CPU governor → performance (real-time headroom for the 200 Hz CAN loop)
+Documentation=https://github.com/topolski852/humanoid-control
+# WHY THIS EXISTS. The daemon's control loop runs at 200 Hz — a 5 ms budget — on a SCHED_FIFO
+# thread pinned to CPU 0. Under the distro default `powersave` governor an idle machine drops
+# CPU 0 to ~1.5 GHz of its 3.4 GHz, and the loop starts missing its deadline: measured on this
+# box, 21–24 overruns per minute of 2.5–4.5 ms each, against ZERO on `performance`.
+#
+# It is easy to miss, because BUSY masks it. While anything else is loading the machine the
+# clocks stay up and the loop is clean; the overruns appear once the box goes quiet, which is
+# exactly when an operator would assume things are at their best. It was found on 2026-09-22
+# only because a daemon restart happened to coincide with the end of a long build.
+#
+# Ordered before the daemon so no control tick ever runs at a scaled-down clock. `Before=`
+# only orders within a shared transaction, which is satisfied here: both units are enabled
+# into multi-user.target and so start in the same boot transaction.
+Before=humanoid-daemon.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+# Glob + tee rather than a shell loop: systemd expands `$` in ExecStart, so a `for` loop would
+# need its variable escaped as `$$g`. This has no variable to get wrong.
+ExecStart=/bin/sh -c 'echo performance | tee /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor > /dev/null'
+# Revert on stop, so `systemctl disable --now` leaves the machine as it found it.
+ExecStop=/bin/sh -c 'echo powersave | tee /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor > /dev/null'
+
+[Install]
+WantedBy=multi-user.target
