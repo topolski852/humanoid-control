@@ -1,0 +1,1143 @@
+{
+  "_meta": {
+    "capture_id": "hold_20260923T110050",
+    "activity": "hold",
+    "date": "2026-09-23",
+    "started_epoch": 1790175650.5686302,
+    "host": "nse-MINI-S",
+    "daemon": {
+      "running": true,
+      "pid": 1122,
+      "cmdline": "/home/nse/humanoid-control/daemon/build/humanoid_daemon --config /home/nse/humanoid-studio/configs/humanoid_lite.json --imu-device /dev/humanoid_imu",
+      "started_epoch": 1790172025.0019999,
+      "uptime_s": 3625.5808758735657,
+      "config_path": "/home/nse/humanoid-studio/configs/humanoid_lite.json",
+      "config_mtime_epoch": 1790175392.8339274,
+      "config_newer_than_daemon": true
+    },
+    "cpu_temp_start_c": 69.0,
+    "throttle_start": {
+      "core_throttle_count": 0,
+      "package_throttle_count": 0
+    },
+    "encoder_quantum_rad": 0.00010226538585904274,
+    "measurement": "M1/M2/M3/M6",
+    "policy_label": "smoothB-stand",
+    "channels": [
+      "can_left_leg",
+      "can_right_leg"
+    ],
+    "nominal_pdo4_hz": 100.0,
+    "capture_method": "passive candump (no daemon client)",
+    "ended_epoch": 1790176250.5999207,
+    "duration_s": 600.0312905311584,
+    "cpu_temp_end_c": 60.0,
+    "throttle_end": {
+      "core_throttle_count": 0,
+      "package_throttle_count": 0
+    },
+    "stopped_early": false,
+    "cpu_temp_min_c": 56.0,
+    "cpu_temp_max_c": 70.0,
+    "cpu_temp_rise_c": -8.0
+  },
+  "per_joint": {
+    "left_hip_roll_joint": {
+      "frames": 60072,
+      "span_s": 599.9901058673859,
+      "rate_hz": 100.11998433400387,
+      "interval_ms": {
+        "n": 60071,
+        "mean": 9.988015945587486,
+        "p50": 9.976863861083984,
+        "p95": 10.087013244628906,
+        "p99": 10.555505752563484,
+        "max": 20.563125610351562,
+        "min": 7.93004035949707,
+        "std": 0.4247132077294022
+      },
+      "gaps_over_2x_nominal": 36,
+      "gaps_over_10x_nominal": 0,
+      "first_ts": 1790175650.602369,
+      "last_ts": 1790176250.592475
+    },
+    "left_hip_yaw_joint": {
+      "frames": 60049,
+      "span_s": 599.9822158813477,
+      "rate_hz": 100.08296647891824,
+      "interval_ms": {
+        "n": 60048,
+        "mean": 9.99171022983859,
+        "p50": 9.985923767089844,
+        "p95": 10.100126266479492,
+        "p99": 10.50856590270996,
+        "max": 20.274877548217773,
+        "min": 7.713794708251953,
+        "std": 0.33909037197462083
+      },
+      "gaps_over_2x_nominal": 20,
+      "gaps_over_10x_nominal": 0,
+      "first_ts": 1790175650.60219,
+      "last_ts": 1790176250.584406
+    },
+    "left_hip_pitch_joint": {
+      "frames": 60178,
+      "span_s": 599.9842500686646,
+      "rate_hz": 100.29763280138289,
+      "interval_ms": {
+        "n": 60177,
+        "mean": 9.970325042269714,
+        "p50": 9.970903396606445,
+        "p95": 10.084152221679688,
+        "p99": 10.469970703125,
+        "max": 20.605087280273438,
+        "min": 7.777214050292969,
+        "std": 0.24898246262636453
+      },
+      "gaps_over_2x_nominal": 4,
+      "gaps_over_10x_nominal": 0,
+      "first_ts": 1790175650.599918,
+      "last_ts": 1790176250.584168
+    },
+    "left_knee_pitch_joint": {
+      "frames": 60076,
+      "span_s": 599.985876083374,
+      "rate_hz": 100.12735698407003,
+      "interval_ms": {
+        "n": 60075,
+        "mean": 9.987280500763612,
+        "p50": 9.978055953979492,
+        "p95": 10.088920593261719,
+        "p99": 10.612506866455082,
+        "max": 20.236968994140625,
+        "min": 8.095979690551758,
+        "std": 0.393846198565463
+      },
+      "gaps_over_2x_nominal": 29,
+      "gaps_over_10x_nominal": 0,
+      "first_ts": 1790175650.598688,
+      "last_ts": 1790176250.584564
+    },
+    "left_ankle_pitch_joint": {
+      "frames": 60078,
+      "span_s": 599.9821248054504,
+      "rate_hz": 100.13131644460326,
+      "interval_ms": {
+        "n": 60077,
+        "mean": 9.986885576933776,
+        "p50": 9.979009628295898,
+        "p95": 10.087013244628906,
+        "p99": 10.585756301879877,
+        "max": 21.114826202392578,
+        "min": 7.0629119873046875,
+        "std": 0.3890801258001875
+      },
+      "gaps_over_2x_nominal": 35,
+      "gaps_over_10x_nominal": 0,
+      "first_ts": 1790175650.602554,
+      "last_ts": 1790176250.584679
+    },
+    "left_ankle_roll_joint": {
+      "frames": 59992,
+      "span_s": 599.982547044754,
+      "rate_hz": 99.9879084741529,
+      "interval_ms": {
+        "n": 59991,
+        "mean": 10.001209298807389,
+        "p50": 9.991168975830078,
+        "p95": 10.096073150634766,
+        "p99": 10.726094245910643,
+        "max": 20.933151245117188,
+        "min": 7.330179214477539,
+        "std": 0.38042072169057506
+      },
+      "gaps_over_2x_nominal": 32,
+      "gaps_over_10x_nominal": 0,
+      "first_ts": 1790175650.602463,
+      "last_ts": 1790176250.58501
+    },
+    "right_hip_roll_joint": {
+      "frames": 60010,
+      "span_s": 599.9790451526642,
+      "rate_hz": 100.0184931204235,
+      "interval_ms": {
+        "n": 60009,
+        "mean": 9.99815102988992,
+        "p50": 9.983062744140625,
+        "p95": 10.111093521118164,
+        "p99": 10.579032897949217,
+        "max": 20.442962646484375,
+        "min": 7.6808929443359375,
+        "std": 0.4644641406199805
+      },
+      "gaps_over_2x_nominal": 40,
+      "gaps_over_10x_nominal": 0,
+      "first_ts": 1790175650.604601,
+      "last_ts": 1790176250.583646
+    },
+    "right_hip_yaw_joint": {
+      "frames": 59930,
+      "span_s": 599.9866399765015,
+      "rate_hz": 99.88389075187928,
+      "interval_ms": {
+        "n": 59929,
+        "mean": 10.01162442184087,
+        "p50": 10.005950927734375,
+        "p95": 10.137081146240234,
+        "p99": 10.605077743530277,
+        "max": 20.221948623657227,
+        "min": 8.115053176879883,
+        "std": 0.23024216544249754
+      },
+      "gaps_over_2x_nominal": 9,
+      "gaps_over_10x_nominal": 0,
+      "first_ts": 1790175650.602758,
+      "last_ts": 1790176250.589398
+    },
+    "right_hip_pitch_joint": {
+      "frames": 60076,
+      "span_s": 599.9960360527039,
+      "rate_hz": 100.12566148807522,
+      "interval_ms": {
+        "n": 60075,
+        "mean": 9.987449622184,
+        "p50": 9.988069534301758,
+        "p95": 10.114908218383789,
+        "p99": 10.544309616088869,
+        "max": 20.57194709777832,
+        "min": 7.446050643920898,
+        "std": 0.23072962887454973
+      },
+      "gaps_over_2x_nominal": 4,
+      "gaps_over_10x_nominal": 0,
+      "first_ts": 1790175650.596596,
+      "last_ts": 1790176250.592632
+    },
+    "right_knee_pitch_joint": {
+      "frames": 60080,
+      "span_s": 599.9872369766235,
+      "rate_hz": 100.13379668331308,
+      "interval_ms": {
+        "n": 60079,
+        "mean": 9.986638209301478,
+        "p50": 9.987115859985352,
+        "p95": 10.103225708007812,
+        "p99": 10.561408996582033,
+        "max": 20.05600929260254,
+        "min": 7.45701789855957,
+        "std": 0.252548806801115
+      },
+      "gaps_over_2x_nominal": 6,
+      "gaps_over_10x_nominal": 0,
+      "first_ts": 1790175650.601984,
+      "last_ts": 1790176250.589221
+    },
+    "right_ankle_pitch_joint": {
+      "frames": 60005,
+      "span_s": 599.9862551689148,
+      "rate_hz": 100.00895767705046,
+      "interval_ms": {
+        "n": 60004,
+        "mean": 9.999104312527745,
+        "p50": 9.98997688293457,
+        "p95": 10.123968124389648,
+        "p99": 10.726871490478517,
+        "max": 30.43389320373535,
+        "min": 7.355213165283203,
+        "std": 0.3842907369522583
+      },
+      "gaps_over_2x_nominal": 36,
+      "gaps_over_10x_nominal": 0,
+      "first_ts": 1790175650.602233,
+      "last_ts": 1790176250.588488
+    },
+    "right_ankle_roll_joint": {
+      "frames": 59877,
+      "span_s": 599.9926471710205,
+      "rate_hz": 99.79455628717578,
+      "interval_ms": {
+        "n": 59876,
+        "mean": 10.020586665291946,
+        "p50": 10.001897811889648,
+        "p95": 10.15019416809082,
+        "p99": 10.817527770996094,
+        "max": 20.68805694580078,
+        "min": 7.493019104003906,
+        "std": 0.43845025619741473
+      },
+      "gaps_over_2x_nominal": 45,
+      "gaps_over_10x_nominal": 0,
+      "first_ts": 1790175650.59493,
+      "last_ts": 1790176250.587577
+    }
+  },
+  "thermal_series": [
+    {
+      "t": 1790175650.5964339,
+      "cpu_temp_c": 69.0,
+      "core_throttle_count": 0,
+      "package_throttle_count": 0
+    },
+    {
+      "t": 1790175655.5964656,
+      "cpu_temp_c": 58.0,
+      "core_throttle_count": 0,
+      "package_throttle_count": 0
+    },
+    {
+      "t": 1790175660.5965438,
+      "cpu_temp_c": 60.0,
+      "core_throttle_count": 0,
+      "package_throttle_count": 0
+    },
+    {
+      "t": 1790175665.596546,
+      "cpu_temp_c": 59.0,
+      "core_throttle_count": 0,
+      "package_throttle_count": 0
+    },
+    {
+      "t": 1790175670.5965748,
+      "cpu_temp_c": 60.0,
+      "core_throttle_count": 0,
+      "package_throttle_count": 0
+    },
+    {
+      "t": 1790175675.5966125,
+      "cpu_temp_c": 60.0,
+      "core_throttle_count": 0,
+      "package_throttle_count": 0
+    },
+    {
+      "t": 1790175680.5966167,
+      "cpu_temp_c": 59.0,
+      "core_throttle_count": 0,
+      "package_throttle_count": 0
+    },
+    {
+      "t": 1790175685.5966368,
+      "cpu_temp_c": 58.0,
+      "core_throttle_count": 0,
+      "package_throttle_count": 0
+    },
+    {
+      "t": 1790175690.5966473,
+      "cpu_temp_c": 61.0,
+      "core_throttle_count": 0,
+      "package_throttle_count": 0
+    },
+    {
+      "t": 1790175695.596673,
+      "cpu_temp_c": 63.0,
+      "core_throttle_count": 0,
+      "package_throttle_count": 0
+    },
+    {
+      "t": 1790175700.5967085,
+      "cpu_temp_c": 63.0,
+      "core_throttle_count": 0,
+      "package_throttle_count": 0
+    },
+    {
+      "t": 1790175705.5967617,
+      "cpu_temp_c": 61.0,
+      "core_throttle_count": 0,
+      "package_throttle_count": 0
+    },
+    {
+      "t": 1790175710.5967977,
+      "cpu_temp_c": 58.0,
+      "core_throttle_count": 0,
+      "package_throttle_count": 0
+    },
+    {
+      "t": 1790175715.5968056,
+      "cpu_temp_c": 59.0,
+      "core_throttle_count": 0,
+      "package_throttle_count": 0
+    },
+    {
+      "t": 1790175720.5968242,
+      "cpu_temp_c": 60.0,
+      "core_throttle_count": 0,
+      "package_throttle_count": 0
+    },
+    {
+      "t": 1790175725.5968294,
+      "cpu_temp_c": 59.0,
+      "core_throttle_count": 0,
+      "package_throttle_count": 0
+    },
+    {
+      "t": 1790175730.5968606,
+      "cpu_temp_c": 59.0,
+      "core_throttle_count": 0,
+      "package_throttle_count": 0
+    },
+    {
+      "t": 1790175735.5968876,
+      "cpu_temp_c": 59.0,
+      "core_throttle_count": 0,
+      "package_throttle_count": 0
+    },
+    {
+      "t": 1790175740.5969067,
+      "cpu_temp_c": 59.0,
+      "core_throttle_count": 0,
+      "package_throttle_count": 0
+    },
+    {
+      "t": 1790175745.5969276,
+      "cpu_temp_c": 59.0,
+      "core_throttle_count": 0,
+      "package_throttle_count": 0
+    },
+    {
+      "t": 1790175750.5969355,
+      "cpu_temp_c": 58.0,
+      "core_throttle_count": 0,
+      "package_throttle_count": 0
+    },
+    {
+      "t": 1790175755.5969667,
+      "cpu_temp_c": 60.0,
+      "core_throttle_count": 0,
+      "package_throttle_count": 0
+    },
+    {
+      "t": 1790175760.597713,
+      "cpu_temp_c": 59.0,
+      "core_throttle_count": 0,
+      "package_throttle_count": 0
+    },
+    {
+      "t": 1790175765.5977237,
+      "cpu_temp_c": 59.0,
+      "core_throttle_count": 0,
+      "package_throttle_count": 0
+    },
+    {
+      "t": 1790175770.5977685,
+      "cpu_temp_c": 62.0,
+      "core_throttle_count": 0,
+      "package_throttle_count": 0
+    },
+    {
+      "t": 1790175775.5977778,
+      "cpu_temp_c": 59.0,
+      "core_throttle_count": 0,
+      "package_throttle_count": 0
+    },
+    {
+      "t": 1790175780.5978076,
+      "cpu_temp_c": 59.0,
+      "core_throttle_count": 0,
+      "package_throttle_count": 0
+    },
+    {
+      "t": 1790175785.597874,
+      "cpu_temp_c": 60.0,
+      "core_throttle_count": 0,
+      "package_throttle_count": 0
+    },
+    {
+      "t": 1790175790.5979288,
+      "cpu_temp_c": 59.0,
+      "core_throttle_count": 0,
+      "package_throttle_count": 0
+    },
+    {
+      "t": 1790175795.5980039,
+      "cpu_temp_c": 58.0,
+      "core_throttle_count": 0,
+      "package_throttle_count": 0
+    },
+    {
+      "t": 1790175800.5983663,
+      "cpu_temp_c": 60.0,
+      "core_throttle_count": 0,
+      "package_throttle_count": 0
+    },
+    {
+      "t": 1790175805.5984058,
+      "cpu_temp_c": 59.0,
+      "core_throttle_count": 0,
+      "package_throttle_count": 0
+    },
+    {
+      "t": 1790175810.5984082,
+      "cpu_temp_c": 60.0,
+      "core_throttle_count": 0,
+      "package_throttle_count": 0
+    },
+    {
+      "t": 1790175815.598476,
+      "cpu_temp_c": 60.0,
+      "core_throttle_count": 0,
+      "package_throttle_count": 0
+    },
+    {
+      "t": 1790175820.5985377,
+      "cpu_temp_c": 60.0,
+      "core_throttle_count": 0,
+      "package_throttle_count": 0
+    },
+    {
+      "t": 1790175825.5987654,
+      "cpu_temp_c": 61.0,
+      "core_throttle_count": 0,
+      "package_throttle_count": 0
+    },
+    {
+      "t": 1790175830.5989625,
+      "cpu_temp_c": 58.0,
+      "core_throttle_count": 0,
+      "package_throttle_count": 0
+    },
+    {
+      "t": 1790175835.599487,
+      "cpu_temp_c": 60.0,
+      "core_throttle_count": 0,
+      "package_throttle_count": 0
+    },
+    {
+      "t": 1790175840.6007688,
+      "cpu_temp_c": 63.0,
+      "core_throttle_count": 0,
+      "package_throttle_count": 0
+    },
+    {
+      "t": 1790175845.600786,
+      "cpu_temp_c": 58.0,
+      "core_throttle_count": 0,
+      "package_throttle_count": 0
+    },
+    {
+      "t": 1790175850.6008666,
+      "cpu_temp_c": 59.0,
+      "core_throttle_count": 0,
+      "package_throttle_count": 0
+    },
+    {
+      "t": 1790175855.600906,
+      "cpu_temp_c": 59.0,
+      "core_throttle_count": 0,
+      "package_throttle_count": 0
+    },
+    {
+      "t": 1790175860.6009226,
+      "cpu_temp_c": 62.0,
+      "core_throttle_count": 0,
+      "package_throttle_count": 0
+    },
+    {
+      "t": 1790175865.6009328,
+      "cpu_temp_c": 59.0,
+      "core_throttle_count": 0,
+      "package_throttle_count": 0
+    },
+    {
+      "t": 1790175870.6009943,
+      "cpu_temp_c": 70.0,
+      "core_throttle_count": 0,
+      "package_throttle_count": 0
+    },
+    {
+      "t": 1790175875.6010685,
+      "cpu_temp_c": 60.0,
+      "core_throttle_count": 0,
+      "package_throttle_count": 0
+    },
+    {
+      "t": 1790175880.6011171,
+      "cpu_temp_c": 58.0,
+      "core_throttle_count": 0,
+      "package_throttle_count": 0
+    },
+    {
+      "t": 1790175885.6011555,
+      "cpu_temp_c": 60.0,
+      "core_throttle_count": 0,
+      "package_throttle_count": 0
+    },
+    {
+      "t": 1790175890.6011865,
+      "cpu_temp_c": 59.0,
+      "core_throttle_count": 0,
+      "package_throttle_count": 0
+    },
+    {
+      "t": 1790175895.60123,
+      "cpu_temp_c": 61.0,
+      "core_throttle_count": 0,
+      "package_throttle_count": 0
+    },
+    {
+      "t": 1790175900.601265,
+      "cpu_temp_c": 59.0,
+      "core_throttle_count": 0,
+      "package_throttle_count": 0
+    },
+    {
+      "t": 1790175905.6012962,
+      "cpu_temp_c": 58.0,
+      "core_throttle_count": 0,
+      "package_throttle_count": 0
+    },
+    {
+      "t": 1790175910.6013076,
+      "cpu_temp_c": 60.0,
+      "core_throttle_count": 0,
+      "package_throttle_count": 0
+    },
+    {
+      "t": 1790175915.6013262,
+      "cpu_temp_c": 59.0,
+      "core_throttle_count": 0,
+      "package_throttle_count": 0
+    },
+    {
+      "t": 1790175920.601352,
+      "cpu_temp_c": 60.0,
+      "core_throttle_count": 0,
+      "package_throttle_count": 0
+    },
+    {
+      "t": 1790175925.6014125,
+      "cpu_temp_c": 59.0,
+      "core_throttle_count": 0,
+      "package_throttle_count": 0
+    },
+    {
+      "t": 1790175930.6014302,
+      "cpu_temp_c": 58.0,
+      "core_throttle_count": 0,
+      "package_throttle_count": 0
+    },
+    {
+      "t": 1790175935.6014416,
+      "cpu_temp_c": 59.0,
+      "core_throttle_count": 0,
+      "package_throttle_count": 0
+    },
+    {
+      "t": 1790175940.601444,
+      "cpu_temp_c": 61.0,
+      "core_throttle_count": 0,
+      "package_throttle_count": 0
+    },
+    {
+      "t": 1790175945.601482,
+      "cpu_temp_c": 59.0,
+      "core_throttle_count": 0,
+      "package_throttle_count": 0
+    },
+    {
+      "t": 1790175950.6014943,
+      "cpu_temp_c": 63.0,
+      "core_throttle_count": 0,
+      "package_throttle_count": 0
+    },
+    {
+      "t": 1790175955.6015058,
+      "cpu_temp_c": 63.0,
+      "core_throttle_count": 0,
+      "package_throttle_count": 0
+    },
+    {
+      "t": 1790175960.6015098,
+      "cpu_temp_c": 60.0,
+      "core_throttle_count": 0,
+      "package_throttle_count": 0
+    },
+    {
+      "t": 1790175965.6015441,
+      "cpu_temp_c": 59.0,
+      "core_throttle_count": 0,
+      "package_throttle_count": 0
+    },
+    {
+      "t": 1790175970.6015787,
+      "cpu_temp_c": 58.0,
+      "core_throttle_count": 0,
+      "package_throttle_count": 0
+    },
+    {
+      "t": 1790175975.6016011,
+      "cpu_temp_c": 59.0,
+      "core_throttle_count": 0,
+      "package_throttle_count": 0
+    },
+    {
+      "t": 1790175980.6016128,
+      "cpu_temp_c": 61.0,
+      "core_throttle_count": 0,
+      "package_throttle_count": 0
+    },
+    {
+      "t": 1790175985.601637,
+      "cpu_temp_c": 58.0,
+      "core_throttle_count": 0,
+      "package_throttle_count": 0
+    },
+    {
+      "t": 1790175990.6016448,
+      "cpu_temp_c": 59.0,
+      "core_throttle_count": 0,
+      "package_throttle_count": 0
+    },
+    {
+      "t": 1790175995.6016815,
+      "cpu_temp_c": 59.0,
+      "core_throttle_count": 0,
+      "package_throttle_count": 0
+    },
+    {
+      "t": 1790176000.6016903,
+      "cpu_temp_c": 58.0,
+      "core_throttle_count": 0,
+      "package_throttle_count": 0
+    },
+    {
+      "t": 1790176005.6017287,
+      "cpu_temp_c": 60.0,
+      "core_throttle_count": 0,
+      "package_throttle_count": 0
+    },
+    {
+      "t": 1790176010.6017382,
+      "cpu_temp_c": 59.0,
+      "core_throttle_count": 0,
+      "package_throttle_count": 0
+    },
+    {
+      "t": 1790176015.601748,
+      "cpu_temp_c": 58.0,
+      "core_throttle_count": 0,
+      "package_throttle_count": 0
+    },
+    {
+      "t": 1790176020.601783,
+      "cpu_temp_c": 58.0,
+      "core_throttle_count": 0,
+      "package_throttle_count": 0
+    },
+    {
+      "t": 1790176025.6018138,
+      "cpu_temp_c": 59.0,
+      "core_throttle_count": 0,
+      "package_throttle_count": 0
+    },
+    {
+      "t": 1790176030.6018305,
+      "cpu_temp_c": 57.0,
+      "core_throttle_count": 0,
+      "package_throttle_count": 0
+    },
+    {
+      "t": 1790176035.601831,
+      "cpu_temp_c": 56.0,
+      "core_throttle_count": 0,
+      "package_throttle_count": 0
+    },
+    {
+      "t": 1790176040.6018767,
+      "cpu_temp_c": 56.0,
+      "core_throttle_count": 0,
+      "package_throttle_count": 0
+    },
+    {
+      "t": 1790176045.6018767,
+      "cpu_temp_c": 61.0,
+      "core_throttle_count": 0,
+      "package_throttle_count": 0
+    },
+    {
+      "t": 1790176050.6018863,
+      "cpu_temp_c": 57.0,
+      "core_throttle_count": 0,
+      "package_throttle_count": 0
+    },
+    {
+      "t": 1790176055.6018965,
+      "cpu_temp_c": 62.0,
+      "core_throttle_count": 0,
+      "package_throttle_count": 0
+    },
+    {
+      "t": 1790176060.6019142,
+      "cpu_temp_c": 59.0,
+      "core_throttle_count": 0,
+      "package_throttle_count": 0
+    },
+    {
+      "t": 1790176065.601959,
+      "cpu_temp_c": 58.0,
+      "core_throttle_count": 0,
+      "package_throttle_count": 0
+    },
+    {
+      "t": 1790176070.6020715,
+      "cpu_temp_c": 58.0,
+      "core_throttle_count": 0,
+      "package_throttle_count": 0
+    },
+    {
+      "t": 1790176075.60208,
+      "cpu_temp_c": 59.0,
+      "core_throttle_count": 0,
+      "package_throttle_count": 0
+    },
+    {
+      "t": 1790176080.6020818,
+      "cpu_temp_c": 60.0,
+      "core_throttle_count": 0,
+      "package_throttle_count": 0
+    },
+    {
+      "t": 1790176085.6021683,
+      "cpu_temp_c": 56.0,
+      "core_throttle_count": 0,
+      "package_throttle_count": 0
+    },
+    {
+      "t": 1790176090.6022637,
+      "cpu_temp_c": 59.0,
+      "core_throttle_count": 0,
+      "package_throttle_count": 0
+    },
+    {
+      "t": 1790176095.6022956,
+      "cpu_temp_c": 59.0,
+      "core_throttle_count": 0,
+      "package_throttle_count": 0
+    },
+    {
+      "t": 1790176100.6023571,
+      "cpu_temp_c": 58.0,
+      "core_throttle_count": 0,
+      "package_throttle_count": 0
+    },
+    {
+      "t": 1790176105.6023612,
+      "cpu_temp_c": 58.0,
+      "core_throttle_count": 0,
+      "package_throttle_count": 0
+    },
+    {
+      "t": 1790176110.6023884,
+      "cpu_temp_c": 58.0,
+      "core_throttle_count": 0,
+      "package_throttle_count": 0
+    },
+    {
+      "t": 1790176115.6024094,
+      "cpu_temp_c": 59.0,
+      "core_throttle_count": 0,
+      "package_throttle_count": 0
+    },
+    {
+      "t": 1790176120.6024396,
+      "cpu_temp_c": 56.0,
+      "core_throttle_count": 0,
+      "package_throttle_count": 0
+    },
+    {
+      "t": 1790176125.6024787,
+      "cpu_temp_c": 56.0,
+      "core_throttle_count": 0,
+      "package_throttle_count": 0
+    },
+    {
+      "t": 1790176130.6025395,
+      "cpu_temp_c": 59.0,
+      "core_throttle_count": 0,
+      "package_throttle_count": 0
+    },
+    {
+      "t": 1790176135.6025803,
+      "cpu_temp_c": 56.0,
+      "core_throttle_count": 0,
+      "package_throttle_count": 0
+    },
+    {
+      "t": 1790176140.602706,
+      "cpu_temp_c": 58.0,
+      "core_throttle_count": 0,
+      "package_throttle_count": 0
+    },
+    {
+      "t": 1790176145.6028352,
+      "cpu_temp_c": 58.0,
+      "core_throttle_count": 0,
+      "package_throttle_count": 0
+    },
+    {
+      "t": 1790176150.603187,
+      "cpu_temp_c": 59.0,
+      "core_throttle_count": 0,
+      "package_throttle_count": 0
+    },
+    {
+      "t": 1790176155.6033506,
+      "cpu_temp_c": 58.0,
+      "core_throttle_count": 0,
+      "package_throttle_count": 0
+    },
+    {
+      "t": 1790176160.6040087,
+      "cpu_temp_c": 56.0,
+      "core_throttle_count": 0,
+      "package_throttle_count": 0
+    },
+    {
+      "t": 1790176165.6043384,
+      "cpu_temp_c": 59.0,
+      "core_throttle_count": 0,
+      "package_throttle_count": 0
+    },
+    {
+      "t": 1790176170.6047642,
+      "cpu_temp_c": 56.0,
+      "core_throttle_count": 0,
+      "package_throttle_count": 0
+    },
+    {
+      "t": 1790176175.6051292,
+      "cpu_temp_c": 56.0,
+      "core_throttle_count": 0,
+      "package_throttle_count": 0
+    },
+    {
+      "t": 1790176180.605175,
+      "cpu_temp_c": 58.0,
+      "core_throttle_count": 0,
+      "package_throttle_count": 0
+    },
+    {
+      "t": 1790176185.6059995,
+      "cpu_temp_c": 58.0,
+      "core_throttle_count": 0,
+      "package_throttle_count": 0
+    },
+    {
+      "t": 1790176190.6060836,
+      "cpu_temp_c": 56.0,
+      "core_throttle_count": 0,
+      "package_throttle_count": 0
+    },
+    {
+      "t": 1790176195.6061084,
+      "cpu_temp_c": 56.0,
+      "core_throttle_count": 0,
+      "package_throttle_count": 0
+    },
+    {
+      "t": 1790176200.6061556,
+      "cpu_temp_c": 58.0,
+      "core_throttle_count": 0,
+      "package_throttle_count": 0
+    },
+    {
+      "t": 1790176205.6061568,
+      "cpu_temp_c": 56.0,
+      "core_throttle_count": 0,
+      "package_throttle_count": 0
+    },
+    {
+      "t": 1790176210.6062374,
+      "cpu_temp_c": 58.0,
+      "core_throttle_count": 0,
+      "package_throttle_count": 0
+    },
+    {
+      "t": 1790176215.6062815,
+      "cpu_temp_c": 58.0,
+      "core_throttle_count": 0,
+      "package_throttle_count": 0
+    },
+    {
+      "t": 1790176220.6064022,
+      "cpu_temp_c": 56.0,
+      "core_throttle_count": 0,
+      "package_throttle_count": 0
+    },
+    {
+      "t": 1790176225.606446,
+      "cpu_temp_c": 59.0,
+      "core_throttle_count": 0,
+      "package_throttle_count": 0
+    },
+    {
+      "t": 1790176230.6065266,
+      "cpu_temp_c": 56.0,
+      "core_throttle_count": 0,
+      "package_throttle_count": 0
+    },
+    {
+      "t": 1790176235.606529,
+      "cpu_temp_c": 58.0,
+      "core_throttle_count": 0,
+      "package_throttle_count": 0
+    },
+    {
+      "t": 1790176240.6065314,
+      "cpu_temp_c": 58.0,
+      "core_throttle_count": 0,
+      "package_throttle_count": 0
+    },
+    {
+      "t": 1790176245.606534,
+      "cpu_temp_c": 61.0,
+      "core_throttle_count": 0,
+      "package_throttle_count": 0
+    }
+  ],
+  "bus_counters_before": {
+    "can_left_leg": {
+      "state": "ERROR-ACTIVE",
+      "restarted": 0,
+      "bus_errors": 0,
+      "arb_lost": 0,
+      "error_warn": 0,
+      "error_passive": 0,
+      "bus_off": 0,
+      "rx_packets": 5062397,
+      "tx_packets": 1438604,
+      "rx_dropped": 0,
+      "tx_dropped": 0
+    },
+    "can_right_leg": {
+      "state": "ERROR-ACTIVE",
+      "restarted": 0,
+      "bus_errors": 0,
+      "arb_lost": 0,
+      "error_warn": 0,
+      "error_passive": 0,
+      "bus_off": 0,
+      "rx_packets": 4992987,
+      "tx_packets": 1432365,
+      "rx_dropped": 0,
+      "tx_dropped": 0
+    }
+  },
+  "bus_counters_after": {
+    "can_left_leg": {
+      "state": "ERROR-ACTIVE",
+      "restarted": 0,
+      "bus_errors": 0,
+      "arb_lost": 0,
+      "error_warn": 0,
+      "error_passive": 0,
+      "bus_off": 0,
+      "rx_packets": 6941909,
+      "tx_packets": 2194622,
+      "rx_dropped": 0,
+      "tx_dropped": 0
+    },
+    "can_right_leg": {
+      "state": "ERROR-ACTIVE",
+      "restarted": 0,
+      "bus_errors": 0,
+      "arb_lost": 0,
+      "error_warn": 0,
+      "error_passive": 0,
+      "bus_off": 0,
+      "rx_packets": 6872062,
+      "tx_packets": 2188378,
+      "rx_dropped": 0,
+      "tx_dropped": 0
+    }
+  },
+  "bus_counters_delta": {
+    "can_left_leg": {
+      "state": "ERROR-ACTIVE",
+      "restarted": 0,
+      "bus_errors": 0,
+      "arb_lost": 0,
+      "error_warn": 0,
+      "error_passive": 0,
+      "bus_off": 0,
+      "rx_packets": 1879512,
+      "tx_packets": 756018,
+      "rx_dropped": 0,
+      "tx_dropped": 0
+    },
+    "can_right_leg": {
+      "state": "ERROR-ACTIVE",
+      "restarted": 0,
+      "bus_errors": 0,
+      "arb_lost": 0,
+      "error_warn": 0,
+      "error_passive": 0,
+      "bus_off": 0,
+      "rx_packets": 1879075,
+      "tx_packets": 756013,
+      "rx_dropped": 0,
+      "tx_dropped": 0
+    }
+  },
+  "non_pdo4_frames": {
+    "left_ankle_pitch_joint:0x6": 120000,
+    "left_ankle_pitch_joint:0xC": 6000,
+    "right_ankle_pitch_joint:0x6": 120000,
+    "left_ankle_roll_joint:0x6": 120000,
+    "right_ankle_roll_joint:0x6": 120000,
+    "left_ankle_roll_joint:0xC": 6000,
+    "right_ankle_roll_joint:0xC": 6000,
+    "left_ankle_pitch_joint:0x5": 120000,
+    "right_hip_pitch_joint:0x6": 120000,
+    "left_hip_pitch_joint:0x6": 120000,
+    "right_hip_roll_joint:0x6": 120000,
+    "left_hip_pitch_joint:0xC": 6000,
+    "right_ankle_pitch_joint:0x5": 120000,
+    "left_ankle_pitch_joint:0xB": 6000,
+    "right_ankle_roll_joint:0x5": 120000,
+    "left_ankle_roll_joint:0x5": 120000,
+    "left_hip_roll_joint:0x6": 120000,
+    "right_hip_yaw_joint:0x6": 120000,
+    "left_hip_roll_joint:0xC": 6000,
+    "right_knee_pitch_joint:0x6": 120000,
+    "left_ankle_roll_joint:0xB": 6000,
+    "right_hip_pitch_joint:0x5": 120000,
+    "left_hip_pitch_joint:0x5": 120000,
+    "right_hip_roll_joint:0x5": 120000,
+    "left_hip_yaw_joint:0x6": 120000,
+    "left_hip_yaw_joint:0xC": 6000,
+    "left_hip_pitch_joint:0xB": 6000,
+    "right_hip_yaw_joint:0x5": 120000,
+    "left_hip_roll_joint:0x5": 119999,
+    "right_knee_pitch_joint:0x5": 120000,
+    "left_knee_pitch_joint:0x6": 120000,
+    "right_ankle_roll_joint:0xB": 5999,
+    "left_knee_pitch_joint:0xC": 6000,
+    "left_hip_roll_joint:0xB": 5997,
+    "left_hip_yaw_joint:0x5": 119999,
+    "left_hip_yaw_joint:0xB": 5981,
+    "left_knee_pitch_joint:0x5": 120000,
+    "left_knee_pitch_joint:0xB": 5971,
+    "right_ankle_pitch_joint:0xC": 6000,
+    "right_hip_pitch_joint:0xC": 6000,
+    "right_hip_roll_joint:0xC": 6000,
+    "right_ankle_pitch_joint:0xB": 6000,
+    "right_hip_yaw_joint:0xC": 6000,
+    "right_hip_pitch_joint:0xB": 6000,
+    "right_knee_pitch_joint:0xC": 6000,
+    "right_hip_roll_joint:0xB": 6000,
+    "right_hip_yaw_joint:0xB": 6000,
+    "right_knee_pitch_joint:0xB": 6000,
+    "right_knee_pitch_joint:0xE": 1178,
+    "left_hip_pitch_joint:0xE": 1181,
+    "right_hip_roll_joint:0xE": 1179,
+    "right_ankle_roll_joint:0xE": 1176,
+    "left_hip_yaw_joint:0xE": 1178,
+    "left_hip_roll_joint:0xE": 1179,
+    "right_hip_pitch_joint:0xE": 1178,
+    "right_ankle_pitch_joint:0xE": 1178,
+    "left_ankle_roll_joint:0xE": 1177,
+    "right_hip_yaw_joint:0xE": 1174,
+    "left_knee_pitch_joint:0xE": 1179,
+    "left_ankle_pitch_joint:0xE": 1179
+  },
+  "short_frames": 0
+}

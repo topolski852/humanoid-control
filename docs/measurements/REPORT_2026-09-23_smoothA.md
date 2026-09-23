@@ -1,7 +1,22 @@
-# Sim2Real Measurement Results — 2026-09-23
+# Sim2Real Measurement Results — Smooth A — 2026-09-23
 
 **Robot:** humanoid_lite, legs only (12 joints, 2 CAN buses), host `nse-MINI-S`
 **Policy under test:** `walk_smoothA-full_2026-08-25`
+**Companion report:** [REPORT_2026-09-23_smoothB.md](REPORT_2026-09-23_smoothB.md)
+
+> **CORRECTION (added after the Smooth B capture).** The knee motor ceiling quoted throughout
+> this document as **26.9 N·m** is wrong for the current config. `torque_constant` on both
+> knees (plus `left_hip_roll` and `right_hip_pitch`) reads **0.06588**, not 0.08958, giving a
+> ceiling of **19.76 N·m**. Measured p95 knee demand of 28 N·m is therefore **1.42× the
+> physical ceiling, not 1.04×** — the finding is stronger, not weaker. The constant changed on
+> disk at 10:56 on 2026-09-23, *after* both captures in this report (10:24 stand, 10:46 walk),
+> so the data here is valid for the conditions it measured. Whether that was a motor swap or a
+> config correction is unresolved; if motors were swapped, this report's hardware is not the
+> same as the Smooth B report's. See the Smooth B report §2b.
+>
+> Two further torque-limit problems are documented in the Smooth B report §2a: both
+> `ankle_roll` joints are configured at 7.0 N·m against a 5.93 N·m physical ceiling, and
+> `left_hip_yaw` has only 12% headroom.
 **Answers:** [docs/SIM2REAL_MEASUREMENTS.md](../SIM2REAL_MEASUREMENTS.md) — M1, M2, M3, M6, M8, B5
 **Raw data:** `docs/measurements/*_can.json`, `*_M2M3M6.json`, `*_gait.json` (+ gitignored
 `*.frames.jsonl` sidecars on the robot PC)
