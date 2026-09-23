@@ -98,6 +98,25 @@ def encoder_stats(pos: list[float], vel: list[float]) -> dict:
     quantum = float(nz.min()) if nz.size else None
     x = np.arange(p.size, dtype=float)
     resid = p - np.polyval(np.polyfit(x, p, 1), x)
+
+    # SENSOR NOISE FLOOR. Detrending the whole window linearly does NOT give a noise floor on a
+    # long capture: a standing robot drifts and re-postures over minutes, and that real motion
+    # stays in the residual. On the 2026-09-23 600 s stand the whole-window figure read 5-50
+    # counts per joint while the actual floor was ~0.4 — a 100x overstatement that would have
+    # become a training noise scale. So the floor is measured in windows short enough that
+    # genuine motion is negligible (0.2 s = 20 samples at 100 Hz), taking the median across
+    # windows so a transient postural correction cannot inflate it.
+    def _window_floor(seconds: float) -> float | None:
+        w = max(int(seconds * 100.0), 4)
+        k = p.size // w
+        if k < 2:
+            return None
+        xs = np.arange(w, dtype=float)
+        stds = [float((s - np.polyval(np.polyfit(xs, s, 1), xs)).std(ddof=0))
+                for s in p[:k * w].reshape(k, w)]
+        return float(np.median(stds))
+
+    floor = _window_floor(0.2)
     return {
         "n": int(p.size),
         "distinct_positions": int(np.unique(p).size),
@@ -105,8 +124,12 @@ def encoder_stats(pos: list[float], vel: list[float]) -> dict:
         "encoder_quantum_counts": (quantum / C.JOINT_QUANTUM_RAD) if quantum else None,
         "pos_p2p_rad": float(p.max() - p.min()),
         "pos_p2p_counts": float((p.max() - p.min()) / C.JOINT_QUANTUM_RAD),
-        "pos_noise_std_rad": float(resid.std(ddof=0)),
-        "pos_noise_std_counts": float(resid.std(ddof=0) / C.JOINT_QUANTUM_RAD),
+        # whole-window residual: includes REAL postural drift, not a noise floor. Kept for
+        # reference and explicitly named so it cannot be mistaken for the floor.
+        "pos_residual_incl_drift_rad": float(resid.std(ddof=0)),
+        "pos_residual_incl_drift_counts": float(resid.std(ddof=0) / C.JOINT_QUANTUM_RAD),
+        "pos_noise_floor_rad": floor,
+        "pos_noise_floor_counts": (floor / C.JOINT_QUANTUM_RAD) if floor is not None else None,
         "vel_noise_std_rad_s": float(v.std(ddof=0)) if v.size else None,
         "vel_abs_max_rad_s": float(np.abs(v).max()) if v.size else None,
         "vel_distinct": int(np.unique(v).size) if v.size else 0,
@@ -202,7 +225,7 @@ def main() -> int:
 
     print(f"window {t1-t0:.1f}s   synthetic {POLICY_HZ:g} Hz tick grid\n")
     print(f"{'joint':26s} {'frames':>7s} {'age_mean':>9s} {'age_p95':>8s} {'age_max':>8s} "
-          f"{'stale%':>7s} {'quant_ct':>9s} {'noise_ct':>9s} {'p2p_ct':>8s}")
+          f"{'stale%':>7s} {'quant_ct':>9s} {'floor_ct':>9s} {'p2p_ct':>8s}")
     for j in joints:
         r = pj.get(j, {})
         if "sample_age_ms" not in r:
@@ -212,7 +235,7 @@ def main() -> int:
         q = r.get("encoder_quantum_counts")
         print(f"{j:26s} {r['frames']:>7d} {s['mean']:>9.2f} {s['p95']:>8.2f} {s['max']:>8.2f} "
               f"{100*r['stale_hold_fraction']:>7.2f} {(f'{q:.2f}' if q else '-'):>9s} "
-              f"{r['pos_noise_std_counts']:>9.2f} {r['pos_p2p_counts']:>8.1f}")
+              f"{(r['pos_noise_floor_counts'] if r.get('pos_noise_floor_counts') is not None else float('nan')):>9.3f} {r['pos_p2p_counts']:>8.1f}")
     ss = result["slot_structure"]
     if ss:
         print(f"\nage spread {ss['spread_ms']:.2f} ms — {ss['verdict']}")

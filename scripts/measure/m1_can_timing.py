@@ -58,8 +58,36 @@ NOMINAL_MS = 1000.0 / NOMINAL_HZ
 THERMAL_EVERY_S = 5.0
 
 
+_STOP = {"flag": False}
+
+
+def _install_stop_handler() -> None:
+    """Ctrl-C / SIGTERM ends the capture EARLY BUT CLEANLY, keeping what was collected.
+
+    A walk attempt is unpredictable and often has to be cut short. Without this the capture
+    writes only after its deadline, so stopping it loses the entire run — which is exactly
+    what happened to an aborted 10-minute stand on 2026-08-29. Now a stop signal just breaks
+    the read loop and everything collected so far is analysed and written.
+    """
+    import signal
+
+    def _h(signum, _frame):
+        if _STOP["flag"]:          # second signal: give up immediately
+            raise KeyboardInterrupt
+        _STOP["flag"] = True
+        print(f"\n[capture] signal {signum} — finishing early and writing what we have ...",
+              file=sys.stderr)
+
+    for s in (signal.SIGINT, signal.SIGTERM):
+        try:
+            signal.signal(s, _h)
+        except (ValueError, OSError):
+            pass
+
+
 def capture(chans: list[str], seconds: float) -> dict:
     """Passive candump. Returns per-joint parallel arrays of (ts, pos, vel) plus thermals."""
+    _install_stop_handler()
     nodes = C.leg_node_map()
     proc = subprocess.Popen(
         ["candump", "-t", "a"] + chans,
@@ -76,7 +104,7 @@ def capture(chans: list[str], seconds: float) -> dict:
     try:
         for line in proc.stdout:
             now = time.time()
-            if now >= deadline:
+            if now >= deadline or _STOP["flag"]:
                 break
             if now >= next_thermal:
                 next_thermal = now + THERMAL_EVERY_S
@@ -109,7 +137,7 @@ def capture(chans: list[str], seconds: float) -> dict:
             proc.kill()
     return {"ts": dict(ts_by), "pos": dict(pos_by), "vel": dict(vel_by),
             "other_funcs": dict(other_funcs), "thermal": thermal,
-            "short_frames": short_frames}
+            "short_frames": short_frames, "stopped_early": _STOP["flag"]}
 
 
 def analyse_timing(ts_by: dict[str, list[float]]) -> dict:
@@ -158,6 +186,7 @@ def main() -> int:
     cap = capture(chans, args.seconds)
     after = C.all_bus_counters()
     meta = C.finish_meta(meta)
+    meta["stopped_early"] = cap.get("stopped_early", False)
     if cap["thermal"]:
         temps = [x["cpu_temp_c"] for x in cap["thermal"] if x.get("cpu_temp_c")]
         if temps:
