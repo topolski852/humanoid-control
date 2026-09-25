@@ -9,6 +9,7 @@ export default function Header({ deadmanConnected }) {
   const [busy, setBusy] = useState(false)
 
   const [clearing, setClearing] = useState(false)
+  const [clearError, setClearError] = useState(null)
 
   async function estop() {
     setBusy(true)
@@ -16,8 +17,10 @@ export default function Header({ deadmanConnected }) {
   }
 
   async function clearFaults() {
-    setClearing(true)
-    try { await api.clearFaults() } catch (e) { console.warn('clearFaults', e) } finally { setClearing(false) }
+    setClearing(true); setClearError(null)
+    // The server now fails this request when a readback still shows faults — say so, instead
+    // of letting the button look like it worked.
+    try { await api.clearFaults() } catch (e) { setClearError(e.message) } finally { setClearing(false) }
   }
 
   const faulted = t.estop || (t.joints || []).some((j) => j.error)
@@ -51,6 +54,11 @@ export default function Header({ deadmanConnected }) {
       </div>
 
       <div className="flex items-center gap-2">
+        {faulted && clearError && (
+          <div className="max-w-md text-xs text-danger bg-danger/10 border border-danger/30 rounded-lg px-3 py-2">
+            {clearError}
+          </div>
+        )}
         {faulted && (
           <button
             onClick={clearFaults} disabled={clearing}

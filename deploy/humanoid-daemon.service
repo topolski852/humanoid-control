@@ -1,8 +1,14 @@
 [Unit]
 Description=Humanoid Lite CAN daemon (owns CAN @ 200 Hz)
 Documentation=https://github.com/topolski852/humanoid-studio
-After=network-online.target
-Wants=network-online.target
+# NO network-online DEPENDENCY, deliberately. This daemon binds 127.0.0.1 only (9001 command,
+# 9002 priority E-Stop, 9000 telemetry out) and otherwise talks CAN. It has no use for the
+# network, and on a robot that walks around it must keep its 200 Hz control loop running when
+# WiFi is weak, roaming, or simply absent. Waiting on the network also cost 2 minutes of dead
+# robot at every boot here: systemd-networkd-wait-online times out at 2 min because networkd
+# manages nothing (NetworkManager owns the WiFi), and network-online.target is not reached
+# until it gives up. humanoid-web.service DOES keep the dependency — that one has to be
+# reachable from another PC, which is the whole point of it.
 # NOTE: the leg CAN adapters (can_left_leg / can_right_leg) must be up before this starts.
 # If you bring them up with a systemd-networkd/udev unit, add it to After=/Requires= here.
 # Only ONE daemon may own the CAN bus — do not run this alongside the humanoid-studio app's daemon.

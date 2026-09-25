@@ -29,7 +29,9 @@ import numpy as np
 
 from ..calibration import compute_offset
 from ..config import LegPolicyContract, REPO_ROOT
-from ..interface import JointGroupInterface, LegInterface
+from .. import can_recovery
+from ..interface import (JointFaultError, JointGroupInterface, JointOfflineError,
+                         LegInterface)
 from ..layout import RobotLayout
 from ..policy import ZeroPolicy, load_policy
 from ..runner import PolicyRunner
@@ -742,6 +744,7 @@ class ControlService:
                     f"Cannot arm from {self._state.value}; connect first.", 409)
             if self.estop.fired:
                 raise ControlError("E-STOP is latched — reconnect to clear.", 409)
+            self._require_healthy()
             self._armed = True
         _log.info("ARMED (operator present / robot supported).")
 
@@ -1118,6 +1121,12 @@ class ControlService:
             raise ControlError("Daemon not running.", 503)
         if self.is_motion_active():
             raise ControlError("Stop the active session before clearing faults.", 409)
+        # A clear the ESC never receives cannot work, so un-jam the bus first. See
+        # can_recovery for the two ways a bus stops carrying host frames.
+        buses = sorted({self._joint_bus(n) for n in self._joints} - {None})
+        bounced = [b for b in buses if can_recovery.tx_stalled(b) and can_recovery.bounce(b)]
+        if bounced:
+            time.sleep(0.3)
         cleared, failed = 0, []
         for n in self._joints:
             try:
@@ -1149,7 +1158,49 @@ class ControlService:
         _log.info("faults cleared on %d/%d joints (%d still faulted after readback); "
                   "E-STOP released; state → CONNECTED.",
                   cleared, len(self._joints), len(still))
-        return {"cleared": cleared, "still_faulted": still, "command_failed": failed}
+        # Report failure as failure. This used to return normally whatever the readback said,
+        # so the button looked like it worked while every fault stayed set. Arming is gated
+        # on joint health separately (_require_healthy), so releasing the E-STOP above is safe.
+        if still or failed:
+            raise ControlError(self._clear_failure_message(still, failed), 409)
+        return {"cleared": cleared, "still_faulted": still, "command_failed": failed,
+                "bounced": bounced}
+
+    def _joint_bus(self, joint: str) -> str | None:
+        cfg = getattr(self.client, "config", None)
+        jc = cfg.joints.get(joint) if cfg else None
+        return jc.can_channel if jc else None
+
+    def _clear_failure_message(self, still: list[str], failed: list[str]) -> str:
+        """Explain a failed clear in terms the operator can act on."""
+        bad = set(failed) | {s.split("=")[0] + "_joint" for s in still}
+        lines = []
+        for bus in sorted({self._joint_bus(n) for n in bad} - {None}):
+            flood = can_recovery.emcy_flooders(bus)
+            if not flood:
+                continue
+            by_id = {jc.can_id: name for name, jc in self.client.config.joints.items()
+                     if jc.can_channel == bus}
+            for node, (rate, err) in sorted(flood.items()):
+                who = by_id.get(node, f"node {node}").replace("_joint", "")
+                lines.append(
+                    f"{who} (node {node}) is flooding {bus} with fault broadcasts "
+                    f"({can_recovery.decode_error(err)}, ~{rate:.0f}/s), so no command can "
+                    f"reach any joint on that bus. Power-cycle that limb; if it comes back, "
+                    f"check {who}'s encoder and wiring.")
+        if not lines:
+            lines.append("Check the CAN wiring and power to those joints, or power-cycle them.")
+        return (f"Faults did not clear: {', '.join(still) or 'no readback'}"
+                + (f" (no ACK from {len(failed)} joint(s))" if failed else "")
+                + ". " + " ".join(lines))
+
+    def _require_healthy(self) -> None:
+        """Refuse to arm while any configured joint is offline or faulted. Called with
+        self._lock held; reads cached telemetry only."""
+        try:
+            self.group.check_health()
+        except (JointFaultError, JointOfflineError) as exc:
+            raise ControlError(f"Cannot arm: {exc}. Clear faults first.", 409) from exc
 
     def disarm(self) -> None:
         with self._lock:
@@ -1834,6 +1885,7 @@ class ControlService:
                         f"Calibrate all joints before arming — {len(uncal)} uncalibrated.", 409)
             if not self.client.is_running():
                 raise ControlError("Daemon not running — no telemetry.", 503)
+            self._require_healthy()
             # The deadman of record is whatever holds the input token — checked by name so a
             # live browser tab cannot vouch for a controller that is switched off.
             if not self.source_alive(self._input_source):
