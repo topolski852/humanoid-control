@@ -104,6 +104,51 @@ def transport(caps: list[Path]) -> dict:
     }
 
 
+def cal_offset() -> dict:
+    """Per-episode-START zero-offset uncertainty, from calibration_spread.py."""
+    hits = sorted(MEAS.glob("calibration_spread_*.json"), key=lambda p: p.stat().st_mtime)
+    if not hits:
+        return {"value": None, "previously_trained": 0.05,
+                "status": "NOT MEASURED — run scripts/measure/calibration_spread.py"}
+    d = json.loads(hits[-1].read_text())
+    su, pj = d["summary"], d["per_joint"]
+    DECLARED = {"hip_roll", "hip_yaw"}
+
+    def key(j):
+        return j.replace("left_", "").replace("right_", "").replace("_joint", "")
+    dec = [r["std_rad"] for j, r in pj.items() if key(j) in DECLARED]
+    hs = [r["std_rad"] for j, r in pj.items() if key(j) not in DECLARED]
+    L = [r["std_rad"] for j, r in pj.items() if j.startswith("left")]
+    R = [r["std_rad"] for j, r in pj.items() if j.startswith("right")]
+    return {
+        "suggested_uniform_half_width_rad": su["suggested_uniform_half_width_rad"],
+        "std_median_rad": su["std_median_rad"], "std_max_rad": su["std_max_rad"],
+        "range_max_rad": su["range_max_rad"],
+        "previously_trained": 0.05, "asimov": 0.02,
+        "trials": d["_meta"].get("trials"),
+        "per_joint_std_rad": {j: r["std_rad"] for j, r in pj.items()},
+        "structure": {
+            "declared_joints_median_std_rad": float(np.median(dec)),
+            "hardstop_joints_median_std_rad": float(np.median(hs)),
+            "declared_vs_hardstop_ratio": float(np.median(dec) / np.median(hs)),
+            "left_median_std_rad": float(np.median(L)),
+            "right_median_std_rad": float(np.median(R)),
+            "left_vs_right_ratio": float(np.median(L) / np.median(R)),
+        },
+        "status": "measured",
+        "applies_to": "per-episode START only — the offset is fixed once calibrated and does "
+                      "not change during a run. Model as add_all_joint_default_pos resampled "
+                      "at reset, constant within the episode.",
+        "guidance": "hip_roll and hip_yaw are DECLARED zero by the operator's stance rather than "
+                    "resting on a hardstop, and are correspondingly less repeatable. The left "
+                    "leg is ~2x less repeatable than the right. Per-joint half-widths are "
+                    "available above if uniform randomisation proves too blunt.",
+        "not_covered": "this does NOT measure encoder drift WITHIN a run. That is a separate "
+                       "error source with a different sim model (slowly-varying bias, not a "
+                       "per-reset constant) and is still unmeasured.",
+    }
+
+
 def main() -> int:
     stand_caps = [p for p in (newest("*smoothA-stand_can.json"),
                               newest("*smoothB-stand_can.json")) if p]
@@ -192,16 +237,7 @@ def main() -> int:
             "projected_gravity_noise": {
                 "value": None, "previously_trained": 0.05, "status": "NOT MEASURED",
             },
-            "calibration_offset": {
-                "value": None,
-                "previously_trained": 0.05,
-                "status": "NOT MEASURED — pending the repeatability check "
-                          "(scripts/measure/calibration_spread.py)",
-                "why_it_matters": "position_offset resets every power cycle and is recaptured by "
-                                  "hand from a held stance, so its spread is a real per-episode "
-                                  "uncertainty. This is the prime suspect for the robustness "
-                                  "measA lost.",
-            },
+            "calibration_offset": cal_offset(),
         },
 
         "transport": transport(all_caps),

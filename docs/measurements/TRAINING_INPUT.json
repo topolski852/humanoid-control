@@ -1,6 +1,6 @@
 {
   "_meta": {
-    "generated": "2026-09-25T13:27:04",
+    "generated": "2026-09-25T14:11:28",
     "generator": "scripts/measure/build_training_input.py",
     "robot": "humanoid_lite, legs only, 12 joints, 2 CAN buses",
     "purpose": "machine-readable input for humanoid-policy; every value derived from the capture JSONs in docs/measurements/, not hand-entered",
@@ -83,10 +83,39 @@
       "status": "NOT MEASURED"
     },
     "calibration_offset": {
-      "value": null,
+      "suggested_uniform_half_width_rad": 0.029354255894819895,
+      "std_median_rad": 0.012650467410993415,
+      "std_max_rad": 0.023621737751996802,
+      "range_max_rad": 0.05870851178963979,
       "previously_trained": 0.05,
-      "status": "NOT MEASURED \u2014 pending the repeatability check (scripts/measure/calibration_spread.py)",
-      "why_it_matters": "position_offset resets every power cycle and is recaptured by hand from a held stance, so its spread is a real per-episode uncertainty. This is the prime suspect for the robustness measA lost."
+      "asimov": 0.02,
+      "trials": 7,
+      "per_joint_std_rad": {
+        "left_hip_roll_joint": 0.023621737751996802,
+        "left_hip_yaw_joint": 0.02007999141080191,
+        "left_hip_pitch_joint": 0.022869280755406188,
+        "left_knee_pitch_joint": 0.0037068635461826724,
+        "left_ankle_pitch_joint": 0.017383593282908304,
+        "left_ankle_roll_joint": 0.013446004909643126,
+        "right_hip_roll_joint": 0.014187574193330678,
+        "right_hip_yaw_joint": 0.006353446934307544,
+        "right_hip_pitch_joint": 0.008471924485063611,
+        "right_knee_pitch_joint": 0.011854929912343702,
+        "right_ankle_pitch_joint": 0.008117299004944983,
+        "right_ankle_roll_joint": 0.002877657477798482
+      },
+      "structure": {
+        "declared_joints_median_std_rad": 0.017133782802066292,
+        "hardstop_joints_median_std_rad": 0.010163427198703657,
+        "declared_vs_hardstop_ratio": 1.6858272772644747,
+        "left_median_std_rad": 0.018731792346855104,
+        "right_median_std_rad": 0.008294611745004298,
+        "left_vs_right_ratio": 2.2583085167472654
+      },
+      "status": "measured",
+      "applies_to": "per-episode START only \u2014 the offset is fixed once calibrated and does not change during a run. Model as add_all_joint_default_pos resampled at reset, constant within the episode.",
+      "guidance": "hip_roll and hip_yaw are DECLARED zero by the operator's stance rather than resting on a hardstop, and are correspondingly less repeatable. The left leg is ~2x less repeatable than the right. Per-joint half-widths are available above if uniform randomisation proves too blunt.",
+      "not_covered": "this does NOT measure encoder drift WITHIN a run. That is a separate error source with a different sim model (slowly-varying bias, not a per-reset constant) and is still unmeasured."
     }
   },
   "transport": {

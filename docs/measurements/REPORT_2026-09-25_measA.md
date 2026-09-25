@@ -108,7 +108,7 @@ Do **not** revert to U(±0.05). Split the term:
 | source | value | basis |
 |---|---|---|
 | sensor floor | 4.2e-5 rad | measured |
-| calibration offset | ±0.02 rad, resampled per episode | **needs measuring** — re-zero a joint 10× and take the spread. Asimov uses ±0.02 |
+| calibration offset | **±0.029 rad**, resampled per episode | **measured** 2026-09-25, 7 trials — see §6 |
 | unmodelled plant | the remainder | a deliberate robustness margin, documented as such |
 
 The honest framing is that `joint_pos` noise was doing two jobs and only one of them has been
@@ -170,7 +170,7 @@ This matters for interpretation:
 
 ## 5. Suggested order of work
 
-1. Measure the calibration-offset spread (§3a) — cheap, no policy, retires an unmeasured value.
+1. ~~Measure the calibration-offset spread~~ — **done**, ±0.029 rad (§6).
 2. Retrain with the velocity penalty (§3b) and the split noise budget (§3a).
 3. Compare against smoothA's hardware numbers (§3c) before deploying.
 4. Run M7 in parallel — it is independent of the training loop and blocks the knee question.
@@ -178,3 +178,69 @@ This matters for interpretation:
 A walk attempt on measA is possible but low value: it lurches at 20 °/s while standing and
 faulted at 41 s. The informative capture would be a **fresh stand** of the next bundle, compared
 against the §3c table.
+
+---
+
+## 6. Calibration offset spread — measured 2026-09-25
+
+7 trials, stance broken and rebuilt between each. **Result: ±0.0294 rad**, i.e. half the worst
+joint's observed range — between Asimov's ±0.02 and the ±0.05 currently trained.
+
+| | std (rad) | std (deg) |
+|---|---|---|
+| median across joints | 0.01265 | 0.72° |
+| worst joint (`left_hip_roll`) | 0.02362 | 1.35° |
+
+### The measurement is valid despite a double calibration
+
+The operator calibrated from the web app and *then* pressed Enter, which ran the script's own
+calibration. That second pass is not a problem: it runs at the same physical stance, where the
+joint already reads its target, so it converges to the same offset. The script therefore recorded
+the web app's value — and that value encodes the operator's stance for that trial.
+
+The data confirms it rather than assuming it: `left_hip_roll` returned **7 distinct offsets from
+7 trials** spanning 0.0587 rad. A no-op re-run would have produced a std near zero.
+
+### Two structural findings
+
+**Declared joints are 1.7× less repeatable than hardstop joints** (median std 0.0171 vs
+0.0102 rad). The stance parks four joints per leg against a mechanical stop; `hip_roll` and
+`hip_yaw` are *declared* zero by the operator positioning the legs parallel and feet straight.
+The two worst joints overall are `left_hip_roll` and `left_hip_yaw` — both declared. This is the
+expected shape, and it means uniform randomisation across all 12 joints is blunter than it needs
+to be; per-joint half-widths are in `TRAINING_INPUT.json`.
+
+**The left leg is 2.3× less repeatable than the right** (median std 0.0187 vs 0.0083 rad).
+Unexplained. Possibly how the robot is held while folding. Worth knowing before reading any
+left/right asymmetry in a future run as a policy property.
+
+### What this does and does not settle
+
+It **supports** the §2 hypothesis without confirming it. The measured spread (±0.029) is the
+same order as the observation noise measA removed (±0.05 → 4.3e-5). So the old wide `joint_pos`
+noise was plausibly doing double duty, and collapsing it to the sensor floor removed cover for a
+real ±0.029 rad uncertainty. That is consistent with the regression but does not prove
+causation — the raised torque caps remain an unexcluded alternative.
+
+It is also **narrower than the current ±0.05**, so the existing guess was conservative rather
+than wrong. Tightening `add_all_joint_default_pos` to ±0.029 is defensible but is *not* the fix
+for measA; the fix is re-introducing an uncertainty margin on `joint_pos`.
+
+### Scope limit — this is a per-episode-START term only
+
+The offset is fixed once calibrated and does not change during a run. Model it as
+`add_all_joint_default_pos` resampled at reset and held constant within the episode.
+
+**It does not measure encoder drift within a run**, which is a separate error source:
+
+| | when it varies | sim model |
+|---|---|---|
+| calibration offset (measured) | once, at episode start | constant per-episode bias |
+| encoder drift (**not measured**) | continuously during a run | slowly-varying bias |
+
+The second is worth measuring and is not covered here. The test: move the robot away from the
+known pose and back, repeatedly, **without recalibrating**, and record the reported position at
+the pose each time. A healthy encoder returns the same reading; one losing counts drifts
+progressively. That matters more than usual on this robot given `right_knee_pitch` has now
+raised `ERROR_ENCODER_FAULT` twice, and a drifting encoder would be a within-episode uncertainty
+the policy currently has no model for at all.
