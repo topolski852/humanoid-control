@@ -56,6 +56,7 @@ LINE = re.compile(
 NOMINAL_HZ = 100.0
 NOMINAL_MS = 1000.0 / NOMINAL_HZ
 THERMAL_EVERY_S = 5.0
+MAX_EVENTS = 200000     # cap on recorded EMCY/heartbeat frames; overflow is counted, not stored
 
 
 _STOP = {"flag": False}
@@ -93,6 +94,13 @@ def capture(chans: list[str], seconds: float) -> dict:
         ["candump", "-t", "a"] + chans,
         stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, bufsize=1,
     )
+    # Non-PDO4 frames are the FAULT record. An EMCY (func 0x1) burst is how this robot fails:
+    # a node floods EMCY, the bus jams, SDOs stop being acked, and the whole leg goes 0x40.
+    # Counting those frames is not enough -- the timestamp, node and payload are the diagnosis,
+    # so they are recorded in full up to a cap (an EMCY flood can be tens of thousands of
+    # frames and must not exhaust memory mid-capture).
+    events: list[dict] = []
+    events_dropped = 0
     ts_by: dict[str, list[float]] = defaultdict(list)
     pos_by: dict[str, list[float]] = defaultdict(list)
     vel_by: dict[str, list[float]] = defaultdict(list)
@@ -120,6 +128,14 @@ def capture(chans: list[str], seconds: float) -> dict:
             func = (arb >> C.FUNC_SHIFT) & C.FUNC_MASK
             if func != C.FUNC_PDO4:
                 other_funcs[f"{name}:0x{func:X}"] += 1
+                if func in (C.FUNC_EMCY, C.FUNC_HEARTBEAT):
+                    if len(events) < MAX_EVENTS:
+                        events.append({"t": float(m.group(1)), "joint": name, "chan": chan,
+                                       "func": f"0x{func:X}",
+                                       "name": {0x1: "EMCY", 0xE: "HB"}.get(func, "?"),
+                                       "data": m.group(5).strip()})
+                    else:
+                        events_dropped += 1
                 continue
             raw = bytes.fromhex(m.group(5).replace(" ", ""))
             if len(raw) < 8:
@@ -137,7 +153,8 @@ def capture(chans: list[str], seconds: float) -> dict:
             proc.kill()
     return {"ts": dict(ts_by), "pos": dict(pos_by), "vel": dict(vel_by),
             "other_funcs": dict(other_funcs), "thermal": thermal,
-            "short_frames": short_frames, "stopped_early": _STOP["flag"]}
+            "short_frames": short_frames, "stopped_early": _STOP["flag"],
+            "events": events, "events_dropped": events_dropped}
 
 
 def analyse_timing(ts_by: dict[str, list[float]]) -> dict:
@@ -202,6 +219,8 @@ def main() -> int:
         "bus_counters_delta": C.counter_delta(before, after),
         "non_pdo4_frames": cap["other_funcs"],
         "short_frames": cap["short_frames"],
+        "fault_events": cap["events"],
+        "fault_events_dropped": cap["events_dropped"],
     }
 
     outdir = Path(args.outdir) if args.outdir else C.default_outdir()

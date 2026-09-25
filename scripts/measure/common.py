@@ -35,6 +35,7 @@ FUNC_SHIFT = 7
 FUNC_MASK = 0xF
 FUNC_PDO4 = 0x9   # passive position+velocity broadcast at fast_frame_frequency
 FUNC_PDO2 = 0x5
+FUNC_EMCY = 0x1        # emergency frame — the fault signature on this robot
 FUNC_HEARTBEAT = 0xE
 
 # Encoder geometry — identical on all 12 leg joints, verified 2026-08-29.
