@@ -1,0 +1,209 @@
+{
+  "_meta": {
+    "generated": "2026-09-25T13:27:04",
+    "generator": "scripts/measure/build_training_input.py",
+    "robot": "humanoid_lite, legs only, 12 joints, 2 CAN buses",
+    "purpose": "machine-readable input for humanoid-policy; every value derived from the capture JSONs in docs/measurements/, not hand-entered",
+    "source_captures": [
+      "hold_20260923T102447_smoothA-stand_can.json",
+      "hold_20260923T110050_smoothB-stand_can.json",
+      "walk_20260925T124840_measA-run1_can.json"
+    ],
+    "reports": [
+      "REPORT_2026-09-23_smoothA.md",
+      "REPORT_2026-09-23_smoothB.md",
+      "REPORT_2026-09-25_measA.md"
+    ],
+    "READ_FIRST": "measA-full, the first bundle trained on these numbers, REGRESSED on hardware (50x tilt rate, ESC fault at 41 s). The leading hypothesis is that shrinking observation noise to the measured SENSOR floor removed robustness that was covering UNMEASURED plant uncertainty. Treat the noise floors below as a lower bound on what to randomise, not as the value to use. See REPORT_2026-09-25_measA.md section 3a."
+  },
+  "observation_model": {
+    "joint_pos_noise": {
+      "measured_floor_rad": 4.2822486746348974e-05,
+      "measured_floor_max_rad": 6.126511323525248e-05,
+      "previously_trained": 0.05,
+      "ratio_trained_to_floor": 1167.6108465200934,
+      "status": "measured",
+      "guidance": "do NOT set the training value to the floor alone \u2014 measA did that and regressed. Split into sensor floor + calibration offset + an explicit unmodelled-plant margin."
+    },
+    "joint_vel_noise": {
+      "median_rad_s": 0.04483763396996776,
+      "max_rad_s": 0.04874091499737136,
+      "per_joint_rad_s": {
+        "left_ankle_pitch_joint": 0.00925985526992686,
+        "left_ankle_roll_joint": 9.99142983886923e-34,
+        "left_hip_pitch_joint": 0.04874091499737136,
+        "left_hip_roll_joint": 0.04540686031106278,
+        "left_hip_yaw_joint": 0.0036756184150392546,
+        "left_knee_pitch_joint": 0.04579221037639622,
+        "right_ankle_pitch_joint": 0.003679046299225671,
+        "right_ankle_roll_joint": 1.9659832065756103e-06,
+        "right_hip_pitch_joint": 0.04542185354244844,
+        "right_hip_roll_joint": 0.0458296945993341,
+        "right_hip_yaw_joint": 0.04535551720722696,
+        "right_knee_pitch_joint": 0.044319750732708565
+      },
+      "method": "median of per-0.2s-window std; filtered signal (velocity_filter_alpha 0.7154)",
+      "previously_trained": 2.0,
+      "status": "measured"
+    },
+    "encoder_quantisation_rad": {
+      "value": 0.00010223686695098877,
+      "analytic": 0.00010226538585904274,
+      "uniform_across_joints": true,
+      "status": "measured"
+    },
+    "observation_delay": {
+      "mean": 4.879683176360826,
+      "distribution": "uniform 0-10 ms",
+      "model_as": "single uniform delay tau ~ U(0, 10ms), ALL joints"
+    },
+    "stale_hold": {
+      "value": 0.0,
+      "status": "measured",
+      "guidance": "DO NOT MODEL. 0.00% stale-hold across all captures despite real transport-layer frame loss; a 25 Hz consumer of a 100 Hz feed always has a fresh frame."
+    },
+    "per_joint_delay_stagger": {
+      "value": null,
+      "status": "measured \u2014 absent",
+      "guidance": "DO NOT MODEL. Cross-joint age spread is 0.17-1.11 ms against a 10 ms frame period. No poll-slot structure on this 2-bus robot; Asimov's per-CAN-slot model does not transfer."
+    },
+    "base_ang_vel_noise": {
+      "value": null,
+      "previously_trained": 0.3,
+      "status": "NOT MEASURED \u2014 gyro auto-zeroes at rest, so the floor is not observable standing still. Route around it via the high-frequency residual during a walk capture."
+    },
+    "gyro_bias": {
+      "value": null,
+      "status": "UNMEASURABLE on this IMU",
+      "guidance": "DO NOT MODEL. Leave NoiseModelWithAdditiveBiasCfg off base_ang_vel rather than populate it with a guess."
+    },
+    "projected_gravity_noise": {
+      "value": null,
+      "previously_trained": 0.05,
+      "status": "NOT MEASURED"
+    },
+    "calibration_offset": {
+      "value": null,
+      "previously_trained": 0.05,
+      "status": "NOT MEASURED \u2014 pending the repeatability check (scripts/measure/calibration_spread.py)",
+      "why_it_matters": "position_offset resets every power cycle and is recaptured by hand from a held stance, so its spread is a real per-episode uncertainty. This is the prime suspect for the robustness measA lost."
+    }
+  },
+  "transport": {
+    "frame_loss_fraction": 0.001109899511818685,
+    "frames_analysed": 1490225,
+    "sample_age_ms": {
+      "mean": 4.879683176360826,
+      "distribution": "uniform 0-10 ms",
+      "model_as": "single uniform delay tau ~ U(0, 10ms), ALL joints"
+    },
+    "cross_joint_age_spread_ms": {
+      "max_observed": 1.105158682822256,
+      "frame_period_ms": 10.0
+    },
+    "stale_hold_fraction": {
+      "max_observed": 0.008737864077669903
+    }
+  },
+  "actuator": {
+    "torque_caps_nm": {
+      "M6C12_8_joints": 12.0,
+      "MAD5010_4_joints": 7.0,
+      "status": "flashed and verified by SDO readback 2026-09-25"
+    },
+    "motor_ceiling_nm": {
+      "M6C12": 26.874000000000002,
+      "MAD5010": 19.764,
+      "formula": "Kt * current_limit * gear"
+    },
+    "knee_torque_saturation": {
+      "hardware_fraction": {
+        "left": 0.521,
+        "right": 0.333
+      },
+      "sim_fraction": {
+        "left": 0.0016,
+        "right": 0.0017
+      },
+      "hardware_p95_nm": {
+        "left": 28.0,
+        "right": 23.1
+      },
+      "sim_p95_nm": {
+        "left": 6.6,
+        "right": 7.1
+      },
+      "status": "measured on hardware (RECONSTRUCTED as kp*err - kd*vel, not measured torque); M7 is required to break the circularity",
+      "guidance": "a ~4x sim/hardware gap at one joint is a PLANT modelling error. No reward shaping closes it; in sim the knees barely saturate, so a knee-overshoot penalty has nothing to act on and hits the ankles."
+    },
+    "joint_velocity_limit": {
+      "esc_encoder_fault_rad_s": 13.02,
+      "observed_max_rad_s": {
+        "smoothA": 1.08,
+        "smoothB": 8.05,
+        "measA": 15.49
+      },
+      "observed_p99_rad_s": {
+        "smoothA": 0.73,
+        "smoothB": 0.73,
+        "measA": 5.09
+      },
+      "recommended_penalty_above_rad_s": 2.0,
+      "recommended_hard_ceiling_rad_s": 8.0,
+      "status": "HARD HARDWARE CONSTRAINT until the ESC is upgraded",
+      "guidance": "the ESC cannot track the encoder above ~13 rad/s at the joint; it raises ERROR_ENCODER_FAULT (0x2000) and floods EMCY until the bus drops. smoothA never exceeded 1.08 rad/s standing."
+    }
+  },
+  "hardware_constants_do_not_remeasure": {
+    "note": "reproduced across two independent 600 s captures; re-running these spends a robot session re-learning a constant",
+    "items": [
+      "frame loss",
+      "sample age",
+      "stale-hold",
+      "encoder quantum",
+      "position noise floor",
+      "thermal (54-70 C, zero throttle events)"
+    ]
+  },
+  "policy_dependent_metrics_remeasure_each_round": {
+    "tilt_rate_p95_deg_s": {
+      "smoothA": 0.4,
+      "smoothB": 0.1,
+      "measA": 20.6,
+      "target": "< 1.0",
+      "note": "THE discriminator for balance quality \u2014 it separated these three policies where tilt magnitude did not"
+    },
+    "tilt_excursions_over_8deg_per_min": {
+      "smoothA": 0.2,
+      "smoothB": 0.0,
+      "measA": 11.7,
+      "target": "< 0.5"
+    },
+    "joint_vel_p99_rad_s": {
+      "smoothA": 0.73,
+      "smoothB": 0.73,
+      "measA": 5.09,
+      "target": "< 1.5"
+    },
+    "knee_lr_correlation_during_gait": {
+      "smoothA": -0.64,
+      "sim_smoothA": -0.77,
+      "sim_measA": -0.497,
+      "target": "-0.85"
+    },
+    "gait_frequency_hz": {
+      "hardware_smoothA": 1.05,
+      "sim": 1.54
+    },
+    "ring_duration_after_push_s": {
+      "smoothA": "0.2-4.8",
+      "smoothB": "up to 15.8 at 4.11 Hz",
+      "note": "smoothB can enter a sustained limit cycle; that is closed-loop instability, NOT noise"
+    }
+  },
+  "standing_constraint": {
+    "no_policy_has_walked_unsupported": true,
+    "guidance": "every gait figure in these reports describes a SUPPORTED walk, with the operator's hand on the robot. Hardware fall rates are therefore not comparable to sim fall_rate/min. Standing unattended is the nearer milestone: smoothA clears it, smoothB clears it until pushed, measA does not.",
+    "baseline_to_beat": "walk_smoothA-full_2026-08-25"
+  }
+}
