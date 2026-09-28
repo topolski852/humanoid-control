@@ -158,7 +158,22 @@ def per_joint(data: dict, joints: list[str], t0: float, t1: float) -> dict:
 
 
 def slot_structure(pj: dict) -> dict:
-    means = {j: r["sample_age_ms"]["mean"] for j, r in pj.items() if "sample_age_ms" in r}
+    """Do joints cluster into poll slots? Excludes DEGRADED joints first.
+
+    A joint that is dropping frames has an inflated mean sample age, and including it fabricates
+    a spread that looks like bus scheduling. On 2026-09-28 right_ankle_pitch faulted mid-capture
+    (4.17% stale-hold, 267 ms max gap, age 10.2 ms against 4.9 for every other joint) and this
+    function reported "joints cluster into distinct poll slots - model the grouping" off a
+    single sick node. Training would have modelled a stagger that does not exist.
+
+    So: any joint with a stale-hold fraction above STALE_EXCLUDE is excluded from the spread and
+    named in the result, because a dropout is a fault to fix, not structure to model.
+    """
+    STALE_EXCLUDE = 0.005          # 0.5% — healthy joints measure 0.00%
+    degraded = sorted(j for j, r in pj.items()
+                      if r.get("stale_hold_fraction", 0.0) > STALE_EXCLUDE)
+    means = {j: r["sample_age_ms"]["mean"] for j, r in pj.items()
+             if "sample_age_ms" in r and j not in degraded}
     if len(means) < 2:
         return {}
     vals = np.array(sorted(means.values()))
@@ -179,9 +194,15 @@ def slot_structure(pj: dict) -> dict:
                    f"One delay term covers all joints; do NOT add a per-joint stagger.")
     else:
         verdict = "ages differ but do not separate cleanly; a single delay range covers all"
+    if degraded:
+        verdict = (f"EXCLUDED {len(degraded)} DEGRADED joint(s) from this statistic "
+                   f"({', '.join(degraded)}) — they are dropping frames, which inflates their "
+                   f"sample age and would fake a poll-slot structure. Verdict for the healthy "
+                   f"joints: " + verdict)
     return {"mean_age_ms": {j: round(v, 3) for j, v in sorted(means.items(), key=lambda kv: kv[1])},
             "spread_ms": spread, "min_meaningful_spread_ms": MIN_SPREAD,
-            "clusters": groups, "verdict": verdict}
+            "clusters": groups, "verdict": verdict,
+            "excluded_degraded_joints": degraded}
 
 
 def main() -> int:

@@ -163,7 +163,12 @@
         "right": 7.1
       },
       "status": "measured on hardware (RECONSTRUCTED as kp*err - kd*vel, not measured torque); M7 is required to break the circularity",
-      "guidance": "a ~4x sim/hardware gap at one joint is a PLANT modelling error. No reward shaping closes it; in sim the knees barely saturate, so a knee-overshoot penalty has nothing to act on and hits the ankles."
+      "guidance": "a ~4x sim/hardware gap at one joint is a PLANT modelling error. No reward shaping closes it; in sim the knees barely saturate, so a knee-overshoot penalty has nothing to act on and hits the ankles.",
+      "hardware_fraction_measC": {
+        "left": 0.251,
+        "right": 0.297
+      },
+      "note_measC": "improved from 52.1/33.3; static droop -0.208 -> -0.043 rad"
     },
     "joint_velocity_limit": {
       "esc_encoder_fault_rad_s": 13.02,
@@ -188,6 +193,23 @@
       },
       "smoothA_sim_peak_rad_s": 14.98,
       "NOT_THE_FAULT_TRIGGER_2026-09-28": "the 2026-09-28 fault came at 5.84 rad/s while two ankles survived 8.8-9.8 rad/s in the same disturbance, and the left knee survived MORE implied torque than the right. Velocity does not explain node 8. Keep the 8.0 hinge as general safety (smoothA peaks 14.98 in sim) but it will not prevent this fault."
+    },
+    "ankle_torque_saturation": {
+      "hardware_fraction": {
+        "left_ankle_pitch": 0.272,
+        "right_ankle_pitch": 0.228
+      },
+      "hardware_p95_nm": {
+        "left_ankle_pitch": 27.52,
+        "right_ankle_pitch": 17.72
+      },
+      "hardware_max_nm": {
+        "left_ankle_pitch": 50.93
+      },
+      "cap_nm": 7.0,
+      "motor_ceiling_nm": 19.76,
+      "status": "MEASURED 2026-09-28 (reconstructed)",
+      "guidance": "THE NEW BOTTLENECK. left_ankle_pitch demands 3.9x its cap and ABOVE the MAD5010 physical ceiling. The knee torque reward moved load off the knees (52.1% -> 25.1%) and onto the ankles. Make the torque term GLOBAL over all joints normalised by each cap, or it just redistributes. Prefer reducing demand over raising the cap -- the ankle is 3D-printed and has already broken mechanically."
     }
   },
   "hardware_constants_do_not_remeasure": {
@@ -229,11 +251,17 @@
       "smoothA": -0.64,
       "sim_smoothA": -0.77,
       "sim_measA": -0.497,
-      "target": "-0.85"
+      "target": "-0.85",
+      "measC_hardware": -0.65,
+      "measC_sim": -0.708,
+      "note": "sim gain did NOT transfer; hardware equals smoothA"
     },
     "gait_frequency_hz": {
       "hardware_smoothA": 1.05,
-      "sim": 1.54
+      "sim": 1.54,
+      "hardware_measC": 1.7,
+      "sim_measC": 1.54,
+      "note": "measC now slightly OVERSHOOTS sim; smoothA undershot 1.05 vs 1.54"
     },
     "ring_duration_after_push_s": {
       "smoothA": "0.2-4.8",
