@@ -177,10 +177,16 @@
         "smoothB": 0.73,
         "measA": 5.09
       },
-      "recommended_penalty_above_rad_s": 2.0,
+      "recommended_penalty_above_rad_s": 8.0,
       "recommended_hard_ceiling_rad_s": 8.0,
       "status": "HARD HARDWARE CONSTRAINT until the ESC is upgraded",
-      "guidance": "the ESC cannot track the encoder above ~13 rad/s at the joint; it raises ERROR_ENCODER_FAULT (0x2000) and floods EMCY until the bus drops. smoothA never exceeded 1.08 rad/s standing."
+      "guidance": "the ESC cannot track the encoder above ~13 rad/s at the joint; it raises ERROR_ENCODER_FAULT (0x2000) and floods EMCY until the bus drops. smoothA never exceeded 1.08 rad/s standing.",
+      "CORRECTION_2026-09-28": "the earlier 2.0 figure was smoothA's STANDING max and was wrong for a limit that binds during walking. smoothA's walk capture gives a median per-joint max of 6.90 rad/s with peaks 7.1-8.8; a hinge at 2.0 priced its normal gait and measB-fast came out a shuffle (knee corr -0.158 vs -0.655). Use 8.0.",
+      "smoothA_walking_max_rad_s": {
+        "median_per_joint": 6.9,
+        "peaks": "7.1-8.8"
+      },
+      "smoothA_sim_peak_rad_s": 14.98
     }
   },
   "hardware_constants_do_not_remeasure": {

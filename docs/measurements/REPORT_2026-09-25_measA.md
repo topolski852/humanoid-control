@@ -119,7 +119,20 @@ measured. Keep them separate so the next regression is attributable.
 The ESC cannot track the encoder above roughly 13 rad/s at the joint, and that is a **hardware
 limit until the new ESC lands**, not a tuning preference.
 
-* penalise `|joint_vel|` above **2 rad/s** (smoothA's standing max was 1.08)
+> **CORRECTED 2026-09-28 — the 2 rad/s figure below was wrong.** It cited smoothA's
+> *standing* max of 1.08 rad/s as the basis for a limit that binds during *walking*. smoothA's
+> own walk capture gives a median per-joint max of **6.90 rad/s** with peaks of 7.1–8.8, so a
+> hinge at 2.0 prices its normal gait. measB-fast was trained with it and came out a shuffle:
+> knee swing 0.391 rad against smoothA's 0.849, knee correlation −0.158 against −0.655.
+> **Use 8.0 rad/s**, which sits above smoothA's walking range and 5 rad/s below the 13.02 fault.
+> Corrected upstream in `humanoid-policy` `6a20529`; measC-full uses 8.0.
+>
+> Also from that eval: smoothA peaks at **14.98 rad/s in sim**, past the fault threshold. It is
+> not inherently safe either, it has just not been unlucky — which is the case for keeping this
+> term rather than dropping it.
+
+* ~~penalise `|joint_vel|` above **2 rad/s** (smoothA's standing max was 1.08)~~ — **wrong,
+  see above; use 8.0 rad/s**
 * treat **8 rad/s** as a hard ceiling in reward shaping
 * the fault occurred at 13.02; leave real margin below it
 
