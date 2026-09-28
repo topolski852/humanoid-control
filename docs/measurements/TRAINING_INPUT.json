@@ -14,7 +14,7 @@
       "REPORT_2026-09-23_smoothB.md",
       "REPORT_2026-09-25_measA.md"
     ],
-    "READ_FIRST": "measC-full CONFIRMED the round-2 fix: untouched tilt rate 0.04 deg/s, 10x better than smoothA and 500x better than measA. Restoring the observation uncertainty margin worked. SEPARATELY: right_knee_pitch (node 8) has now faulted 3x and is a MARGINAL PART -- it faulted at 5.84 rad/s and 19.7 Nm implied while the left knee survived 4.30 rad/s and 26.4 Nm in the same push. Do not read its faults as policy failures and do not tighten the velocity hinge on their strength. See REPORT_2026-09-28_measC.md."
+    "READ_FIRST": "SPLIT VERDICT 2026-09-28. measC has the BEST STAND ever measured (tilt rate 0.04 deg/s untouched, 10x smoothA) and a WORSE WALK than smoothA: it shuffles (knee swing 0.17-0.24 rad vs sim 0.849) and walks in a CIRCLE (both hip_yaw drift 14-22 deg over 12 s against a zero yaw command, never recovering). The two objectives may be in tension -- a policy trained to hold position very tightly may be learning not to move. Also: the knee torque penalty MOVED load to the ankles rather than removing it (left_ankle_pitch now 3.9x its cap and above the motor ceiling). See REPORT_2026-09-28_measC_walk.md."
   },
   "observation_model": {
     "joint_pos_noise": {
@@ -268,6 +268,25 @@
       "smoothB": "up to 15.8 at 4.11 Hz",
       "note": "smoothB can enter a sustained limit cycle; that is closed-loop instability, NOT noise",
       "measC": "0.5-6.2 (like smoothA; no limit cycle)"
+    },
+    "yaw_drift_during_gait_rad": {
+      "measC": {
+        "left_hip_yaw": -0.248,
+        "right_hip_yaw": 0.392
+      },
+      "status": "MEASURED 2026-09-28",
+      "target": "< 0.05 over 12 s",
+      "guidance": "NEW FAILURE MODE. Both hip_yaw joints drift monotonically 14-22 deg over 12 s and never return, in the same world-frame direction, against a ZERO yaw-rate command. The robot walks in a circle. Nothing in the reward prices yaw drift against a zero yaw command -- add a heading/yaw-tracking term."
+    },
+    "knee_swing_rad": {
+      "measC_hardware": {
+        "left": 0.242,
+        "right": 0.174
+      },
+      "smoothA_sim": 0.849,
+      "status": "MEASURED 2026-09-28",
+      "target": "> 0.6",
+      "guidance": "measC strides 3.5-5x smaller than sim -- it SHUFFLES. Gait frequency (1.70 Hz) was a misleading success signal: correct cadence, almost no amplitude. Suspect rel_standing_envs 0.02 -> 0.30, which was never separated from the velocity hinge."
     }
   },
   "standing_constraint": {

@@ -32,6 +32,80 @@ signature smoothA showed (46 s at +0.88). It has not gone away.
 
 ---
 
+## 1b. It walked in a circle — measured, and the cause is hip_yaw drift
+
+Operator description: *"it moved in a circle, like if one leg was broken and the other moved. I
+also had to hold it otherwise it looked like it would fall."*
+
+That reproduces in the data, and the dominant cause is **not** the leg asymmetry.
+
+### The circle: progressive, unrecovered hip_yaw drift
+
+`hip_yaw` median position, before the gait window vs at its end:
+
+| joint | before | end | **drift** |
+|---|---|---|---|
+| `left_hip_yaw` | −0.017 rad | −0.265 rad | **−0.248 rad (−14°)** |
+| `right_hip_yaw` | −0.011 rad | +0.381 rad | **+0.392 rad (+22°)** |
+
+Both yaw joints walk away from zero monotonically over 12 s and **never return**. The two signs
+are opposite in the device frame because the L/R gear ratios are opposite — in the world frame
+they are the *same* rotational direction, which steers the robot. That is the circle.
+
+This is a **heading-regulation failure**, not a gait-quality one. The velocity command was
+forward with zero yaw rate, and the policy accumulated 14–22° of yaw without correcting. Nothing
+in the current reward prices yaw drift against a zero yaw command.
+
+### The stride is a shuffle, not a step
+
+Knee swing amplitude per second during the gait window:
+
+| | mean swing | sim reference |
+|---|---|---|
+| `left_knee` | 0.242 rad | — |
+| `right_knee` | 0.174 rad | — |
+| smoothA (sim `knee_swing`) | — | **0.849 rad** |
+
+**measC's stride is 3.5–5× smaller than sim.** It is shuffling its feet, which is why it cannot
+make forward progress and why it needs holding. Note the gait *frequency* is good (1.70 Hz) — it
+is stepping at the right cadence with almost no amplitude. Frequency alone was a misleading
+success signal in §1.
+
+### The leg asymmetry is real but secondary
+
+| joint | left p2p | right p2p | ratio |
+|---|---|---|---|
+| `hip_pitch` | 0.464 | 0.705 | right does **1.5×** more |
+| `hip_yaw` | 0.383 | 0.495 | 0.77 |
+| `ankle_pitch` | 0.133 | 0.189 | 0.70 |
+| `knee_pitch` | 0.510 | 0.492 | 1.04 |
+| **total leg excursion** | **2.106 rad** | **2.507 rad** | **0.84** |
+
+Right leg moves ~19% more overall, and right knee swing is 72% of left. That matches the "one
+leg working harder" impression but is far too small on its own to produce a circle. **The yaw
+drift is the cause; the asymmetry compounds it.**
+
+---
+
+## 1c. Standing vs walking — the two policies split cleanly
+
+| | best | evidence |
+|---|---|---|
+| **standing** | **measC** | tilt rate 0.04 °/s untouched, 10× better than smoothA, zero excursions over 180 s; recovers from small pushes |
+| **walking** | **smoothA** | 22 s of gait vs measC's 10 s, and it makes forward progress rather than shuffling in a circle |
+
+The operator's ranking is unambiguous and the data agrees on both halves. measC did not replace
+smoothA; it won one regime and lost the other.
+
+Worth being explicit about what that implies: **the two objectives may be in tension.** measC
+stands almost perfectly still (median tilt 2.71° against smoothA's 5.34°, and p95 = max to two
+decimals) and takes 0.17–0.24 rad strides. A policy trained to hold position very tightly may be
+learning to *not move*, which is exactly what a shuffle looks like. The standing command fraction
+went 0.02 → 0.30 this round, and that change is the prime suspect for the small stride — it was
+already flagged as not separable from the velocity hinge.
+
+---
+
 ## 2. The ankles are now the binding constraint
 
 Reconstructed torque (`kp·err − kd·vel`, kp 45 / kd 1.5) over the 38 s the policy ran:
@@ -108,7 +182,32 @@ A dropout is a fault to fix, not structure to model.
 
 ## 5. What this means for the next round
 
-1. **Raise the ankle caps, or reduce ankle demand.** `ankle_pitch` demands 27.5 N·m p95 against a
+Ranked by expected effect on the next bundle.
+
+### 5a. Add a heading / yaw-tracking term — the circle is the biggest gap
+
+Both `hip_yaw` joints drift 14–22° over 12 s against a **zero** yaw-rate command and never
+recover (§1b). This is the single clearest failure and nothing currently prices it. Without it the
+robot cannot walk a straight line regardless of how good its stride becomes.
+
+### 5b. Recover stride amplitude — suspect the standing fraction
+
+Knee swing is 0.17–0.24 rad against a sim reference of 0.849 (§1b). Cadence is correct, amplitude
+is not: it shuffles. `rel_standing_envs` went 0.02 → 0.30 this round and was never separated from
+the velocity hinge. **That is the prime suspect** — 30% of environments standing still is a lot of
+training spent not walking, and measC's near-perfect stand is consistent with a policy that
+learned to hold position rather than move.
+
+Consider separating the two objectives rather than trading them: measC's stand is the best
+measured and worth keeping. A curriculum, or two heads, rather than one policy averaging both.
+
+### 5c. Make the torque term global, not per-joint
+
+
+
+**The ankle problem, unchanged from §2:**
+
+1. **Reduce ankle demand rather than raise the cap.** `ankle_pitch` demands 27.5 N·m p95 against a
    7.0 cap and a 19.76 N·m ceiling. The options are not equivalent:
    * raising the cap toward the ceiling (say 12 N·m, 61% of ceiling, matching the M6C12 ratio)
      gives the joint authority it currently lacks — but the ankle is 3D-printed and has already
