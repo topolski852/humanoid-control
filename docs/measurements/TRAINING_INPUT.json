@@ -14,7 +14,7 @@
       "REPORT_2026-09-23_smoothB.md",
       "REPORT_2026-09-25_measA.md"
     ],
-    "READ_FIRST": "measA-full, the first bundle trained on these numbers, REGRESSED on hardware (50x tilt rate, ESC fault at 41 s). The leading hypothesis is that shrinking observation noise to the measured SENSOR floor removed robustness that was covering UNMEASURED plant uncertainty. Treat the noise floors below as a lower bound on what to randomise, not as the value to use. See REPORT_2026-09-25_measA.md section 3a."
+    "READ_FIRST": "measC-full CONFIRMED the round-2 fix: untouched tilt rate 0.04 deg/s, 10x better than smoothA and 500x better than measA. Restoring the observation uncertainty margin worked. SEPARATELY: right_knee_pitch (node 8) has now faulted 3x and is a MARGINAL PART -- it faulted at 5.84 rad/s and 19.7 Nm implied while the left knee survived 4.30 rad/s and 26.4 Nm in the same push. Do not read its faults as policy failures and do not tighten the velocity hinge on their strength. See REPORT_2026-09-28_measC.md."
   },
   "observation_model": {
     "joint_pos_noise": {
@@ -186,7 +186,8 @@
         "median_per_joint": 6.9,
         "peaks": "7.1-8.8"
       },
-      "smoothA_sim_peak_rad_s": 14.98
+      "smoothA_sim_peak_rad_s": 14.98,
+      "NOT_THE_FAULT_TRIGGER_2026-09-28": "the 2026-09-28 fault came at 5.84 rad/s while two ankles survived 8.8-9.8 rad/s in the same disturbance, and the left knee survived MORE implied torque than the right. Velocity does not explain node 8. Keep the 8.0 hinge as general safety (smoothA peaks 14.98 in sim) but it will not prevent this fault."
     }
   },
   "hardware_constants_do_not_remeasure": {
@@ -206,19 +207,23 @@
       "smoothB": 0.1,
       "measA": 20.6,
       "target": "< 1.0",
-      "note": "THE discriminator for balance quality \u2014 it separated these three policies where tilt magnitude did not"
+      "note": "THE discriminator for balance quality \u2014 it separated these three policies where tilt magnitude did not",
+      "measC": 0.04,
+      "note_measC": "UNTOUCHED 180s window; 10x better than smoothA"
     },
     "tilt_excursions_over_8deg_per_min": {
       "smoothA": 0.2,
       "smoothB": 0.0,
       "measA": 11.7,
-      "target": "< 0.5"
+      "target": "< 0.5",
+      "measC": 0.0
     },
     "joint_vel_p99_rad_s": {
       "smoothA": 0.73,
       "smoothB": 0.73,
       "measA": 5.09,
-      "target": "< 1.5"
+      "target": "< 1.5",
+      "measC": 0.67
     },
     "knee_lr_correlation_during_gait": {
       "smoothA": -0.64,
@@ -233,7 +238,8 @@
     "ring_duration_after_push_s": {
       "smoothA": "0.2-4.8",
       "smoothB": "up to 15.8 at 4.11 Hz",
-      "note": "smoothB can enter a sustained limit cycle; that is closed-loop instability, NOT noise"
+      "note": "smoothB can enter a sustained limit cycle; that is closed-loop instability, NOT noise",
+      "measC": "0.5-6.2 (like smoothA; no limit cycle)"
     }
   },
   "standing_constraint": {
