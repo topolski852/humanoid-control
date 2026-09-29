@@ -141,13 +141,22 @@ def jtype(j):
 # ------------------------------------------------------------------ schedule
 
 
-def plan_target(model, raw, joint, direction, home):
+# Travel caps for pairs whose limbs meet before either joint reaches its stop. hip_yaw: turning
+# both legs the same world direction brings one foot into the other — seen by the operator
+# 2026-09-28 in pass 5, right side clean at 33.6 deg and in contact by 37.9 deg (8.3 N·m
+# beyond gravity). 32 deg keeps a margin for the joint's own deflection under load.
+PAIR_CAP = {"hip_yaw": math.radians(32.0)}
+
+
+def plan_target(model, raw, joint, direction, home, cap=None):
     """Target for one side in one direction: the interior torque peak, or STOP_MARGIN short of
     the stop. Planning uses the plain frame with other joints at zero — only to CHOOSE targets;
     the measurement itself is computed from the measured pose in the chosen frame."""
     lim = raw[joint]["position_limits"]
     stop = lim["min"] if direction == "neg" else lim["max"]
     far = stop + STOP_MARGIN if direction == "neg" else stop - STOP_MARGIN
+    if cap is not None:
+        far = max(far, -cap) if direction == "neg" else min(far, cap)
     start = home if home is not None else 0.0
     if (direction == "neg" and far >= start) or (direction == "pos" and far <= start):
         return None, 0.0, stop
@@ -165,7 +174,7 @@ def build_schedule(model, raw, home=None):
         for side, d in (("left", dl), ("right", dr)):
             j = f"{side}_{t}_joint"
             h = home.get(j) if home else None
-            tgt, tau, stop = plan_target(model, raw, j, d, h)
+            tgt, tau, stop = plan_target(model, raw, j, d, h, PAIR_CAP.get(t))
             sides[j] = {"direction": d, "target_rad": tgt, "pred_peak_tau": tau,
                         "stop_rad": stop,
                         "margin_deg": (abs(math.degrees(stop - tgt)) if tgt is not None else None),
@@ -462,6 +471,19 @@ def analyse(record, raw):
         if not changed and it > 0:
             break
 
+    # Contact is a PAIR event: when one foot pushes the other, the partner's torque is wrong too
+    # (v3 pass 5: left hip_yaw needed LESS torque at step 5 while its gravity load rose — the
+    # right foot was pushing it along). So the first step where any mover delivers more than
+    # CONTACT_EXTRA_NM beyond gravity poisons that step and the rest of the pass for every mover.
+    contact_from = {}
+    for j, ss in samples.items():
+        for s in ss:
+            if s["esc"] is None:
+                continue
+            extra = abs(s["esc"]) - abs(tau_dev(model, s["snap"], j, frames))
+            if extra > CONTACT_EXTRA_NM:
+                contact_from[s["pass"]] = min(contact_from.get(s["pass"], 99), s["step"])
+
     per_joint, excluded = {}, []
     for j, ss in samples.items():
         lim = raw[j]["position_limits"]
@@ -477,7 +499,9 @@ def analyse(record, raw):
         med_ratio = float(np.median(ratios)) if ratios else None
         for p in pts:
             why = None
-            if abs(p["tau"]) <= MIN_TAU:
+            if p["step"] >= contact_from.get(p["pass"], 99):
+                why = "contact"
+            elif abs(p["tau"]) <= MIN_TAU:
                 why = "low_torque"
             elif min(p["pos"] - lim["min"], lim["max"] - p["pos"]) < PROXIMITY:
                 why = "proximity"
