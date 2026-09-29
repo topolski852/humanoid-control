@@ -64,6 +64,27 @@ SETTLE_S = 3.0
 SAMPLE_S = 2.0
 NOMINAL_KP = 45.0
 
+AWAKE_STATES = {"IDLE", "ENABLED", "POSITION", "DAMPING"}
+
+
+async def joints_awake(client, joints, seconds=1.5):
+    """Are the motors actually awake? Do NOT use client.is_connected() for this.
+
+    is_connected() is PER-CLIENT: it is set by wake_all/apply_all_configs on that instance, so a
+    freshly constructed DaemonClient reports False even when the robot is connected and every
+    joint is reporting IDLE. Checking it here refused to run against a perfectly ready robot.
+    Telemetry joint state is the ground truth.
+    """
+    import asyncio as _a
+    await _a.sleep(seconds)
+    bad = []
+    for j in joints:
+        st = (client.get_cached_joint_state(j) or {}).get("state")
+        if st not in AWAKE_STATES:
+            bad.append((j, st))
+    return bad
+
+
 
 async def sample(client, joint, seconds=SAMPLE_S):
     """Median position / reported torque / reported current over a settled window."""
@@ -102,8 +123,11 @@ async def run(args) -> int:
     await client.start()
     trials = []
     try:
-        if not client.is_connected():
-            print("robot is not connected — connect it in the web app first.", file=sys.stderr)
+        _bad = await joints_awake(client, [args.joint])
+        if _bad:
+            print("these joints are not awake: "
+                  + ", ".join(f"{j}={st}" for j, st in _bad)
+                  + "\n  connect the robot in the web app first.", file=sys.stderr)
             return 2
 
         base = await sample(client, args.joint, 1.0)
