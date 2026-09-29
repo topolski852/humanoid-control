@@ -9,15 +9,18 @@
       "hold_20260923T110050_smoothB-stand_can.json",
       "walk_20260925T124840_measA-run1_can.json",
       "m7_sweep_20260928T212236.json",
-      "m7_sweep_20260928T212419.json"
+      "m7_sweep_20260928T212419.json",
+      "hold_20260929T131213_measD-stand_can.json",
+      "hold_20260929T132108_measC-stand_can.json"
     ],
     "reports": [
       "REPORT_2026-09-23_smoothA.md",
       "REPORT_2026-09-23_smoothB.md",
       "REPORT_2026-09-25_measA.md",
-      "REPORT_2026-09-28_M7.md"
+      "REPORT_2026-09-28_M7.md",
+      "REPORT_2026-09-29_AB_measD_vs_measC.md"
     ],
-    "READ_FIRST": "SPLIT VERDICT 2026-09-28. measC has the BEST STAND ever measured (tilt rate 0.04 deg/s untouched, 10x smoothA) and a WORSE WALK than smoothA: it shuffles (knee swing 0.17-0.24 rad vs sim 0.849) and walks in a CIRCLE (both hip_yaw drift 14-22 deg over 12 s against a zero yaw command, never recovering). The two objectives may be in tension -- a policy trained to hold position very tightly may be learning not to move. Also: the knee torque penalty MOVED load to the ankles rather than removing it (left_ankle_pitch now 3.9x its cap and above the motor ceiling). See REPORT_2026-09-28_measC_walk.md. M7 RESULT 2026-09-28: the joints are NOT soft -- every leg servo delivers kp=45 (medians 44.8-45.2 on all 10 joints), Kt*gear and URDF masses verified against gravity. Do NOT lower kp or rescale effort limits in sim. The reconstructed hardware torque (kp*err) equals ESC-commanded torque, so the 3-5x saturation gap is real demand; its cause is dynamic (filter/armature/damping) and not yet measured. See REPORT_2026-09-28_M7.md."
+    "READ_FIRST": "SPLIT VERDICT 2026-09-28. measC has the BEST STAND ever measured (tilt rate 0.04 deg/s untouched, 10x smoothA) and a WORSE WALK than smoothA: it shuffles (knee swing 0.17-0.24 rad vs sim 0.849) and walks in a CIRCLE (both hip_yaw drift 14-22 deg over 12 s against a zero yaw command, never recovering). The two objectives may be in tension -- a policy trained to hold position very tightly may be learning not to move. Also: the knee torque penalty MOVED load to the ankles rather than removing it (left_ankle_pitch now 3.9x its cap and above the motor ceiling). See REPORT_2026-09-28_measC_walk.md. M7 RESULT 2026-09-28: the joints are NOT soft -- every leg servo delivers kp=45 (medians 44.8-45.2 on all 10 joints), Kt*gear and URDF masses verified against gravity. Do NOT lower kp or rescale effort limits in sim. The reconstructed hardware torque (kp*err) equals ESC-commanded torque, so the 3-5x saturation gap is real demand; its cause is dynamic (filter/armature/damping) and not yet measured. See REPORT_2026-09-28_M7.md. A/B 2026-09-29 (same calibration, back to back): measD and measC-full are indistinguishable standers untouched (tilt rate 0.06 vs 0.04 deg/s, both at the IMU floor) and on push recovery; measD is worse on the stand-up ramp (5 vs 1 excursions >8 deg), matching sim's ranking. measD stands ~11 deg straighter-kneed with ~15% less holding torque. Use measC-full for the next hardware tests. See REPORT_2026-09-29_AB_measD_vs_measC.md."
   },
   "observation_model": {
     "joint_pos_noise": {
@@ -467,21 +470,28 @@
       "target": "< 1.0",
       "note": "THE discriminator for balance quality \u2014 it separated these three policies where tilt magnitude did not",
       "measC": 0.04,
-      "note_measC": "UNTOUCHED 180s window; 10x better than smoothA"
+      "note_measC": "UNTOUCHED 180s window; 10x better than smoothA",
+      "measD_20260929": 0.06,
+      "measC_20260929": 0.04,
+      "note_20260929": "same-calibration A/B; both at the IMU floor -- the untouched stand no longer separates good bundles"
     },
     "tilt_excursions_over_8deg_per_min": {
       "smoothA": 0.2,
       "smoothB": 0.0,
       "measA": 11.7,
       "target": "< 0.5",
-      "measC": 0.0
+      "measC": 0.0,
+      "measD_20260929": 0.0,
+      "measC_20260929": 0.0
     },
     "joint_vel_p99_rad_s": {
       "smoothA": 0.73,
       "smoothB": 0.73,
       "measA": 5.09,
       "target": "< 1.5",
-      "measC": 0.67
+      "measC": 0.67,
+      "measD_20260929": 0.73,
+      "measC_20260929": 0.73
     },
     "knee_lr_correlation_during_gait": {
       "smoothA": -0.64,
@@ -503,7 +513,10 @@
       "smoothA": "0.2-4.8",
       "smoothB": "up to 15.8 at 4.11 Hz",
       "note": "smoothB can enter a sustained limit cycle; that is closed-loop instability, NOT noise",
-      "measC": "0.5-6.2 (like smoothA; no limit cycle)"
+      "measC": "0.5-6.2 (like smoothA; no limit cycle)",
+      "measD_20260929": "0.2-0.5 (settle 1.0-1.8)",
+      "measC_20260929": "0.2-0.8 (settle 1.0-1.2)",
+      "note_20260929": "pushes not matched in size (measC took up to 1.7x larger); no limit cycle in either"
     },
     "yaw_drift_during_gait_rad": {
       "measC": {
@@ -523,6 +536,43 @@
       "status": "MEASURED 2026-09-28",
       "target": "> 0.6",
       "guidance": "measC strides 3.5-5x smaller than sim -- it SHUFFLES. Gait frequency (1.70 Hz) was a misleading success signal: correct cadence, almost no amplitude. Suspect rel_standing_envs 0.02 -> 0.30, which was never separated from the velocity hinge."
+    },
+    "standup_excursions_over_8deg": {
+      "measD_20260929": 5,
+      "measC_20260929": 1,
+      "status": "MEASURED 2026-09-29",
+      "note": "first ~3 s of the 5 s ramp to default pose; the one balance signal that separated the A/B. Sim agrees (stand falls/min 0.039 vs 0.000)."
+    },
+    "standing_posture_20260929": {
+      "knee_pitch_deg": {
+        "measD": [
+          36.95,
+          35.89
+        ],
+        "measC": [
+          46.91,
+          48.15
+        ]
+      },
+      "ankle_pitch_deg": {
+        "measD": [
+          -20.29,
+          -21.39
+        ],
+        "measC": [
+          -27.56,
+          -29.08
+        ]
+      },
+      "base_pitch_deg": {
+        "measD": 2.93,
+        "measC": 0.67
+      },
+      "holding_torque_sum_median_nm": {
+        "measD": 8.48,
+        "measC": 9.95
+      },
+      "note": "[left,right], untouched window mean, same calibration. Tilt medians are calibration-dependent: measC read 2.71 deg on 09-28 and 1.02 today."
     }
   },
   "standing_constraint": {
