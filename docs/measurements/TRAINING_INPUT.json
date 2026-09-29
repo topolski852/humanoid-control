@@ -20,7 +20,7 @@
       "REPORT_2026-09-28_M7.md",
       "REPORT_2026-09-29_AB_measD_vs_measC.md"
     ],
-    "READ_FIRST": "SPLIT VERDICT 2026-09-28. measC has the BEST STAND ever measured (tilt rate 0.04 deg/s untouched, 10x smoothA) and a WORSE WALK than smoothA: it shuffles (knee swing 0.17-0.24 rad vs sim 0.849) and walks in a CIRCLE (both hip_yaw drift 14-22 deg over 12 s against a zero yaw command, never recovering). The two objectives may be in tension -- a policy trained to hold position very tightly may be learning not to move. Also: the knee torque penalty MOVED load to the ankles rather than removing it (left_ankle_pitch now 3.9x its cap and above the motor ceiling). See REPORT_2026-09-28_measC_walk.md. M7 RESULT 2026-09-28: the joints are NOT soft -- every leg servo delivers kp=45 (medians 44.8-45.2 on all 10 joints), Kt*gear and URDF masses verified against gravity. Do NOT lower kp or rescale effort limits in sim. The reconstructed hardware torque (kp*err) equals ESC-commanded torque, so the 3-5x saturation gap is real demand; its cause is dynamic (filter/armature/damping) and not yet measured. See REPORT_2026-09-28_M7.md. A/B 2026-09-29 (same calibration, back to back): measD and measC-full are indistinguishable standers untouched (tilt rate 0.06 vs 0.04 deg/s, both at the IMU floor) and on push recovery; measD is worse on the stand-up ramp (5 vs 1 excursions >8 deg), matching sim's ranking. measD stands ~11 deg straighter-kneed with ~15% less holding torque. Use measC-full for the next hardware tests. See REPORT_2026-09-29_AB_measD_vs_measC.md."
+    "READ_FIRST": "CORRECTION 2026-09-29: the 09-28 'measC walk' ran the August policies/walk bundle, NOT measC-full (verified by replaying the tick log through every ONNX). measC-full has never been walked on hardware. Every *measC* WALK number below (circle, shuffle, knee swing, hip_yaw drift, ankle saturation, gait frequency, knee corr) belongs to that August bundle. measC's STAND numbers are verified. SPLIT VERDICT 2026-09-28. measC has the BEST STAND ever measured (tilt rate 0.04 deg/s untouched, 10x smoothA) and a WORSE WALK than smoothA: it shuffles (knee swing 0.17-0.24 rad vs sim 0.849) and walks in a CIRCLE (both hip_yaw drift 14-22 deg over 12 s against a zero yaw command, never recovering). The two objectives may be in tension -- a policy trained to hold position very tightly may be learning not to move. Also: the knee torque penalty MOVED load to the ankles rather than removing it (left_ankle_pitch now 3.9x its cap and above the motor ceiling). See REPORT_2026-09-28_measC_walk.md. M7 RESULT 2026-09-28: the joints are NOT soft -- every leg servo delivers kp=45 (medians 44.8-45.2 on all 10 joints), Kt*gear and URDF masses verified against gravity. Do NOT lower kp or rescale effort limits in sim. The reconstructed hardware torque (kp*err) equals ESC-commanded torque, so the 3-5x saturation gap is real demand; its cause is dynamic (filter/armature/damping) and not yet measured. See REPORT_2026-09-28_M7.md. A/B 2026-09-29 (same calibration, back to back): measD and measC-full are indistinguishable standers untouched (tilt rate 0.06 vs 0.04 deg/s, both at the IMU floor) and on push recovery; measD is worse on the stand-up ramp (5 vs 1 excursions >8 deg), matching sim's ranking. measD stands ~11 deg straighter-kneed with ~15% less holding torque. Use measC-full for the next hardware tests. See REPORT_2026-09-29_AB_measD_vs_measC.md."
   },
   "observation_model": {
     "joint_pos_noise": {
@@ -174,7 +174,8 @@
         "left": 0.251,
         "right": 0.297
       },
-      "note_measC": "improved from 52.1/33.3; static droop -0.208 -> -0.043 rad"
+      "note_measC": "improved from 52.1/33.3; static droop -0.208 -> -0.043 rad",
+      "CORRECTION_2026-09-29": "hardware_fraction_measC: CORRECTION_2026-09-29: from the 09-28 walk, which ran the August policies/walk bundle, not measC-full"
     },
     "joint_velocity_limit": {
       "esc_encoder_fault_rad_s": 13.02,
@@ -215,7 +216,8 @@
       "cap_nm": 7.0,
       "motor_ceiling_nm": 19.76,
       "status": "MEASURED 2026-09-28 (reconstructed)",
-      "guidance": "THE NEW BOTTLENECK. left_ankle_pitch demands 3.9x its cap and ABOVE the MAD5010 physical ceiling. The knee torque reward moved load off the knees (52.1% -> 25.1%) and onto the ankles. Make the torque term GLOBAL over all joints normalised by each cap, or it just redistributes. Prefer reducing demand over raising the cap -- the ankle is 3D-printed and has already broken mechanically."
+      "guidance": "THE NEW BOTTLENECK. left_ankle_pitch demands 3.9x its cap and ABOVE the MAD5010 physical ceiling. The knee torque reward moved load off the knees (52.1% -> 25.1%) and onto the ankles. Make the torque term GLOBAL over all joints normalised by each cap, or it just redistributes. Prefer reducing demand over raising the cap -- the ankle is 3D-printed and has already broken mechanically.",
+      "CORRECTION_2026-09-29": "CORRECTION_2026-09-29: from the 09-28 walk, which ran the August policies/walk bundle, not measC-full"
     },
     "m7_static_stiffness": {
       "status": "MEASURED 2026-09-28, legs hanging, all 12 held, limb weight as load",
@@ -500,14 +502,16 @@
       "target": "-0.85",
       "measC_hardware": -0.65,
       "measC_sim": -0.708,
-      "note": "sim gain did NOT transfer; hardware equals smoothA"
+      "note": "sim gain did NOT transfer; hardware equals smoothA",
+      "CORRECTION_2026-09-29": "CORRECTION_2026-09-29: from the 09-28 walk, which ran the August policies/walk bundle, not measC-full"
     },
     "gait_frequency_hz": {
       "hardware_smoothA": 1.05,
       "sim": 1.54,
       "hardware_measC": 1.7,
       "sim_measC": 1.54,
-      "note": "measC now slightly OVERSHOOTS sim; smoothA undershot 1.05 vs 1.54"
+      "note": "measC now slightly OVERSHOOTS sim; smoothA undershot 1.05 vs 1.54",
+      "CORRECTION_2026-09-29": "CORRECTION_2026-09-29: from the 09-28 walk, which ran the August policies/walk bundle, not measC-full"
     },
     "ring_duration_after_push_s": {
       "smoothA": "0.2-4.8",
@@ -525,7 +529,8 @@
       },
       "status": "MEASURED 2026-09-28",
       "target": "< 0.05 over 12 s",
-      "guidance": "NEW FAILURE MODE. Both hip_yaw joints drift monotonically 14-22 deg over 12 s and never return, in the same world-frame direction, against a ZERO yaw-rate command. The robot walks in a circle. Nothing in the reward prices yaw drift against a zero yaw command -- add a heading/yaw-tracking term."
+      "guidance": "NEW FAILURE MODE. Both hip_yaw joints drift monotonically 14-22 deg over 12 s and never return, in the same world-frame direction, against a ZERO yaw-rate command. The robot walks in a circle. Nothing in the reward prices yaw drift against a zero yaw command -- add a heading/yaw-tracking term.",
+      "CORRECTION_2026-09-29": "CORRECTION_2026-09-29: from the 09-28 walk, which ran the August policies/walk bundle, not measC-full"
     },
     "knee_swing_rad": {
       "measC_hardware": {
@@ -535,7 +540,8 @@
       "smoothA_sim": 0.849,
       "status": "MEASURED 2026-09-28",
       "target": "> 0.6",
-      "guidance": "measC strides 3.5-5x smaller than sim -- it SHUFFLES. Gait frequency (1.70 Hz) was a misleading success signal: correct cadence, almost no amplitude. Suspect rel_standing_envs 0.02 -> 0.30, which was never separated from the velocity hinge."
+      "guidance": "measC strides 3.5-5x smaller than sim -- it SHUFFLES. Gait frequency (1.70 Hz) was a misleading success signal: correct cadence, almost no amplitude. Suspect rel_standing_envs 0.02 -> 0.30, which was never separated from the velocity hinge.",
+      "CORRECTION_2026-09-29": "CORRECTION_2026-09-29: from the 09-28 walk, which ran the August policies/walk bundle, not measC-full"
     },
     "standup_excursions_over_8deg": {
       "measD_20260929": 5,

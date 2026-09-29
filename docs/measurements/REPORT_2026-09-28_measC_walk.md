@@ -1,5 +1,15 @@
 # measC-full — walk attempt — 2026-09-28
 
+> **CORRECTION 2026-09-29: this walk was NOT measC-full.** Replaying the tick log
+> (`recordings/run_1790636341675908634_6336.jsonl`) through every staged ONNX matches
+> `policies/walk` exactly (the August kp45 bench-tuned bundle, identical to
+> `walk_backup_2026-08-18_kp45-bench-tuned`); measC-full misses by 0.29 mean |Δaction|. The web
+> service restarted after the 18:42 knee fault, and on reconnect the page re-sent its dropdown
+> selection, which had reset to the default `walk`. **measC-full has never been walked on
+> hardware.** Every walk finding below (the circle, the shuffle, knee swing, hip_yaw drift, the
+> ankle bottleneck, "load moved to the ankles") describes the August bundle, not measC. The
+> stand result in REPORT_2026-09-28_measC.md was verified and stands.
+
 **Capture:** `walk_20260928T185838_measC-walk1_*` — 126 s, ended in an ESC fault
 **Companion:** [REPORT_2026-09-28_measC.md](REPORT_2026-09-28_measC.md) (the stand result)
 

@@ -44,6 +44,12 @@ point, time constant) are still open, and item 4 is now the lead.
 M7 has been "blocking" since 2026-09-23. It is now the **critical path**, and the reason has
 changed: it is no longer a knee-specific question.
 
+> **CORRECTION 2026-09-29:** the hardware column below came from the 09-28 walk, which ran the
+> August `policies/walk` bundle, not measC-full (see REPORT_2026-09-28_measC_walk.md). This table
+> compares measC's sim against a different network's hardware, so the per-joint gaps are not
+> valid. The knee gap is still real for smoothA, where sim and hardware are the same network
+> (knee p95 28.0 vs 6.6 N·m; saturation 52% vs 0.16%).
+
 Comparing measC's sim eval against its own hardware capture, **sim under-predicts torque demand on
 every major leg joint**:
 
