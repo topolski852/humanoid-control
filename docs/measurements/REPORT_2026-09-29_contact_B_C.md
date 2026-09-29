@@ -97,3 +97,29 @@ The tilt test is independent of the load.
     equivalent; this is a contact model, not a μ.
 - Two more repeats and a kinetic angle are pending. The next test location will have hard
   flooring; measure it there too, and keep each comparison on one surface.
+
+## Test 1 on bare concrete (15:50): confounded by foot slip, so not a rug-vs-hard-floor answer
+
+measC-full, knee cap 12, one session, 3 bouts, 13.6 s. Clean: no faults, network verified.
+
+| | rug (4 sessions) | bare concrete |
+|---|---|---|
+| stall fraction | 17% | 40% |
+| knee L/R corr | −0.35 … −0.45 | −0.02 |
+| hip_pitch / knee sat | 15–23% / 12–25% | 30–36% / 22–33% |
+| tilt p95 | 8–12° | 17° |
+| torso heading rate | 5.7–10.8 °/s | 3.3 °/s |
+| clearance median / p10 | 32 / 14 mm | 35 / 8 mm |
+
+**The operator saw the PLA feet slip out from under the robot on the concrete.** The robot tried to
+step, and the stance foot slid. The higher stall fraction and worse knee alternation are therefore
+mostly **slip**: a stance foot sliding out folds the leg and puts the knee at its cap, which the
+stall detector can't distinguish from buckling.
+
+- Bare PLA on concrete is almost certainly below the μ 0.4 that training starts at. No μ number,
+  because the concrete floor can't be tilt-tested.
+- This is the regime measE's 0.25–1.2 friction range targets.
+- **Next:** Test 1b and Test 2 (knee cap 18) are moved to **the rug**, with the same calibration
+  and back to back, where feet don't slide out and the 17% baseline exists.
+- **Suggestion for both sides:** rubber or TPU sole pads would remove PLA slip from every future
+  test, on any floor.
