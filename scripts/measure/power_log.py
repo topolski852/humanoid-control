@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import argparse
 import re
+import select
 import struct
 import subprocess
 import sys
@@ -44,6 +45,8 @@ def main() -> int:
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--seconds", type=float, default=90.0)
     ap.add_argument("--label", default="session")
+    ap.add_argument("--live", type=float, default=0.0,
+                    help="print the lowest bus voltage seen every N seconds (0 = off)")
     args = ap.parse_args()
     p_iq = iq_param_id()
     nodes = C.leg_node_map()
@@ -52,10 +55,18 @@ def main() -> int:
                             stderr=subprocess.DEVNULL, text=True, bufsize=1)
     series = defaultdict(lambda: {"t": [], "v": [], "iq": [], "t_iq": []})
     t_end = time.time() + args.seconds
+    next_live, live_min = time.time() + (args.live or 1e9), 1e9
     print(f"logging bus V / I_q for {args.seconds:.0f}s (passive) ...", flush=True)
     try:
-        for line in proc.stdout:
-            if time.time() >= t_end:
+        while time.time() < t_end:
+            # select() with a timeout, so a silent bus (robot unpowered, bus jammed) cannot
+            # block the loop past --seconds: iterating proc.stdout directly only checked the
+            # clock when a frame arrived.
+            ready, _, _ = select.select([proc.stdout], [], [], 0.5)
+            if not ready:
+                continue
+            line = proc.stdout.readline()
+            if not line:
                 break
             m = LINE.search(line)
             if not m:
@@ -74,6 +85,11 @@ def main() -> int:
             t = float(m.group(1))
             if pid == P_BUS_V:
                 series[name]["t"].append(t); series[name]["v"].append(val)
+                live_min = min(live_min, val)
+                if time.time() >= next_live:
+                    print(time.strftime("%H:%M:%S"), f"bus V now {val:5.2f}  min in window "
+                          f"{live_min:5.2f}", flush=True)
+                    next_live, live_min = time.time() + args.live, 1e9
             elif p_iq is not None and pid == p_iq:
                 series[name]["t_iq"].append(t); series[name]["iq"].append(val)
     finally:
