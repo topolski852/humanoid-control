@@ -1,21 +1,21 @@
 {
   "_meta": {
-    "capture_id": "walk_20260929T134329",
+    "capture_id": "walk_20260929T134916",
     "activity": "walk",
     "date": "2026-09-29",
-    "started_epoch": 1790703809.2358553,
+    "started_epoch": 1790704156.2223084,
     "host": "nse-MINI-S",
     "daemon": {
       "running": true,
       "pid": 1210,
       "cmdline": "/home/nse/humanoid-control/daemon/build/humanoid_daemon --config /home/nse/humanoid-studio/configs/humanoid_lite.json --imu-device /dev/humanoid_imu",
       "started_epoch": 1790701147.4869998,
-      "uptime_s": 2661.7607622146606,
+      "uptime_s": 3008.745871782303,
       "config_path": "/home/nse/humanoid-studio/configs/humanoid_lite.json",
       "config_mtime_epoch": 1790352672.074246,
       "config_newer_than_daemon": false
     },
-    "cpu_temp_start_c": 65.0,
+    "cpu_temp_start_c": 68.0,
     "throttle_start": {
       "core_throttle_count": 0,
       "package_throttle_count": 0
@@ -24,9 +24,9 @@
     "measurement": "walk_metrics",
     "label": "measC-walk-20260929",
     "recording": "run_1790703704747124133_2328.jsonl",
-    "ended_epoch": 1790703809.2484732,
-    "duration_s": 0.012617826461791992,
-    "cpu_temp_end_c": 65.0,
+    "ended_epoch": 1790704156.2335873,
+    "duration_s": 0.011278867721557617,
+    "cpu_temp_end_c": 66.0,
     "throttle_end": {
       "core_throttle_count": 0,
       "package_throttle_count": 0
@@ -34,7 +34,26 @@
   },
   "metrics": {
     "recording": "run_1790703704747124133_2328.jsonl",
-    "walk_window_s": 3.759864660000403,
+    "bouts": [
+      {
+        "t_start": 8.336283762999756,
+        "duration_s": 3.7998571650005033,
+        "knee_lr_corr": -0.32281509502162864,
+        "knee_swing_rad": {
+          "left": 0.5801516175270081,
+          "right": 0.6422266960144043
+        },
+        "gait_freq_hz": 1.052828852751015,
+        "hip_yaw_drift_deg": {
+          "left": 1.575683482517412,
+          "right": -0.4902345509479419
+        },
+        "heading_change_deg": -65.78356946187884,
+        "heading_rate_deg_s": -17.312116378424484
+      }
+    ],
+    "n_bouts": 1,
+    "walking_s": 3.7998571650005033,
     "command_vx_mean": 0.5813658364509281,
     "command_wz_max_abs": 0.0,
     "knee_swing_rad": {
@@ -44,10 +63,10 @@
     "knee_lr_corr": -0.32281509502162864,
     "gait_freq_hz": 1.052828852751015,
     "hip_yaw_drift_deg": {
-      "left": 2.443593713699247,
-      "right": -1.285906779710811
+      "left": 1.575683482517412,
+      "right": -0.4902345509479419
     },
-    "heading_change_deg": -65.78356946187884,
+    "heading_abs_rate_deg_s": 17.312116378424484,
     "tilt_p95_deg": 8.911738600311631,
     "tilt_max_deg": 9.393489790680203,
     "joint_vel_max_rad_s": 6.12346887588501,

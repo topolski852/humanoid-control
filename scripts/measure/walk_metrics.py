@@ -4,9 +4,11 @@
     .venv/bin/python scripts/measure/walk_metrics.py --label measC-walk          # newest log
     .venv/bin/python scripts/measure/walk_metrics.py --recording recordings/run_X.jsonl
 
-The walk window is the span where the forward command |vx| > 0.05 (the operator's stick), so
-arming, standing and the stop are excluded without hand-picked times. Everything is computed
-over that window:
+Only ticks with the trigger HELD and the stick FORWARD count. The tick log records only while
+the trigger is held, so each release is a time gap; the log is split into bouts at every gap
+and every stick release, and bouts under 1 s are dropped. Metrics are per bout, then pooled
+(duration-weighted) — a short room means several short walks, and they must not be merged
+across the time the robot was being repositioned:
 
 * **knee swing** — median per-second peak-to-peak of knee_pitch (rad). smoothA sim: 0.849.
 * **knee L/R correlation** — stepping alternates (strongly negative; sim -0.7..-0.9), sagging
@@ -69,44 +71,73 @@ def contract_caps(policy, order):
         return np.array([7.0 if "ankle" in n else 12.0 for n in order]), "assumed 12/7"
 
 
+def bouts(t, cmd, dt):
+    """Walking bouts: contiguous ticks with the stick forward (|vx| > 0.05) AND the trigger held.
+    The tick log only records while the trigger is held, so a release shows up as a time gap;
+    splitting on gaps > 3 ticks keeps separate walks separate instead of merging them across
+    the time the robot was being repositioned."""
+    mov = np.abs(cmd[:, 0]) > 0.05
+    gap = np.r_[True, np.diff(t) > 3 * dt]
+    out, start = [], None
+    for i in range(len(t)):
+        if mov[i] and (start is None or gap[i]):
+            if start is not None:
+                out.append((start, i - 1))
+            start = i
+        elif not mov[i] and start is not None:
+            out.append((start, i - 1))
+            start = None
+    if start is not None:
+        out.append((start, len(t) - 1))
+    return [(a, b) for a, b in out if b - a + 1 >= int(round(1.0 / dt))]   # >= 1 s
+
+
 def metrics(path, policy=None):
     order, t, cmd, q, v, tgt, gz, g = load(path)
-    mov = np.abs(cmd[:, 0]) > 0.05
-    if mov.sum() < 25:
-        return {"recording": os.path.basename(path), "error": "no walk window (|vx| > 0.05 < 1 s)"}
-    idx = np.where(mov)[0]
-    a, b = idx[0], idx[-1]
     dt = float(np.median(np.diff(t)))
     n1s = int(round(1.0 / dt))
+    B = bouts(t, cmd, dt)
+    if not B:
+        return {"recording": os.path.basename(path), "error": "no walking bout of >= 1 s"}
     J = {n: order.index(n) for n in order}
     kl, kr = J["left_knee_pitch_joint"], J["right_knee_pitch_joint"]
-
-    def swing(j):
-        seg = q[a:b + 1, j]
-        pp = [np.ptp(seg[i:i + n1s]) for i in range(0, len(seg) - n1s + 1, n1s)]
-        return float(np.median(pp)) if pp else None
-
-    L, R = q[a:b + 1, kl], q[a:b + 1, kr]
-    corr = float(np.corrcoef(L - L.mean(), R - R.mean())[0, 1])
-    spec = np.abs(np.fft.rfft(L - L.mean()))
-    freqs = np.fft.rfftfreq(len(L), dt)
-    band = (freqs >= 0.5) & (freqs <= 4.0)
-    f_gait = float(freqs[band][np.argmax(spec[band])]) if band.any() else None
-    pre = q[max(0, a - n1s):a].mean(0) if a > 0 else q[a]
-    end = q[max(a, b - n1s // 2):b + 1].mean(0)
     tilt = np.degrees(np.arctan2(np.hypot(g[:, 0], g[:, 1]), -g[:, 2]))
     tau = 45.0 * (tgt - q) - 1.5 * v
     cap, cap_src = contract_caps(policy, order)
-    W = slice(a, b + 1)
+
+    def one(a, b):
+        sl = slice(a, b + 1)
+        L, R = q[sl, kl] - q[sl, kl].mean(), q[sl, kr] - q[sl, kr].mean()
+        pp = lambda j: [np.ptp(q[a + i:a + i + n1s, j]) for i in range(0, b - a + 1 - n1s + 1, n1s)]  # noqa
+        spec = np.abs(np.fft.rfft(L)); fr = np.fft.rfftfreq(len(L), dt)
+        band = (fr >= 0.5) & (fr <= 4.0)
+        # hip_yaw drift inside the bout: last 0.5 s minus first 0.5 s
+        h = max(1, n1s // 2)
+        drift = {s: float(np.degrees(q[b - h + 1:b + 1, J[f"{s}_hip_yaw_joint"]].mean() -
+                                     q[a:a + h, J[f"{s}_hip_yaw_joint"]].mean())) for s in ("left", "right")}
+        return {"t_start": float(t[a]), "duration_s": float(t[b] - t[a] + dt),
+                "knee_lr_corr": float(np.corrcoef(L, R)[0, 1]),
+                "knee_swing_rad": {"left": float(np.median(pp(kl))) if pp(kl) else None,
+                                   "right": float(np.median(pp(kr))) if pp(kr) else None},
+                "gait_freq_hz": float(fr[band][np.argmax(spec[band])]) if (band.any() and len(L) >= 2 * n1s) else None,
+                "hip_yaw_drift_deg": drift,
+                "heading_change_deg": float(np.degrees(np.sum(gz[sl]) * dt)),
+                "heading_rate_deg_s": float(np.degrees(np.sum(gz[sl]) * dt) / (t[b] - t[a] + dt))}
+
+    per = [one(a, b) for a, b in B]
+    W = np.concatenate([np.arange(a, b + 1) for a, b in B])
+    w = np.array([p["duration_s"] for p in per])
+    wavg = lambda vals: float(np.average([x for x in vals], weights=w))  # noqa
     return {
         "recording": os.path.basename(path),
-        "walk_window_s": float(t[b] - t[a]),
+        "bouts": per, "n_bouts": len(per), "walking_s": float(w.sum()),
         "command_vx_mean": float(cmd[W, 0].mean()), "command_wz_max_abs": float(np.abs(cmd[W, 2]).max()),
-        "knee_swing_rad": {"left": swing(kl), "right": swing(kr)},
-        "knee_lr_corr": corr, "gait_freq_hz": f_gait,
-        "hip_yaw_drift_deg": {s: float(np.degrees(end[J[f"{s}_hip_yaw_joint"]] -
-                                                  pre[J[f"{s}_hip_yaw_joint"]])) for s in ("left", "right")},
-        "heading_change_deg": float(np.degrees(np.sum(gz[W]) * dt)),
+        "knee_swing_rad": {s: wavg([p["knee_swing_rad"][s] or 0 for p in per]) for s in ("left", "right")},
+        "knee_lr_corr": wavg([p["knee_lr_corr"] for p in per]),
+        "gait_freq_hz": (float(np.median([p["gait_freq_hz"] for p in per if p["gait_freq_hz"]]))
+                         if any(p["gait_freq_hz"] for p in per) else None),
+        "hip_yaw_drift_deg": {s: wavg([p["hip_yaw_drift_deg"][s] for p in per]) for s in ("left", "right")},
+        "heading_abs_rate_deg_s": wavg([abs(p["heading_rate_deg_s"]) for p in per]),
         "tilt_p95_deg": float(np.percentile(tilt[W], 95)), "tilt_max_deg": float(tilt[W].max()),
         "joint_vel_max_rad_s": float(np.abs(v[W]).max()),
         "torque_p95_nm": {n: float(np.percentile(np.abs(tau[W, i]), 95)) for i, n in enumerate(order)},
@@ -124,14 +155,18 @@ def show(m, label=""):
     if "error" in m:
         print("  " + m["error"])
         return
-    ks = m["knee_swing_rad"]
-    print(f"  walk window {m['walk_window_s']:.1f} s  vx {m['command_vx_mean']:.2f}  "
-          f"|wz| max {m['command_wz_max_abs']:.2f}")
-    print(f"  knee swing L/R {ks['left']:.3f} / {ks['right']:.3f} rad   knee corr {m['knee_lr_corr']:+.3f}"
-          f"   gait {m['gait_freq_hz']:.2f} Hz")
-    hy = m["hip_yaw_drift_deg"]
-    print(f"  hip_yaw drift L/R {hy['left']:+.1f} / {hy['right']:+.1f}°   heading change "
-          f"{m['heading_change_deg']:+.1f}° (supported)")
+    print(f"  {m['n_bouts']} bout(s), {m['walking_s']:.1f} s walking (trigger held, stick forward), "
+          f"vx {m['command_vx_mean']:.2f}")
+    for i, p in enumerate(m["bouts"], 1):
+        ks = p["knee_swing_rad"]; hy = p["hip_yaw_drift_deg"]
+        gf = f"{p['gait_freq_hz']:.2f} Hz" if p["gait_freq_hz"] else "  -  "
+        print(f"   bout {i}: {p['duration_s']:4.1f} s  knee corr {p['knee_lr_corr']:+.2f}  swing "
+              f"{ks['left'] or 0:.2f}/{ks['right'] or 0:.2f}  {gf}  hip_yaw {hy['left']:+.1f}/"
+              f"{hy['right']:+.1f}°  heading {p['heading_change_deg']:+6.1f}° "
+              f"({p['heading_rate_deg_s']:+.1f}°/s)")
+    ks = m["knee_swing_rad"]; hy = m["hip_yaw_drift_deg"]
+    print(f"  POOLED  knee corr {m['knee_lr_corr']:+.3f}  swing {ks['left']:.3f}/{ks['right']:.3f} rad  "
+          f"gait {m['gait_freq_hz'] or float('nan'):.2f} Hz  |heading rate| {m['heading_abs_rate_deg_s']:.1f}°/s")
     print(f"  tilt p95 {m['tilt_p95_deg']:.1f}° max {m['tilt_max_deg']:.1f}°   |vel| max "
           f"{m['joint_vel_max_rad_s']:.2f} rad/s")
     sat = {k: v for k, v in m["saturation_pct"].items() if v > 0.5}
