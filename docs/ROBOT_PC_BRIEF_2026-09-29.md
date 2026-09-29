@@ -75,6 +75,61 @@ evals ran at 0.3). Hardware numbers are pooled from the two clean walk captures.
   - **Sim swing clearance (item C's reference):** median 5.3 cm, p10 4.4 cm. Hardware p10 near
     0–1 cm would confirm scuffing.
 
+### ⚠ LATEST (training PC, evening 2026-09-29): the stalls look like a DELIVERED-torque shortfall
+
+Rug plant-ID replayed the frozen measC-full and smoothA networks at vx 0.6 on candidate plants.
+Stalls use exactly `gait_contact.py`'s definition.
+
+| plant | measC stall | smoothA stall | notes |
+|---|---|---|---|
+| rigid floor (baseline) | 0.01% | 0.04% | |
+| soft floor, 3 stiffnesses | 0.02–0.21% | 0.02–0.11% | the robot sinks up to 1.7 cm, but the torso tips *backward* |
+| **μ_static 0.58 / μ_kinetic 0.30** | 0.06% | 0.07% | **reproduces the torso twist** (yaw p95 2.24 / 1.94 rad/s, hw 1.4–2.5 / 1.4–1.8) |
+| downward hand 20 N | 0.02% | 0.03% | |
+| **hip_pitch + knee deliver 50% of cap** | **9.6%** | **7.0%** | knee p95 19.7 (hw **20.3**), hip 14.2 (hw 17.3), corr −0.66 |
+| **… 45%** | **25.2%** | 17.5% | knee corr −0.45 (hw **−0.41**) |
+| **… 40%** | 46.7% | **36.1%** (hw **36%**) | knee 36.7, hip 26.0 (hw 30.4 / 23.1) |
+| **hardware** | **17%** | **36%** | |
+
+* **The torso twist is kinetic friction.** Measured static μ 0.58 with kinetic μ ≈ 0.3 reproduces
+  it for both networks, in the right order. The kinetic half of item D confirms or kills this.
+* **A delivered-torque shortfall on hip_pitch and knee is the only plant change that reproduces
+  the stalls.** It also reproduces the sagittal torque magnitudes, the loss of knee alternation,
+  the forward torso pitch, and "it would fall if I didn't hold it": sim falls 12–28×/min at these
+  levels. Both networks fit at **~40–50% of the 12 N·m cap, i.e. ~5–6 N·m actually delivered.**
+  One mismatch: at a single shortfall value, sim says measC stalls more, while hardware says
+  smoothA does.
+* **This is consistent with M7, because M7 never tested it.** M7's largest gravity load was
+  **5.49 N·m**. It verified the joints are linear and correct up to ~5.5 N·m. M7 item 3
+  (saturation point) was never run, so nobody has measured what a knee delivers when commanded
+  12 N·m.
+* **Every "hardware torque" figure so far is commanded, not delivered.** `kp·err − kd·vel` is the
+  demand. A delivery shortfall is invisible to it by construction.
+
+**This changes the order below. Run these before the knee-cap A/B.** If a joint can't deliver 12
+statically, raising `torque_limit` to 18 is pointless.
+
+**S1 — static saturation, one joint (M7 item 3).** Leg supported on a fixed stop, e.g. the thigh
+on a table edge. Command a target past the stop so `kp·err` climbs past the cap in steps (6, 9,
+12, 15 N·m). At each step read the ESC's **measured torque (0x048), i_q (0xC0) and bus voltage
+(0x100)**, and hold long enough for a few slow-poll samples at ~3.3 Hz. Do `left_knee_pitch`
+(healthy) and one `hip_pitch`. **Expected if the joint is fine:** delivered torque tracks demand
+up to ~12 and plateaus there. **If it plateaus near 5–6, the shortfall is a single-joint limit**
+(firmware, current path, torque scaling).
+
+**S2 — the same, all four sagittal joints loaded at once.** If S1 reaches ~12 but S2 does not, and
+bus voltage sags, it's the **supply under simultaneous load**. The earlier divergence report
+recorded a left-bus brownout under peak current.
+
+**W — log delivered torque during a walk.** Add each joint's telemetry `torque`, `current` and
+`bus_voltage` (plus how old each value is) to the `StepRecorder` tick log. Read them from the
+service's **existing** telemetry client. Don't open a second UDP client; it steals packets (measA
+report §8). At ~3.3 Hz that's ~2 samples per median stall, enough across a session to compare
+**delivered vs commanded during stalls** and to see whether bus voltage dips in double support.
+
+The training side won't retrain for this until S1/S2/W say whether the fix is on the hardware
+(supply, current path) or has to be learned around (train with a reduced sagittal torque budget).
+
 ### NEXT HARDWARE SESSION (added after items B–D) — two no-retrain tests on the hard floor
 
 B found that the stalls are **stance-knee torque starvation**. A knee sits pinned at its 12 N·m
