@@ -7,10 +7,130 @@ build and run everything below from this file plus the documents it links.
 This PC builds the measurement tools, runs them on the hardware, and writes the results back to
 `docs/measurements/` so the training side can use them. Results come back through git.
 
-**Context.** measC-full is the best stander measured: tilt rate 0.04 °/s untouched, 10× better than
-smoothA. But it walks in a shuffle and in a circle. M7 (2026-09-28) refuted the soft-joint theory.
-`kp = 45` on every servo, and `Kt·gear` and the link masses are verified. So the 3–5× sim/hardware
-torque gap is **dynamic**. The step response (item 2) is the measurement that can find it.
+---
+
+## UPDATE after the 2026-09-29 session — read this first. It supersedes the queue further down.
+
+### What the session settled
+
+* **measC-full is the base for the next round.** It's the best stander and, now that it has been
+  walked for real, the best walker too. Knee swing is 0.61–0.65 rad, 1.41 Hz, and the best bouts
+  reach knee correlation −0.73. The A/B tied on balance, measD stood up worse, and sim's ranking
+  held.
+* **The 09-28 "measC walk" was the August bundle.** Every walk number in that report, and the
+  "3–5× on six joints" torque table in `HARDWARE_PLAN_2026-09-28.md`, compared measC's sim with a
+  different network's hardware. Those numbers are invalid.
+* **Heading loop:** built, sign-verified, low-passed for the per-step twist, and validated in dry
+  mode. It has **not** been tested with the loop on, because the right knee faulted.
+
+### The corrected sim-vs-hardware picture (computed on the training PC, 2026-09-29)
+
+Same network (measC-full), same command (**vx 0.6**, which is what the walks used; earlier sim
+evals ran at 0.3). Hardware numbers are pooled from the two clean walk captures.
+
+| joint | hw/sim torque p95 | sim sat | hw sat |
+|---|---|---|---|
+| hip_pitch L / R | **2.6× / 3.1×** | 0.1% | 16–21% |
+| knee_pitch L / R | **3.1× / 1.9×** | ~1% | 10–24% |
+| ankle_pitch L / R | 0.9× / 1.1× | ~10% | 5–9% |
+| hip_roll, hip_yaw | 1.0× | ~0% | 1–3% |
+
+* **The gap is confined to the sagittal joints.** hip_roll and hip_yaw use the **same M6C12 actuator
+  model** as hip_pitch and knee, and they match sim. So the actuator model (armature, damping, the
+  torque filter) is probably not the main cause. The difference is what the sagittal joints do:
+  carry body weight through stance, and swing the leg.
+* **The torso twists 2.4–4× more than in sim.** Hardware |ω_z| p95 is 1.4–2.5 rad/s; sim is
+  0.60–0.67. This answers the question in `REPORT_2026-09-29_heading.md` §2: it points at foot
+  contact.
+* **"Stuck, then breaks free" (operator) shows in the bout data.** measC's knee correlation swings
+  between −0.73 and 0.00 across bouts, and its gait between 1.49 and 0.69 Hz. **It is not the
+  encoder freezing:** right-knee stale-hold is 0.000% in all four clean walk captures.
+  - The two leading candidates are both contact effects, which no hanging-leg test can see.
+  - **Swing-foot scuffing:** hardware knee swing is 0.63 rad against 0.86 in sim, so the foot
+    clears the floor less. The toe catches, the hip and knee saturate, then it breaks free.
+  - **Stance-foot slip or pivot:** this fits the extra torso twist.
+* **The training PC is running plant-identification evals now.** It replays measC-full on
+  perturbed sim plants (lower foot friction, more sagittal damping, more sagittal inertia) to see
+  which reproduces the hardware signature. The results will be appended here.
+
+### Corrections to the session's own record
+
+* **The right knee has faulted at least six times, not five.**
+  `walk_20260929T141225_measC-heading-dry_can.json` ends in a node-8 flood: 198,379 EMCY frames,
+  codes 0x2040 / 0x2000, starting ~40 s in. It's not in the commit messages or the heading report.
+  The walking bouts in that capture end at ~33 s and show normal right-knee swing, so they look
+  valid. That makes three node-8 faults on 09-29.
+
+### New queue
+
+| # | item | needs the robot? | why |
+|---|---|---|---|
+| **A** | **Right knee inspect / replace** | physical | **Blocks all walking.** Six faults, three in one day, one frozen silently at rest. |
+| **B** | **Stuck-event analysis** on existing tick logs | **no** | Explains "stuck, then breaks free". |
+| **C** | **Swing-foot clearance** from existing tick logs (FK) | **no** | Directly tests the scuffing hypothesis. |
+| **D** | **Floor friction** of the foot sole | minutes, robot off | Tests the contact hypothesis; sim trains μ 0.4–1.2. |
+| E | Heading loop **on** walk | after A | Tool is ready; baseline veer is 3–17 °/s per bout. |
+| F | Step response (spec below, §2) | after A | Now a damping check rather than the lead. |
+| G | Daemon state bugs (clear_faults / disarm) | code | Leaves joints unfed; likely caused the three-hip E-stop. |
+
+B, C and D need no powered robot, so they can run while the knee is out.
+
+#### B. Stuck-event analysis — tick logs already recorded
+
+Inputs: the four clean walk logs listed in `REPORT_2026-09-29_walk_measC_vs_smoothA.md` "Files",
+plus the two `measC-dry2` logs.
+
+1. Within trigger-held, stick-forward bouts, flag **stall windows**. A stall is ≥ 0.3 s where
+   **both knees move < 0.5 rad/s**, *or* hip_pitch or knee_pitch sits at its torque cap
+   (reconstructed kp·err − kd·vel ≥ 0.98 × cap). Tune the thresholds if they obviously
+   misfire, and say what you used.
+2. For each stall, report: start time, duration, which leg, per-joint position error and
+   saturation, **both foot heights from FK** (see C), IMU pitch/roll and yaw rate, and action
+   magnitude.
+3. For each stall, also report **how it ends**: which joint releases first, and whether a foot
+   height changes just before it breaks free.
+4. Totals: the number of stalls, the fraction of walking time stalled, and whether the stall rate
+   differs between measC and smoothA or correlates with heading veer.
+
+#### C. Swing-foot clearance — FK on the same tick logs
+
+* Get foot positions from the 12 logged joint angles using `leg_gravity.LegModel.fk`. Use the
+  `*_ankle_roll` link origin for each foot. Rotate them to the world frame using the logged IMU
+  quaternion.
+* **Proxy, defined exactly so both sides compute the same number:**
+  - Let `d(t) = z_left(t) − z_right(t)`.
+  - Split the walk into **steps at every sign change of `d`**.
+  - Each step's **clearance = max |d|** between two consecutive sign changes. That is the swing
+    foot's peak height above the stance foot.
+  - Drop half-steps shorter than 0.15 s; those are jitter at the crossing.
+  - Report the median and the 10th percentile of per-step clearance. The 10th percentile is the
+    one that catches scuffing.
+* Report the distribution per bout, and **stall vs non-stall**. If clearance drops toward zero
+  during stalls, scuffing is confirmed.
+* The training PC will compute **the same proxy in sim**, so the two numbers are directly comparable.
+  Use exactly this definition.
+
+#### D. Floor friction
+
+With the robot unpowered, measure the foot sole on **the floor surface the walks happen on**.
+Either tilt a board of that surface until the foot slides (μ = tan θ), or pull the foot with a
+spring scale (μ = F / m g). Report static and kinetic μ, and name the surface. Sim trains on
+μ 0.4–1.2. If the real value is below 0.4, the policy has never seen that floor.
+
+#### Standing notes for all walk captures
+
+* Keep walking at **full stick (vx ≈ 0.6)**, or record the command. `walk_metrics.py` already logs
+  `command_vx_mean`. The training side matches its eval to it.
+* Every walk is **supported**. The operator's hand can add yaw torque and load or unload the legs.
+  Note in the report when support was heavy.
+
+---
+
+## Original 2026-09-29 queue (kept for the item specs)
+
+The table below is superseded by the UPDATE above. Item 1 is **done**
+(`REPORT_2026-09-29_AB_measD_vs_measC.md`). Item 3 is **built**, but not yet run with the loop on
+(`REPORT_2026-09-29_heading.md`). The step-response spec in §2 still stands as written.
 
 | # | item | tools exist? | gates |
 |---|---|---|---|
