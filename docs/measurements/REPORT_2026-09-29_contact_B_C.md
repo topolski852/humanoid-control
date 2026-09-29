@@ -21,7 +21,12 @@ feet on the ground. It is **not** swing-foot scuffing: the toe does not catch an
 | **measC-full** | 80 | **32.2 mm** | **13.7 mm** | 29.2 / 11.4 | 32.2 / 20.3 |
 | smoothA-full | 31 | 38.7 mm | 16.1 mm | 22.1 / 4.4 | 39.8 / 25.2 |
 
-For the training PC: compute the same proxy on measC-full in sim at vx 0.6.
+**Against sim** (training PC, measC-full at vx 0.6: median 53 mm, p10 44 mm):
+
+- Hardware clearance is **~60% of sim at the median** (32 vs 53 mm) and **~⅓ at p10** (14 vs 44 mm).
+- The feet lift clearly less than in sim, consistent with the smaller knee swing (0.63 vs 0.86 rad).
+- It is **not near the 0–1 cm** that would confirm scuffing. Even the lowest decile clears 14 mm,
+  and 20 mm outside stalls.
 
 - **If sim clearance is far above 32 mm**, clearance is a real gap: sim's knee swing is 0.86 rad
   against 0.63 on hardware.
