@@ -69,3 +69,46 @@ the loop-off baseline (measC: −66, −21, +20, −17, −19, +34, −8° per b
 - `imu_yaw_drift_20260929T140505_squat.json`
 - `measC-heading-dry-20260929_walk.json`
 - Tick log: `recordings/run_1790705543932967453_23984.jsonl` (heading fields included)
+
+---
+
+## 5. Afternoon session: dry baseline clean; the `on` test was cut short by the right knee
+
+**Loop off (`dry`), measC-full, 5 bouts, 20.2 s** (`measC-dry2-20260929_walk.json`). Clean, no
+faults. Veer per bout: +30, 0, +33, +40, −13° (mean |rate| 5.7 °/s), mostly to the left. The
+loop would have sent −0.03 to −0.11 rad/s on average (peak 0.25), i.e. to the right, as designed.
+One tick of right_ankle_pitch at 14.45 rad/s (a foot strike); knees ≤ 8.8 rad/s.
+
+**Loop `on`, first attempt (14:23): invalid.** right_knee_pitch's reading froze at +1.157 rad
+2.3 s after engage, while standing, and stayed frozen for 37.7 s with no EMCY. The operator saw
+the robot "lower itself and twist in place". That was the dead knee, not the loop.
+
+**Loop `on`, second attempt (14:39): 8 s, then right_knee_pitch 0x2000.** The fault came during
+ordinary stepping:
+- knee ≤ 7.1 rad/s, demand ±13 N·m, the same as the dry session
+- the loop was sending a steady +0.10 rad/s (the robot was veering right)
+
+The service E-stopped on the EMCY, then the 0x2040 flood jammed the right bus. **This is the
+fifth fault on node 8, and the second in 15 minutes.** Walking tests are blocked until the knee
+is inspected or replaced.
+
+## 6. Two daemon/service state bugs found along the way
+
+Found with `scripts/measure/mode_watch.py` (log-only).
+
+- **clear_faults leaves an unfed joint.**
+  - It sets the daemon's joint state to IDLE, but the firmware stays in MODE_DAMPING.
+  - The daemon only feeds joints it believes are DAMPING, so the firmware watchdog expires
+    (0x40) about 1 s later, over and over.
+  - Seen at 14:32: "faults cleared on 12/12 ... 12 still faulted".
+  - Recovery: put the joints in IDLE in firmware (robot supported), then clear.
+- **Disarm leaves the same mismatch.** At 14:38:40 all 12 joints read daemon=IDLE,
+  firmware=DAMPING after a normal disarm. This is the likely cause of the 14:32 E-stop, where
+  three hip joints reported 0x40 while armed, before any engage.
+
+The fix belongs in the daemon: the joint state after clear, and the IDLE transition, must match
+the firmware mode, or DAMPING must be fed by firmware mode rather than daemon state.
+
+`scripts/measure/freeze_guard.py` E-stops if a joint's reading freezes while it is being driven.
+Replayed over today's logs, it fires 0.52 s after the 14:23 freeze and stays quiet on seven
+healthy runs. Not yet used live.
