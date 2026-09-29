@@ -49,9 +49,31 @@ evals ran at 0.3). Hardware numbers are pooled from the two clean walk captures.
   - **Swing-foot scuffing:** hardware knee swing is 0.63 rad against 0.86 in sim, so the foot
     clears the floor less. The toe catches, the hip and knee saturate, then it breaks free.
   - **Stance-foot slip or pivot:** this fits the extra torso twist.
-* **The training PC is running plant-identification evals now.** It replays measC-full on
-  perturbed sim plants (lower foot friction, more sagittal damping, more sagittal inertia) to see
-  which reproduces the hardware signature. The results will be appended here.
+* **Plant-identification results (training PC, 2026-09-29).** measC-full was replayed at vx 0.6 on
+  perturbed sim plants. The question for each: which change makes the *same frozen network* behave
+  in sim the way it does on the robot?
+
+  | plant | hip_p | knee | ankle | yaw p95 rad/s | k.corr | swing | Hz | falls/min |
+  |---|---|---|---|---|---|---|---|---|
+  | baseline | 6.0 | 8.1 | 8.2 | 0.60 | −0.87 | 0.86 | 1.58 | 0.04 |
+  | **foot μ 0.3** | 5.9 | 9.3 | 8.4 | **2.18** | −0.85 | 0.86 | 1.62 | 0.18 |
+  | hand −10 N (body-frame rearward) | 6.7 | 9.4 | 8.0 | 0.51 | −0.79 | 0.78 | **1.42** | 0.21 |
+  | hand −20 N | 10.6 | 30.8 | 15.6 | 1.96 | −0.01 | 1.13 | 0.58 | 38.8 |
+  | sagittal viscous ×8 / armature ×3 | 8–9 | 9 | 8–9 | 0.6–0.7 | −0.9 | 0.8–0.95 | 1.5 | ≤0.2 |
+  | **hardware** | **17.3** | **20.3** | 8.1 | **1.4–2.5** | **−0.41** | **0.63** | **1.41** | held |
+
+  - **Floor friction μ ≈ 0.3 reproduces the torso twist, and nothing else does.** Training
+    randomises μ over 0.4–1.2, so it has never seen that floor. **Item D decides it.**
+  - **The actuator model is cleared a second time.** Neither damping ×8 nor inertia ×3 on the
+    sagittal joints comes near the hardware torque or gait.
+  - **The supporting hand moves the gait toward hardware.** At −10 N the cadence matches exactly,
+    the ankles are unchanged, and knee correlation, swing and clearance all move the hardware way.
+    But a constant force can't model a hand that also holds the robot up: at −20 N the sim robot
+    falls 39×/min. The **supported-walk confound is probably a real part of the sagittal gap**, and
+    only **unsupported** walking data can separate it. When a walk is attempted after the knee
+    repair, a short unsupported or lightly-spotted bout is worth more than a long held one.
+  - **Sim swing clearance (item C's reference):** median 5.3 cm, p10 4.4 cm. Hardware p10 near
+    0–1 cm would confirm scuffing.
 
 ### Corrections to the session's own record
 
