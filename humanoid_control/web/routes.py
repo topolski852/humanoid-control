@@ -299,6 +299,20 @@ def disarm(request: Request):
 # The gamepad drives these live (A=arm, triggers=run-gate, sticks=command); these routes let
 # the web UI pick the session (e.g. the walk checkpoint) and arm/disarm without the controller.
 
+class KneeCapBody(BaseModel):
+    value: float                       # N·m, 6-20; knees only
+
+
+@router.post("/api/knee_torque_limit", response_model=None)
+async def knee_torque_limit(request: Request, body: KneeCapBody):
+    svc = _service(request)
+    try:
+        res = await _blocking(lambda: svc.set_knee_torque_limit(body.value))
+    except ControlError as exc:
+        return _err(str(exc), exc.status)
+    return _ok({"knees": res, "status": svc.telemetry_snapshot()["knee_torque_limit"]})
+
+
 class HeadingBody(BaseModel):
     mode: str                          # "off" | "dry" | "on"
 

@@ -183,6 +183,9 @@ class ControlService:
         # One heading loop shared by every leg-policy runner, so its mode survives across
         # sessions and /api/heading can switch it. Default "off" (HUMANOID_HEADING overrides).
         self._heading = HeadingHold()
+        # Knee torque cap applied live for the 2026-09-29 brief's Test 2 (12 -> 18 N·m). Kept
+        # here so /api/status can flag a cap that differs from the contract.
+        self._knee_torque_limit: dict[str, float] = {}
         self._arm_command = np.zeros(4, dtype=np.float32)   # raw sticks: lx, ly, ry, rx
         # 6-DOF-tracker command per arm: {limb: (displacement-since-clutch m, seq)}.
         self._arm_pose_commands: dict[str, tuple[np.ndarray, int]] = {}
@@ -419,6 +422,7 @@ class ControlService:
             "control_clients": self._control_clients,
             "last_error": self._last_error,
             "all_calibrated": self.all_calibrated(),
+            "knee_torque_limit": self._knee_cap_status(),
             "heading": {"k": self._heading.k, "wz_max": self._heading.wz_max,
                         **self._heading.last, "mode": self._heading.mode},
             "quest": self._xr_status(),
@@ -1407,6 +1411,47 @@ class ControlService:
     def available_sessions(self) -> list[str]:
         """Session kinds this layout can actually run, for the UI to offer."""
         return [k for k, cap in self.SESSION_CAPABILITY.items() if self._layout.can(cap)]
+
+    KNEES = ("left_knee_pitch_joint", "right_knee_pitch_joint")
+
+    def set_knee_torque_limit(self, value: float) -> dict:
+        """Write torque_limit on the two knee ESCs only, live, and read it back.
+
+        For the brief's Test 2 (knee cap 12 -> 18 N·m without retraining). Written through the
+        same single-parameter APPLY_CONFIG path calibration uses, so nothing else is touched
+        and the calibration survives. The config file is NOT edited: any daemon restart
+        reloads the file's value (12), so an override can never outlive the session unnoticed.
+        /api/status flags any knee cap that differs from the policy contract.
+        """
+        value = float(value)
+        if not 6.0 <= value <= 20.0:
+            raise ControlError("knee torque_limit must be 6-20 N·m (ceiling is 26.9).", 400)
+        if self._state in _ACTIVE_STATES:
+            raise ControlError("Disarm first: torque limits change only with no session.", 409)
+        if self._state != SessionState.CONNECTED:
+            raise ControlError("Connect first: the knees must be online to write and read back.", 409)
+        out = {}
+        for j in self.KNEES:
+            self.client.apply_config(j, {"torque_limit": value}, timeout=10.0)
+            try:
+                rb = self.client.read_device_config(j).get("torque_limit")
+            except Exception as exc:
+                rb = None
+                _log.warning("knee torque_limit readback failed on %s: %s", j, exc)
+            out[j] = {"written": value, "readback": rb}
+            self._knee_torque_limit[j] = float(rb) if rb is not None else value
+        _log.info("knee torque_limit -> %.1f N·m (readback %s)", value,
+                  {k[:10]: v["readback"] for k, v in out.items()})
+        return out
+
+    def _knee_cap_status(self) -> dict:
+        cur = dict(self._knee_torque_limit)
+        contract = {j: float(self.contract.effort_limit[self.contract.index_of(j)])
+                    for j in self.KNEES}
+        diff = {j: (cur[j], contract[j]) for j in cur if abs(cur[j] - contract[j]) > 1e-3}
+        return {"set_live": cur, "contract": contract,
+                "WARNING": (f"knee torque_limit differs from the policy contract: {diff}"
+                            if diff else None)}
 
     def set_heading_mode(self, mode: str) -> None:
         """Heading loop mode: off | dry | on (humanoid_control/heading.py).
