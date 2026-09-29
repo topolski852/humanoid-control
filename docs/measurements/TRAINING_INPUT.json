@@ -7,14 +7,17 @@
     "source_captures": [
       "hold_20260923T102447_smoothA-stand_can.json",
       "hold_20260923T110050_smoothB-stand_can.json",
-      "walk_20260925T124840_measA-run1_can.json"
+      "walk_20260925T124840_measA-run1_can.json",
+      "m7_sweep_20260928T212236.json",
+      "m7_sweep_20260928T212419.json"
     ],
     "reports": [
       "REPORT_2026-09-23_smoothA.md",
       "REPORT_2026-09-23_smoothB.md",
-      "REPORT_2026-09-25_measA.md"
+      "REPORT_2026-09-25_measA.md",
+      "REPORT_2026-09-28_M7.md"
     ],
-    "READ_FIRST": "SPLIT VERDICT 2026-09-28. measC has the BEST STAND ever measured (tilt rate 0.04 deg/s untouched, 10x smoothA) and a WORSE WALK than smoothA: it shuffles (knee swing 0.17-0.24 rad vs sim 0.849) and walks in a CIRCLE (both hip_yaw drift 14-22 deg over 12 s against a zero yaw command, never recovering). The two objectives may be in tension -- a policy trained to hold position very tightly may be learning not to move. Also: the knee torque penalty MOVED load to the ankles rather than removing it (left_ankle_pitch now 3.9x its cap and above the motor ceiling). See REPORT_2026-09-28_measC_walk.md."
+    "READ_FIRST": "SPLIT VERDICT 2026-09-28. measC has the BEST STAND ever measured (tilt rate 0.04 deg/s untouched, 10x smoothA) and a WORSE WALK than smoothA: it shuffles (knee swing 0.17-0.24 rad vs sim 0.849) and walks in a CIRCLE (both hip_yaw drift 14-22 deg over 12 s against a zero yaw command, never recovering). The two objectives may be in tension -- a policy trained to hold position very tightly may be learning not to move. Also: the knee torque penalty MOVED load to the ankles rather than removing it (left_ankle_pitch now 3.9x its cap and above the motor ceiling). See REPORT_2026-09-28_measC_walk.md. M7 RESULT 2026-09-28: the joints are NOT soft -- every leg servo delivers kp=45 (medians 44.8-45.2 on all 10 joints), Kt*gear and URDF masses verified against gravity. Do NOT lower kp or rescale effort limits in sim. The reconstructed hardware torque (kp*err) equals ESC-commanded torque, so the 3-5x saturation gap is real demand; its cause is dynamic (filter/armature/damping) and not yet measured. See REPORT_2026-09-28_M7.md."
   },
   "observation_model": {
     "joint_pos_noise": {
@@ -162,7 +165,7 @@
         "left": 6.6,
         "right": 7.1
       },
-      "status": "measured on hardware (RECONSTRUCTED as kp*err - kd*vel, not measured torque); M7 is required to break the circularity",
+      "status": "measured on hardware (RECONSTRUCTED as kp*err - kd*vel, not measured torque); M7 is required to break the circularity | M7 2026-09-28: ESC torque == kp*err statically, so the reconstruction IS the ESC's commanded torque, not a circular artifact.",
       "guidance": "a ~4x sim/hardware gap at one joint is a PLANT modelling error. No reward shaping closes it; in sim the knees barely saturate, so a knee-overshoot penalty has nothing to act on and hits the ankles.",
       "hardware_fraction_measC": {
         "left": 0.251,
@@ -210,6 +213,239 @@
       "motor_ceiling_nm": 19.76,
       "status": "MEASURED 2026-09-28 (reconstructed)",
       "guidance": "THE NEW BOTTLENECK. left_ankle_pitch demands 3.9x its cap and ABOVE the MAD5010 physical ceiling. The knee torque reward moved load off the knees (52.1% -> 25.1%) and onto the ankles. Make the torque term GLOBAL over all joints normalised by each cap, or it just redistributes. Prefer reducing demand over raising the cap -- the ankle is 3D-printed and has already broken mechanically."
+    },
+    "m7_static_stiffness": {
+      "status": "MEASURED 2026-09-28, legs hanging, all 12 held, limb weight as load",
+      "verdict": "stiffness hypothesis REFUTED: servo kp == commanded 45 on every leg joint",
+      "servo_kp_nm_per_rad_all_joints": {
+        "commanded": 45.0,
+        "per_joint_median_range": [
+          44.78,
+          45.16
+        ],
+        "per_point_range": [
+          43.74,
+          46.03
+        ]
+      },
+      "esc_torque_equals_kp_times_error": true,
+      "kt_gear_and_urdf_mass_verified": "ESC torque / URDF gravity torque 0.94-1.07 on hips and right knee",
+      "static_friction_nm": {
+        "ankle_pitch": 0.4,
+        "hip_roll": 0.15,
+        "hip_yaw": 0.2,
+        "hip_pitch": 0.0,
+        "knee_pitch_right": 0.0,
+        "note": "median torque beyond gravity at settle; per-point scatter +-0.5 N\u00b7m on hips = stiction"
+      },
+      "left_knee_anomaly": "extra torque +0.2 -> +0.9 N\u00b7m growing with angle, left only (cable/rub/unmodelled mass); right knee ~0",
+      "per_joint": {
+        "left_ankle_pitch_joint": {
+          "servo_kp_nm_per_rad": {
+            "median": 44.78,
+            "min": 44.4,
+            "max": 44.88,
+            "points": 3
+          },
+          "esc_over_urdf_gravity_median": 2.047,
+          "torque_beyond_gravity_nm": {
+            "median": 0.41,
+            "min": 0.27,
+            "max": 0.59
+          },
+          "peak_gravity_load_nm": 0.57,
+          "clean_points": 3,
+          "passes": [
+            8
+          ]
+        },
+        "left_hip_pitch_joint": {
+          "servo_kp_nm_per_rad": {
+            "median": 45.03,
+            "min": 44.6,
+            "max": 45.41,
+            "points": 12
+          },
+          "esc_over_urdf_gravity_median": 0.998,
+          "torque_beyond_gravity_nm": {
+            "median": 0.0,
+            "min": -0.44,
+            "max": 0.62
+          },
+          "peak_gravity_load_nm": 5.49,
+          "clean_points": 12,
+          "passes": [
+            1,
+            2
+          ]
+        },
+        "left_hip_roll_joint": {
+          "servo_kp_nm_per_rad": {
+            "median": 45.08,
+            "min": 44.27,
+            "max": 45.71,
+            "points": 8
+          },
+          "esc_over_urdf_gravity_median": 0.943,
+          "torque_beyond_gravity_nm": {
+            "median": 0.17,
+            "min": -0.61,
+            "max": 0.56
+          },
+          "peak_gravity_load_nm": 4.53,
+          "clean_points": 8,
+          "passes": [
+            3,
+            4
+          ]
+        },
+        "left_hip_yaw_joint": {
+          "servo_kp_nm_per_rad": {
+            "median": 44.95,
+            "min": 43.88,
+            "max": 46.03,
+            "points": 10
+          },
+          "esc_over_urdf_gravity_median": 1.067,
+          "torque_beyond_gravity_nm": {
+            "median": 0.1,
+            "min": -0.13,
+            "max": 0.64
+          },
+          "peak_gravity_load_nm": 1.72,
+          "clean_points": 8,
+          "passes": [
+            5,
+            6
+          ]
+        },
+        "left_knee_pitch_joint": {
+          "servo_kp_nm_per_rad": {
+            "median": 44.93,
+            "min": 43.74,
+            "max": 45.53,
+            "points": 6
+          },
+          "esc_over_urdf_gravity_median": 1.212,
+          "torque_beyond_gravity_nm": {
+            "median": 0.39,
+            "min": 0.22,
+            "max": 0.93
+          },
+          "peak_gravity_load_nm": 2.58,
+          "clean_points": 6,
+          "passes": [
+            7
+          ]
+        },
+        "right_ankle_pitch_joint": {
+          "servo_kp_nm_per_rad": {
+            "median": 44.88,
+            "min": 44.52,
+            "max": 45.24,
+            "points": 2
+          },
+          "esc_over_urdf_gravity_median": 2.167,
+          "torque_beyond_gravity_nm": {
+            "median": 0.43,
+            "min": 0.36,
+            "max": 0.68
+          },
+          "peak_gravity_load_nm": 0.52,
+          "clean_points": 2,
+          "passes": [
+            8
+          ]
+        },
+        "right_hip_pitch_joint": {
+          "servo_kp_nm_per_rad": {
+            "median": 45.06,
+            "min": 44.82,
+            "max": 45.27,
+            "points": 12
+          },
+          "esc_over_urdf_gravity_median": 1.025,
+          "torque_beyond_gravity_nm": {
+            "median": 0.04,
+            "min": -0.38,
+            "max": 0.84
+          },
+          "peak_gravity_load_nm": 5.38,
+          "clean_points": 12,
+          "passes": [
+            1,
+            2
+          ]
+        },
+        "right_hip_roll_joint": {
+          "servo_kp_nm_per_rad": {
+            "median": 45.0,
+            "min": 44.79,
+            "max": 45.68,
+            "points": 6
+          },
+          "esc_over_urdf_gravity_median": 1.058,
+          "torque_beyond_gravity_nm": {
+            "median": 0.15,
+            "min": -0.0,
+            "max": 0.79
+          },
+          "peak_gravity_load_nm": 4.3,
+          "clean_points": 6,
+          "passes": [
+            3,
+            4
+          ]
+        },
+        "right_hip_yaw_joint": {
+          "servo_kp_nm_per_rad": {
+            "median": 45.05,
+            "min": 44.29,
+            "max": 45.49,
+            "points": 10
+          },
+          "esc_over_urdf_gravity_median": 1.192,
+          "torque_beyond_gravity_nm": {
+            "median": 0.25,
+            "min": -0.05,
+            "max": 0.73
+          },
+          "peak_gravity_load_nm": 1.81,
+          "clean_points": 8,
+          "passes": [
+            5,
+            6
+          ]
+        },
+        "right_knee_pitch_joint": {
+          "servo_kp_nm_per_rad": {
+            "median": 45.16,
+            "min": 44.19,
+            "max": 45.67,
+            "points": 6
+          },
+          "esc_over_urdf_gravity_median": 1.011,
+          "torque_beyond_gravity_nm": {
+            "median": -0.0,
+            "min": -0.19,
+            "max": 0.46
+          },
+          "peak_gravity_load_nm": 2.6,
+          "clean_points": 6,
+          "passes": [
+            7
+          ]
+        }
+      },
+      "do_not_use": "m7_sweep's gravity-slope kp_eff, L/R ratios, direction asymmetry and frame columns -- friction-dominated fits",
+      "guidance": "do NOT lower kp or rescale effort limits to model softness. Add ankle_pitch static friction ~0.4 N\u00b7m. The sim/hardware torque gap is dynamic and not yet measured: firmware torque filter (alpha 0.1454, ~50 Hz), armature, damping. Feet collide when both hip_yaw turn the same world direction beyond ~34-38 deg.",
+      "not_measured": [
+        "ankle_roll (needs hung mass)",
+        "step response / time constant",
+        "armature",
+        "saturation point above cap",
+        "dynamic friction"
+      ]
     }
   },
   "hardware_constants_do_not_remeasure": {

@@ -2,6 +2,12 @@
 
 Robot-side work following the measC-full session. **Training is paused until item 1 returns.**
 
+> **Update 2026-09-28, evening: M7's stiffness test has returned, and the hypothesis is refuted.**
+> Every leg servo delivers kp = 45 as commanded; `Kt · gear` and the URDF masses check out against
+> gravity. Don't soften kp in sim. The torque gap is real commanded demand; its cause is dynamic
+> and not yet measured. Training can resume. See
+> [REPORT_2026-09-28_M7.md](measurements/REPORT_2026-09-28_M7.md).
+
 Reads from: [REPORT_2026-09-28_measC.md](measurements/REPORT_2026-09-28_measC.md),
 [REPORT_2026-09-28_measC_walk.md](measurements/REPORT_2026-09-28_measC_walk.md),
 [TRAINING_INPUT.json](measurements/TRAINING_INPUT.json).
@@ -25,6 +31,11 @@ observation model is not the open question any more.
 ---
 
 ## 1. M7 — commanded vs delivered torque. CRITICAL PATH
+
+**RESULT 2026-09-28: stiffness is not the cause.** Servo kp is 44.8–45.2 (median, all 10 joints)
+and ESC torque equals kp·err, so the table below reflects real demand. See
+[REPORT_2026-09-28_M7.md](measurements/REPORT_2026-09-28_M7.md). Items 3 and 4 below (saturation
+point, time constant) are still open, and item 4 is now the lead.
 
 M7 has been "blocking" since 2026-09-23. It is now the **critical path**, and the reason has
 changed: it is no longer a knee-specific question.
@@ -182,7 +193,8 @@ Each of these looks reasonable and is contradicted by the data.
 
 ## 5. Order of work
 
-1. **M7** (§1), starting with effective stiffness. Gates the next training round.
+1. **M7** (§1), starting with effective stiffness. **Stiffness done 2026-09-28: refuted.** Step
+   response / time constant (item 4) is next.
 2. **Heading loop** (§2). Independent of M7 and the reason the robot cannot walk straight.
 3. **Right leg inspection** (§3). Gates how hard anything can be tested.
 4. Re-run a stand + walk capture once 1–3 are done, and add **both ankles** to the reconstructed-
