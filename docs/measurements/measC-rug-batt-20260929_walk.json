@@ -1,0 +1,119 @@
+{
+  "_meta": {
+    "capture_id": "walk_20260929T163256",
+    "activity": "walk",
+    "date": "2026-09-29",
+    "started_epoch": 1790713976.5651326,
+    "host": "nse-MINI-S",
+    "daemon": {
+      "running": true,
+      "pid": 1159,
+      "cmdline": "/home/nse/humanoid-control/daemon/build/humanoid_daemon --config /home/nse/humanoid-studio/configs/humanoid_lite.json --imu-device /dev/humanoid_imu",
+      "started_epoch": 1790713021.1729999,
+      "uptime_s": 955.4040219783783,
+      "config_path": "/home/nse/humanoid-studio/configs/humanoid_lite.json",
+      "config_mtime_epoch": 1790352672.074246,
+      "config_newer_than_daemon": false
+    },
+    "cpu_temp_start_c": 69.0,
+    "throttle_start": {
+      "core_throttle_count": 0,
+      "package_throttle_count": 0
+    },
+    "encoder_quantum_rad": 0.00010226538585904274,
+    "measurement": "walk_metrics",
+    "label": "measC-rug-batt-20260929",
+    "recording": "run_1790713801749243137_2907.jsonl",
+    "ended_epoch": 1790713976.5783253,
+    "duration_s": 0.01319265365600586,
+    "cpu_temp_end_c": 69.0,
+    "throttle_end": {
+      "core_throttle_count": 0,
+      "package_throttle_count": 0
+    }
+  },
+  "metrics": {
+    "recording": "run_1790713801749243137_2907.jsonl",
+    "bouts": [
+      {
+        "t_start": 4.439137216000063,
+        "duration_s": 2.840229521999902,
+        "heading": null,
+        "knee_lr_corr": -0.45500261726518265,
+        "knee_swing_rad": {
+          "left": 0.42613983154296875,
+          "right": 0.7020518779754639
+        },
+        "gait_freq_hz": 1.4089090223319787,
+        "hip_yaw_drift_deg": {
+          "left": 2.0502929085218917,
+          "right": -2.9765623604935105
+        },
+        "heading_change_deg": -33.804917557972246,
+        "heading_rate_deg_s": -11.90217807966768
+      }
+    ],
+    "n_bouts": 1,
+    "walking_s": 2.840229521999902,
+    "command_vx_mean": 0.5902132128535862,
+    "command_wz_max_abs": 0.0,
+    "knee_swing_rad": {
+      "left": 0.4261398315429687,
+      "right": 0.7020518779754639
+    },
+    "knee_lr_corr": -0.45500261726518265,
+    "gait_freq_hz": 1.4089090223319787,
+    "hip_yaw_drift_deg": {
+      "left": 2.0502929085218917,
+      "right": -2.9765623604935105
+    },
+    "heading_abs_rate_deg_s": 11.90217807966768,
+    "tilt_p95_deg": 12.299363162640763,
+    "tilt_max_deg": 14.886761377522083,
+    "joint_vel_max_rad_s": 18.60745620727539,
+    "torque_p95_nm": {
+      "left_hip_roll_joint": 8.684592325240374,
+      "left_hip_yaw_joint": 8.76174796745181,
+      "left_hip_pitch_joint": 18.153809241950512,
+      "left_knee_pitch_joint": 11.73468245565887,
+      "left_ankle_pitch_joint": 7.113530868664384,
+      "left_ankle_roll_joint": 5.283245639179768,
+      "right_hip_roll_joint": 6.134722262620926,
+      "right_hip_yaw_joint": 5.840242708494387,
+      "right_hip_pitch_joint": 17.681596130132675,
+      "right_knee_pitch_joint": 28.04713726043701,
+      "right_ankle_pitch_joint": 14.031120344996452,
+      "right_ankle_roll_joint": 7.6736768782138824
+    },
+    "cap_source": "contract",
+    "saturation_pct": {
+      "left_hip_roll_joint": 1.4084507042253522,
+      "left_hip_yaw_joint": 0.0,
+      "left_hip_pitch_joint": 18.30985915492958,
+      "left_knee_pitch_joint": 5.633802816901409,
+      "left_ankle_pitch_joint": 7.042253521126761,
+      "left_ankle_roll_joint": 0.0,
+      "right_hip_roll_joint": 0.0,
+      "right_hip_yaw_joint": 1.4084507042253522,
+      "right_hip_pitch_joint": 21.12676056338028,
+      "right_knee_pitch_joint": 19.718309859154928,
+      "right_ankle_pitch_joint": 16.901408450704224,
+      "right_ankle_roll_joint": 7.042253521126761
+    },
+    "policy_id": {
+      "policy": "walk_measC-full_2026-09-28",
+      "mean_abs_action_error": 0.0,
+      "exact": true,
+      "all": {
+        "walk": 0.34400177001953125,
+        "walk_backup_2026-07-15_asymmetric-gains": 0.45128148794174194,
+        "walk_backup_2026-08-18_kp45-bench-tuned": 0.34400177001953125,
+        "walk_measA-full_2026-09-25": 0.22755388915538788,
+        "walk_measC-full_2026-09-28": 0.0,
+        "walk_measD-fast_2026-09-28": 0.15520992875099182,
+        "walk_smoothA-full_2026-08-25": 0.15741631388664246,
+        "walk_smoothB-full_2026-08-29": 0.1668016016483307
+      }
+    }
+  }
+}

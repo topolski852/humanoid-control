@@ -53,3 +53,31 @@ the ESCs cannot produce commanded torque, the legs fold, and the knees end up pi
 
 Data: `power_log_*_rugA.json`, `measC-rug-A-20260929_walk.json`, capture
 `walk_*_measC-rug-A_can.json`, tick log `recordings/run_1790712130453961590_17179.jsonl`.
+
+---
+
+## Battery run (16:30): no collapse, but a right-leg encoder fault and a runaway knee kick
+
+- **Supply:** the robot's battery, 24.4 V at rest (6S, ~4.06 V/cell). `power_log.py` over the walk
+  logged a minimum of **23.48 V** (median 24.28): **no supply collapse.**
+- **Fault:** 6 s into walking, **right_hip_yaw (node 4) raised 0x2000** (encoder fault), then the
+  0x2040 flood jammed the right bus. The fault moved off the knee to another right-leg node.
+- **Runaway:** in the same ~0.3 s, **right_knee_pitch accelerated from 50° to 150°**, past its 140°
+  limit, **at up to 18.6 rad/s, against its own controller**.
+  - The policy target was 50–65°.
+  - The commanded torque (kp·err − kd·vel) was **−28, −72, then −103 N·m**, i.e. pulling back.
+  - The operator saw "a drastic knee kick, the leg kicked out very hard", never seen before.
+  - A motor driving against its own position loop is the signature of a corrupted encoder angle,
+    where commutation goes wrong.
+
+### Conclusions
+
+- **Brownout is not the root cause of the right-leg faults.** They occur on a stiff battery rail.
+  The supply collapse still confounds every bench-supply walk metric (see above).
+- **The encoder faults span three right-leg nodes** (knee 8 ×7, ankle 12 ×1, hip_yaw 4 ×1), so the
+  common factor is **the right leg's shared infrastructure**: encoder cables and connectors
+  through hip and knee, ground and shield continuity, and the right-leg CAN adapter and cable. It
+  is not a single actuator.
+- **A runaway at 24 V is a safety hazard** (18.6 rad/s, 10° past the hard limit). Powered walking
+  on the right leg is suspended until the harness is inspected.
+- **No walk metric from this run is usable:** 4 s of walking before the fault.
