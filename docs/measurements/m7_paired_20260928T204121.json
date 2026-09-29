@@ -1,0 +1,1594 @@
+{
+  "_meta": {
+    "capture_id": "bench_20260928T204121",
+    "activity": "bench",
+    "date": "2026-09-28",
+    "started_epoch": 1790642481.1991477,
+    "host": "nse-MINI-S",
+    "daemon": {
+      "running": true,
+      "pid": 1229,
+      "cmdline": "/home/nse/humanoid-control/daemon/build/humanoid_daemon --config /home/nse/humanoid-studio/configs/humanoid_lite.json --imu-device /dev/humanoid_imu",
+      "started_epoch": 1790638304.8909998,
+      "uptime_s": 4176.319352865219,
+      "config_path": "/home/nse/humanoid-studio/configs/humanoid_lite.json",
+      "config_mtime_epoch": 1790352672.074246,
+      "config_newer_than_daemon": false
+    },
+    "cpu_temp_start_c": 61.0,
+    "throttle_start": {
+      "core_throttle_count": 0,
+      "package_throttle_count": 0
+    },
+    "encoder_quantum_rad": 0.00010226538585904274,
+    "measurement": "M7_paired_v2",
+    "nominal_kp": 45.0,
+    "method": "paired same-sign sweeps; all joints held in POSITION; tau from MEASURED pose",
+    "drift_tol_deg": 1.0,
+    "skipped": [
+      "ankle_roll"
+    ],
+    "urdf_total_mass_kg": 12.611913041000001,
+    "measured_robot_mass_kg": 12.61,
+    "requires": "legs hanging free",
+    "ended_epoch": 1790642481.2117562,
+    "duration_s": 0.012608528137207031,
+    "cpu_temp_end_c": 60.0,
+    "throttle_end": {
+      "core_throttle_count": 0,
+      "package_throttle_count": 0
+    }
+  },
+  "per_joint": [
+    {
+      "joint": "left_hip_pitch_joint",
+      "type": "hip_pitch",
+      "family": "M6C12",
+      "kp_eff": 48.76396902536082,
+      "deadband_nm": -0.06611735790309033,
+      "points": 4,
+      "peak_tau_nm": 3.6013172442574817,
+      "trials": [
+        {
+          "commanded_rad": 0.0704207214016701,
+          "worst_drift_joint": "left_knee_pitch_joint",
+          "worst_drift_rad": -0.005420207977294922,
+          "drift_ok": true,
+          "per_side": {
+            "left_hip_pitch_joint": {
+              "tau_gravity_nm": -0.9158478208967346,
+              "error_rad": 0.02446792446563495,
+              "position_rad": 0.045952796936035156,
+              "reported_torque_nm": 1.117885708808899,
+              "reported_current_a": 0.8139960169792175,
+              "n": 100
+            },
+            "right_hip_pitch_joint": {
+              "tau_gravity_nm": -1.0231186165028539,
+              "error_rad": 0.019642570843198426,
+              "position_rad": 0.05077815055847168,
+              "reported_torque_nm": 0.8736211657524109,
+              "reported_current_a": -0.6562962532043457,
+              "n": 100
+            }
+          }
+        },
+        {
+          "commanded_rad": -0.24307576069705822,
+          "worst_drift_joint": "left_knee_pitch_joint",
+          "worst_drift_rad": -0.005113363265991211,
+          "drift_ok": true,
+          "per_side": {
+            "left_hip_pitch_joint": {
+              "tau_gravity_nm": 0.668240254152201,
+              "error_rad": -0.013832362984350699,
+              "position_rad": -0.22924339771270752,
+              "reported_torque_nm": -0.6634842157363892,
+              "reported_current_a": -0.47143274545669556,
+              "n": 100
+            },
+            "right_hip_pitch_joint": {
+              "tau_gravity_nm": 0.5515729019471585,
+              "error_rad": -0.01783958325260021,
+              "position_rad": -0.225236177444458,
+              "reported_torque_nm": -0.8129014372825623,
+              "reported_current_a": 0.5895825624465942,
+              "n": 100
+            }
+          }
+        },
+        {
+          "commanded_rad": -0.5565722427957865,
+          "worst_drift_joint": "right_knee_pitch_joint",
+          "worst_drift_rad": 0.005522012710571289,
+          "drift_ok": true,
+          "per_side": {
+            "left_hip_pitch_joint": {
+              "tau_gravity_nm": 2.2428333143160524,
+              "error_rad": -0.04292873960669963,
+              "position_rad": -0.5136435031890869,
+              "reported_torque_nm": -1.9357811212539673,
+              "reported_current_a": -1.4228780269622803,
+              "n": 100
+            },
+            "right_hip_pitch_joint": {
+              "tau_gravity_nm": 2.0886580368162027,
+              "error_rad": -0.05204932314094035,
+              "position_rad": -0.5045229196548462,
+              "reported_torque_nm": -2.3590705394744873,
+              "reported_current_a": 1.761704683303833,
+              "n": 100
+            }
+          }
+        },
+        {
+          "commanded_rad": -0.8700687248945149,
+          "worst_drift_joint": "right_knee_pitch_joint",
+          "worst_drift_rad": 0.013192176818847656,
+          "drift_ok": true,
+          "per_side": {
+            "left_hip_pitch_joint": {
+              "tau_gravity_nm": 3.6013172442574817,
+              "error_rad": -0.07652490928172195,
+              "position_rad": -0.793543815612793,
+              "reported_torque_nm": -3.4384047985076904,
+              "reported_current_a": -2.5675525665283203,
+              "n": 100
+            },
+            "right_hip_pitch_joint": {
+              "tau_gravity_nm": 3.4901212480496397,
+              "error_rad": -0.0799185593366536,
+              "position_rad": -0.7901501655578613,
+              "reported_torque_nm": -3.603865623474121,
+              "reported_current_a": 2.6747782230377197,
+              "n": 100
+            }
+          }
+        },
+        {
+          "commanded_rad": -1.1835652069932432,
+          "worst_drift_joint": "right_knee_pitch_joint",
+          "worst_drift_rad": 0.023827791213989258,
+          "drift_ok": false,
+          "per_side": {
+            "left_hip_pitch_joint": {
+              "tau_gravity_nm": 4.719949488882061,
+              "error_rad": -0.10020119713606546,
+              "position_rad": -1.0833640098571777,
+              "reported_torque_nm": -4.521376132965088,
+              "reported_current_a": -3.352470636367798,
+              "n": 100
+            },
+            "right_hip_pitch_joint": {
+              "tau_gravity_nm": 4.571916224839896,
+              "error_rad": -0.11837226914229104,
+              "position_rad": -1.0651929378509521,
+              "reported_torque_nm": -5.3327178955078125,
+              "reported_current_a": 3.9652271270751953,
+              "n": 100
+            }
+          }
+        },
+        {
+          "commanded_rad": -1.4970616890919715,
+          "worst_drift_joint": "right_knee_pitch_joint",
+          "worst_drift_rad": 0.0346677303314209,
+          "drift_ok": false,
+          "per_side": {
+            "left_hip_pitch_joint": {
+              "tau_gravity_nm": 5.462132432080001,
+              "error_rad": -0.12111635942583376,
+              "position_rad": -1.3759453296661377,
+              "reported_torque_nm": -5.446958541870117,
+              "reported_current_a": -4.0451884269714355,
+              "n": 100
+            },
+            "right_hip_pitch_joint": {
+              "tau_gravity_nm": 5.401437412414243,
+              "error_rad": -0.11530621786241824,
+              "position_rad": -1.3817554712295532,
+              "reported_torque_nm": -5.200775146484375,
+              "reported_current_a": 3.8595924377441406,
+              "n": 100
+            }
+          }
+        }
+      ]
+    },
+    {
+      "joint": "right_hip_pitch_joint",
+      "type": "hip_pitch",
+      "family": "M6C12",
+      "kp_eff": 43.68509536990628,
+      "deadband_nm": -0.06224255120672662,
+      "points": 4,
+      "peak_tau_nm": 3.4901212480496397,
+      "trials": [
+        {
+          "commanded_rad": 0.0704207214016701,
+          "worst_drift_joint": "left_knee_pitch_joint",
+          "worst_drift_rad": -0.005420207977294922,
+          "drift_ok": true,
+          "per_side": {
+            "left_hip_pitch_joint": {
+              "tau_gravity_nm": -0.9158478208967346,
+              "error_rad": 0.02446792446563495,
+              "position_rad": 0.045952796936035156,
+              "reported_torque_nm": 1.117885708808899,
+              "reported_current_a": 0.8139960169792175,
+              "n": 100
+            },
+            "right_hip_pitch_joint": {
+              "tau_gravity_nm": -1.0231186165028539,
+              "error_rad": 0.019642570843198426,
+              "position_rad": 0.05077815055847168,
+              "reported_torque_nm": 0.8736211657524109,
+              "reported_current_a": -0.6562962532043457,
+              "n": 100
+            }
+          }
+        },
+        {
+          "commanded_rad": -0.24307576069705822,
+          "worst_drift_joint": "left_knee_pitch_joint",
+          "worst_drift_rad": -0.005113363265991211,
+          "drift_ok": true,
+          "per_side": {
+            "left_hip_pitch_joint": {
+              "tau_gravity_nm": 0.668240254152201,
+              "error_rad": -0.013832362984350699,
+              "position_rad": -0.22924339771270752,
+              "reported_torque_nm": -0.6634842157363892,
+              "reported_current_a": -0.47143274545669556,
+              "n": 100
+            },
+            "right_hip_pitch_joint": {
+              "tau_gravity_nm": 0.5515729019471585,
+              "error_rad": -0.01783958325260021,
+              "position_rad": -0.225236177444458,
+              "reported_torque_nm": -0.8129014372825623,
+              "reported_current_a": 0.5895825624465942,
+              "n": 100
+            }
+          }
+        },
+        {
+          "commanded_rad": -0.5565722427957865,
+          "worst_drift_joint": "right_knee_pitch_joint",
+          "worst_drift_rad": 0.005522012710571289,
+          "drift_ok": true,
+          "per_side": {
+            "left_hip_pitch_joint": {
+              "tau_gravity_nm": 2.2428333143160524,
+              "error_rad": -0.04292873960669963,
+              "position_rad": -0.5136435031890869,
+              "reported_torque_nm": -1.9357811212539673,
+              "reported_current_a": -1.4228780269622803,
+              "n": 100
+            },
+            "right_hip_pitch_joint": {
+              "tau_gravity_nm": 2.0886580368162027,
+              "error_rad": -0.05204932314094035,
+              "position_rad": -0.5045229196548462,
+              "reported_torque_nm": -2.3590705394744873,
+              "reported_current_a": 1.761704683303833,
+              "n": 100
+            }
+          }
+        },
+        {
+          "commanded_rad": -0.8700687248945149,
+          "worst_drift_joint": "right_knee_pitch_joint",
+          "worst_drift_rad": 0.013192176818847656,
+          "drift_ok": true,
+          "per_side": {
+            "left_hip_pitch_joint": {
+              "tau_gravity_nm": 3.6013172442574817,
+              "error_rad": -0.07652490928172195,
+              "position_rad": -0.793543815612793,
+              "reported_torque_nm": -3.4384047985076904,
+              "reported_current_a": -2.5675525665283203,
+              "n": 100
+            },
+            "right_hip_pitch_joint": {
+              "tau_gravity_nm": 3.4901212480496397,
+              "error_rad": -0.0799185593366536,
+              "position_rad": -0.7901501655578613,
+              "reported_torque_nm": -3.603865623474121,
+              "reported_current_a": 2.6747782230377197,
+              "n": 100
+            }
+          }
+        },
+        {
+          "commanded_rad": -1.1835652069932432,
+          "worst_drift_joint": "right_knee_pitch_joint",
+          "worst_drift_rad": 0.023827791213989258,
+          "drift_ok": false,
+          "per_side": {
+            "left_hip_pitch_joint": {
+              "tau_gravity_nm": 4.719949488882061,
+              "error_rad": -0.10020119713606546,
+              "position_rad": -1.0833640098571777,
+              "reported_torque_nm": -4.521376132965088,
+              "reported_current_a": -3.352470636367798,
+              "n": 100
+            },
+            "right_hip_pitch_joint": {
+              "tau_gravity_nm": 4.571916224839896,
+              "error_rad": -0.11837226914229104,
+              "position_rad": -1.0651929378509521,
+              "reported_torque_nm": -5.3327178955078125,
+              "reported_current_a": 3.9652271270751953,
+              "n": 100
+            }
+          }
+        },
+        {
+          "commanded_rad": -1.4970616890919715,
+          "worst_drift_joint": "right_knee_pitch_joint",
+          "worst_drift_rad": 0.0346677303314209,
+          "drift_ok": false,
+          "per_side": {
+            "left_hip_pitch_joint": {
+              "tau_gravity_nm": 5.462132432080001,
+              "error_rad": -0.12111635942583376,
+              "position_rad": -1.3759453296661377,
+              "reported_torque_nm": -5.446958541870117,
+              "reported_current_a": -4.0451884269714355,
+              "n": 100
+            },
+            "right_hip_pitch_joint": {
+              "tau_gravity_nm": 5.401437412414243,
+              "error_rad": -0.11530621786241824,
+              "position_rad": -1.3817554712295532,
+              "reported_torque_nm": -5.200775146484375,
+              "reported_current_a": 3.8595924377441406,
+              "n": 100
+            }
+          }
+        }
+      ]
+    },
+    {
+      "joint": "left_hip_roll_joint",
+      "skipped": "fewer than 2 clean loaded points",
+      "trials": [
+        {
+          "commanded_rad": 0.046394828217570794,
+          "worst_drift_joint": "left_ankle_pitch_joint",
+          "worst_drift_rad": 0.007056295871734619,
+          "drift_ok": true,
+          "per_side": {
+            "left_hip_roll_joint": {
+              "tau_gravity_nm": 0.031756267936464494,
+              "error_rad": -0.011379655939991462,
+              "position_rad": 0.057774484157562256,
+              "reported_torque_nm": -0.5258473753929138,
+              "reported_current_a": -0.3803008496761322,
+              "n": 100
+            },
+            "right_hip_roll_joint": {
+              "tau_gravity_nm": -0.6344617821152968,
+              "error_rad": 0.010015610116069329,
+              "position_rad": 0.036379218101501465,
+              "reported_torque_nm": 0.45279136300086975,
+              "reported_current_a": -0.32910796999931335,
+              "n": 100
+            }
+          }
+        },
+        {
+          "commanded_rad": 0.35127512793303595,
+          "worst_drift_joint": "right_hip_yaw_joint",
+          "worst_drift_rad": -0.007772162556648254,
+          "drift_ok": true,
+          "per_side": {
+            "left_hip_roll_joint": {
+              "tau_gravity_nm": -1.2452047437424496,
+              "error_rad": 0.023622286126624203,
+              "position_rad": 0.32765284180641174,
+              "reported_torque_nm": 1.057962417602539,
+              "reported_current_a": 0.8075459003448486,
+              "n": 100
+            },
+            "right_hip_roll_joint": {
+              "tau_gravity_nm": -1.8692595925161382,
+              "error_rad": 0.038370293185721494,
+              "position_rad": 0.31290483474731445,
+              "reported_torque_nm": 1.7423429489135742,
+              "reported_current_a": -1.2879358530044556,
+              "n": 100
+            }
+          }
+        },
+        {
+          "commanded_rad": 0.6561554276485011,
+          "worst_drift_joint": "right_hip_yaw_joint",
+          "worst_drift_rad": -0.023214243352413177,
+          "drift_ok": false,
+          "per_side": {
+            "left_hip_roll_joint": {
+              "tau_gravity_nm": -2.466617603234692,
+              "error_rad": 0.04236402149386853,
+              "position_rad": 0.6137914061546326,
+              "reported_torque_nm": 1.929105520248413,
+              "reported_current_a": 1.425085186958313,
+              "n": 100
+            },
+            "right_hip_roll_joint": {
+              "tau_gravity_nm": -2.923355965492166,
+              "error_rad": 0.07296319837756604,
+              "position_rad": 0.5831922292709351,
+              "reported_torque_nm": 3.2855310440063477,
+              "reported_current_a": -2.44455885887146,
+              "n": 100
+            }
+          }
+        },
+        {
+          "commanded_rad": 0.9610357273639663,
+          "worst_drift_joint": "left_hip_yaw_joint",
+          "worst_drift_rad": -0.036508768796920776,
+          "drift_ok": false,
+          "per_side": {
+            "left_hip_roll_joint": {
+              "tau_gravity_nm": -3.404560014937167,
+              "error_rad": 0.07624107490196064,
+              "position_rad": 0.8847946524620056,
+              "reported_torque_nm": 3.7533059120178223,
+              "reported_current_a": 2.6193575859069824,
+              "n": 100
+            },
+            "right_hip_roll_joint": {
+              "tau_gravity_nm": -3.8140988853033795,
+              "error_rad": 0.09610235582008197,
+              "position_rad": 0.8649333715438843,
+              "reported_torque_nm": 4.317208766937256,
+              "reported_current_a": -3.2245514392852783,
+              "n": 100
+            }
+          }
+        },
+        {
+          "commanded_rad": 1.2659160270794314,
+          "worst_drift_joint": "right_hip_yaw_joint",
+          "worst_drift_rad": -0.039372168481349945,
+          "drift_ok": false,
+          "per_side": {
+            "left_hip_roll_joint": {
+              "tau_gravity_nm": -4.20639832886874,
+              "error_rad": 0.09191481019100367,
+              "position_rad": 1.1740012168884277,
+              "reported_torque_nm": 4.127037048339844,
+              "reported_current_a": 3.0668468475341797,
+              "n": 100
+            },
+            "right_hip_roll_joint": {
+              "tau_gravity_nm": -4.403269501193585,
+              "error_rad": 0.11331013585170924,
+              "position_rad": 1.1526058912277222,
+              "reported_torque_nm": 5.089216709136963,
+              "reported_current_a": -3.803321361541748,
+              "n": 100
+            }
+          }
+        },
+        {
+          "commanded_rad": 1.5407963267948965,
+          "worst_drift_joint": "right_hip_yaw_joint",
+          "worst_drift_rad": -0.04080388695001602,
+          "drift_ok": false,
+          "per_side": {
+            "left_hip_roll_joint": {
+              "tau_gravity_nm": -4.590238160813133,
+              "error_rad": 0.10024039665726225,
+              "position_rad": 1.4405559301376343,
+              "reported_torque_nm": 4.53755521774292,
+              "reported_current_a": 3.3643290996551514,
+              "n": 100
+            },
+            "right_hip_roll_joint": {
+              "tau_gravity_nm": -4.616457530691624,
+              "error_rad": 0.11851661125687163,
+              "position_rad": 1.422279715538025,
+              "reported_torque_nm": 5.313484191894531,
+              "reported_current_a": -3.9507510662078857,
+              "n": 100
+            }
+          }
+        }
+      ]
+    },
+    {
+      "joint": "right_hip_roll_joint",
+      "type": "hip_roll",
+      "family": "M6C12",
+      "kp_eff": 43.548284682555206,
+      "deadband_nm": 0.19829914151123007,
+      "points": 2,
+      "peak_tau_nm": 1.8692595925161382,
+      "trials": [
+        {
+          "commanded_rad": 0.046394828217570794,
+          "worst_drift_joint": "left_ankle_pitch_joint",
+          "worst_drift_rad": 0.007056295871734619,
+          "drift_ok": true,
+          "per_side": {
+            "left_hip_roll_joint": {
+              "tau_gravity_nm": 0.031756267936464494,
+              "error_rad": -0.011379655939991462,
+              "position_rad": 0.057774484157562256,
+              "reported_torque_nm": -0.5258473753929138,
+              "reported_current_a": -0.3803008496761322,
+              "n": 100
+            },
+            "right_hip_roll_joint": {
+              "tau_gravity_nm": -0.6344617821152968,
+              "error_rad": 0.010015610116069329,
+              "position_rad": 0.036379218101501465,
+              "reported_torque_nm": 0.45279136300086975,
+              "reported_current_a": -0.32910796999931335,
+              "n": 100
+            }
+          }
+        },
+        {
+          "commanded_rad": 0.35127512793303595,
+          "worst_drift_joint": "right_hip_yaw_joint",
+          "worst_drift_rad": -0.007772162556648254,
+          "drift_ok": true,
+          "per_side": {
+            "left_hip_roll_joint": {
+              "tau_gravity_nm": -1.2452047437424496,
+              "error_rad": 0.023622286126624203,
+              "position_rad": 0.32765284180641174,
+              "reported_torque_nm": 1.057962417602539,
+              "reported_current_a": 0.8075459003448486,
+              "n": 100
+            },
+            "right_hip_roll_joint": {
+              "tau_gravity_nm": -1.8692595925161382,
+              "error_rad": 0.038370293185721494,
+              "position_rad": 0.31290483474731445,
+              "reported_torque_nm": 1.7423429489135742,
+              "reported_current_a": -1.2879358530044556,
+              "n": 100
+            }
+          }
+        },
+        {
+          "commanded_rad": 0.6561554276485011,
+          "worst_drift_joint": "right_hip_yaw_joint",
+          "worst_drift_rad": -0.023214243352413177,
+          "drift_ok": false,
+          "per_side": {
+            "left_hip_roll_joint": {
+              "tau_gravity_nm": -2.466617603234692,
+              "error_rad": 0.04236402149386853,
+              "position_rad": 0.6137914061546326,
+              "reported_torque_nm": 1.929105520248413,
+              "reported_current_a": 1.425085186958313,
+              "n": 100
+            },
+            "right_hip_roll_joint": {
+              "tau_gravity_nm": -2.923355965492166,
+              "error_rad": 0.07296319837756604,
+              "position_rad": 0.5831922292709351,
+              "reported_torque_nm": 3.2855310440063477,
+              "reported_current_a": -2.44455885887146,
+              "n": 100
+            }
+          }
+        },
+        {
+          "commanded_rad": 0.9610357273639663,
+          "worst_drift_joint": "left_hip_yaw_joint",
+          "worst_drift_rad": -0.036508768796920776,
+          "drift_ok": false,
+          "per_side": {
+            "left_hip_roll_joint": {
+              "tau_gravity_nm": -3.404560014937167,
+              "error_rad": 0.07624107490196064,
+              "position_rad": 0.8847946524620056,
+              "reported_torque_nm": 3.7533059120178223,
+              "reported_current_a": 2.6193575859069824,
+              "n": 100
+            },
+            "right_hip_roll_joint": {
+              "tau_gravity_nm": -3.8140988853033795,
+              "error_rad": 0.09610235582008197,
+              "position_rad": 0.8649333715438843,
+              "reported_torque_nm": 4.317208766937256,
+              "reported_current_a": -3.2245514392852783,
+              "n": 100
+            }
+          }
+        },
+        {
+          "commanded_rad": 1.2659160270794314,
+          "worst_drift_joint": "right_hip_yaw_joint",
+          "worst_drift_rad": -0.039372168481349945,
+          "drift_ok": false,
+          "per_side": {
+            "left_hip_roll_joint": {
+              "tau_gravity_nm": -4.20639832886874,
+              "error_rad": 0.09191481019100367,
+              "position_rad": 1.1740012168884277,
+              "reported_torque_nm": 4.127037048339844,
+              "reported_current_a": 3.0668468475341797,
+              "n": 100
+            },
+            "right_hip_roll_joint": {
+              "tau_gravity_nm": -4.403269501193585,
+              "error_rad": 0.11331013585170924,
+              "position_rad": 1.1526058912277222,
+              "reported_torque_nm": 5.089216709136963,
+              "reported_current_a": -3.803321361541748,
+              "n": 100
+            }
+          }
+        },
+        {
+          "commanded_rad": 1.5407963267948965,
+          "worst_drift_joint": "right_hip_yaw_joint",
+          "worst_drift_rad": -0.04080388695001602,
+          "drift_ok": false,
+          "per_side": {
+            "left_hip_roll_joint": {
+              "tau_gravity_nm": -4.590238160813133,
+              "error_rad": 0.10024039665726225,
+              "position_rad": 1.4405559301376343,
+              "reported_torque_nm": 4.53755521774292,
+              "reported_current_a": 3.3643290996551514,
+              "n": 100
+            },
+            "right_hip_roll_joint": {
+              "tau_gravity_nm": -4.616457530691624,
+              "error_rad": 0.11851661125687163,
+              "position_rad": 1.422279715538025,
+              "reported_torque_nm": 5.313484191894531,
+              "reported_current_a": -3.9507510662078857,
+              "n": 100
+            }
+          }
+        }
+      ]
+    },
+    {
+      "joint": "left_hip_yaw_joint",
+      "skipped": "fewer than 2 clean loaded points",
+      "trials": [
+        {
+          "commanded_rad": 0.08201942845606269,
+          "worst_drift_joint": "right_hip_pitch_joint",
+          "worst_drift_rad": 0.007260799407958984,
+          "drift_ok": true,
+          "per_side": {
+            "left_hip_yaw_joint": {
+              "tau_gravity_nm": -0.33599037877163357,
+              "error_rad": 0.010229150498146433,
+              "position_rad": 0.07179027795791626,
+              "reported_torque_nm": 0.47527071833610535,
+              "reported_current_a": -0.35763171315193176,
+              "n": 100
+            },
+            "right_hip_yaw_joint": {
+              "tau_gravity_nm": -0.36815404772469956,
+              "error_rad": 0.006859819138283152,
+              "position_rad": 0.07515960931777954,
+              "reported_torque_nm": 0.3304170072078705,
+              "reported_current_a": 0.21835125982761383,
+              "n": 100
+            }
+          }
+        },
+        {
+          "commanded_rad": -0.05219418174476709,
+          "worst_drift_joint": "right_hip_pitch_joint",
+          "worst_drift_rad": 0.007260799407958984,
+          "drift_ok": true,
+          "per_side": {
+            "left_hip_yaw_joint": {
+              "tau_gravity_nm": -0.04169736679844969,
+              "error_rad": -0.01640129453392114,
+              "position_rad": -0.03579288721084595,
+              "reported_torque_nm": -0.762129545211792,
+              "reported_current_a": 0.5467318892478943,
+              "n": 100
+            },
+            "right_hip_yaw_joint": {
+              "tau_gravity_nm": -0.037646517318888795,
+              "error_rad": -0.006578374569130796,
+              "position_rad": -0.04561580717563629,
+              "reported_torque_nm": -0.3737187385559082,
+              "reported_current_a": -0.25879746675491333,
+              "n": 100
+            }
+          }
+        },
+        {
+          "commanded_rad": -0.18640779194559687,
+          "worst_drift_joint": "right_hip_roll_joint",
+          "worst_drift_rad": 0.01370355486869812,
+          "drift_ok": true,
+          "per_side": {
+            "left_hip_yaw_joint": {
+              "tau_gravity_nm": 0.27152168088625883,
+              "error_rad": -0.03198702869143122,
+              "position_rad": -0.15442076325416565,
+              "reported_torque_nm": -1.4345086812973022,
+              "reported_current_a": 1.0514193773269653,
+              "n": 100
+            },
+            "right_hip_yaw_joint": {
+              "tau_gravity_nm": 0.22206354491977662,
+              "error_rad": -0.03361785647596949,
+              "position_rad": -0.15278993546962738,
+              "reported_torque_nm": -1.5138306617736816,
+              "reported_current_a": -1.1374430656433105,
+              "n": 100
+            }
+          }
+        },
+        {
+          "commanded_rad": -0.32062140214642665,
+          "worst_drift_joint": "right_hip_roll_joint",
+          "worst_drift_rad": 0.04693979024887085,
+          "drift_ok": false,
+          "per_side": {
+            "left_hip_yaw_joint": {
+              "tau_gravity_nm": 0.43439163518113166,
+              "error_rad": -0.07876378405293605,
+              "position_rad": -0.2418576180934906,
+              "reported_torque_nm": -3.5345661640167236,
+              "reported_current_a": 2.667640209197998,
+              "n": 100
+            },
+            "right_hip_yaw_joint": {
+              "tau_gravity_nm": 0.36961154615411235,
+              "error_rad": -0.07947416711053035,
+              "position_rad": -0.2411472350358963,
+              "reported_torque_nm": -3.5825672149658203,
+              "reported_current_a": -2.655229330062866,
+              "n": 100
+            }
+          }
+        },
+        {
+          "commanded_rad": -0.45483501234725643,
+          "worst_drift_joint": "left_hip_roll_joint",
+          "worst_drift_rad": 0.07485826313495636,
+          "drift_ok": false,
+          "per_side": {
+            "left_hip_yaw_joint": {
+              "tau_gravity_nm": 0.5772622181467473,
+              "error_rad": -0.1224725095339172,
+              "position_rad": -0.33236250281333923,
+              "reported_torque_nm": -5.533803939819336,
+              "reported_current_a": 4.101795673370361,
+              "n": 100
+            },
+            "right_hip_yaw_joint": {
+              "tau_gravity_nm": 0.4981181572645785,
+              "error_rad": -0.13218225517944027,
+              "position_rad": -0.32265275716781616,
+              "reported_torque_nm": -5.960853576660156,
+              "reported_current_a": -4.429234504699707,
+              "n": 100
+            }
+          }
+        },
+        {
+          "commanded_rad": -0.5590486225480862,
+          "worst_drift_joint": "right_hip_roll_joint",
+          "worst_drift_rad": 0.09162977337837219,
+          "drift_ok": false,
+          "per_side": {
+            "left_hip_yaw_joint": {
+              "tau_gravity_nm": 0.7269829384411737,
+              "error_rad": -0.157043397128088,
+              "position_rad": -0.40200522541999817,
+              "reported_torque_nm": -7.073951244354248,
+              "reported_current_a": 5.268537521362305,
+              "n": 99
+            },
+            "right_hip_yaw_joint": {
+              "tau_gravity_nm": 0.8000266625143695,
+              "error_rad": -0.10293957561205103,
+              "position_rad": -0.45610904693603516,
+              "reported_torque_nm": -4.600130081176758,
+              "reported_current_a": -3.4437613487243652,
+              "n": 99
+            }
+          }
+        }
+      ]
+    },
+    {
+      "joint": "right_hip_yaw_joint",
+      "skipped": "fewer than 2 clean loaded points",
+      "trials": [
+        {
+          "commanded_rad": 0.08201942845606269,
+          "worst_drift_joint": "right_hip_pitch_joint",
+          "worst_drift_rad": 0.007260799407958984,
+          "drift_ok": true,
+          "per_side": {
+            "left_hip_yaw_joint": {
+              "tau_gravity_nm": -0.33599037877163357,
+              "error_rad": 0.010229150498146433,
+              "position_rad": 0.07179027795791626,
+              "reported_torque_nm": 0.47527071833610535,
+              "reported_current_a": -0.35763171315193176,
+              "n": 100
+            },
+            "right_hip_yaw_joint": {
+              "tau_gravity_nm": -0.36815404772469956,
+              "error_rad": 0.006859819138283152,
+              "position_rad": 0.07515960931777954,
+              "reported_torque_nm": 0.3304170072078705,
+              "reported_current_a": 0.21835125982761383,
+              "n": 100
+            }
+          }
+        },
+        {
+          "commanded_rad": -0.05219418174476709,
+          "worst_drift_joint": "right_hip_pitch_joint",
+          "worst_drift_rad": 0.007260799407958984,
+          "drift_ok": true,
+          "per_side": {
+            "left_hip_yaw_joint": {
+              "tau_gravity_nm": -0.04169736679844969,
+              "error_rad": -0.01640129453392114,
+              "position_rad": -0.03579288721084595,
+              "reported_torque_nm": -0.762129545211792,
+              "reported_current_a": 0.5467318892478943,
+              "n": 100
+            },
+            "right_hip_yaw_joint": {
+              "tau_gravity_nm": -0.037646517318888795,
+              "error_rad": -0.006578374569130796,
+              "position_rad": -0.04561580717563629,
+              "reported_torque_nm": -0.3737187385559082,
+              "reported_current_a": -0.25879746675491333,
+              "n": 100
+            }
+          }
+        },
+        {
+          "commanded_rad": -0.18640779194559687,
+          "worst_drift_joint": "right_hip_roll_joint",
+          "worst_drift_rad": 0.01370355486869812,
+          "drift_ok": true,
+          "per_side": {
+            "left_hip_yaw_joint": {
+              "tau_gravity_nm": 0.27152168088625883,
+              "error_rad": -0.03198702869143122,
+              "position_rad": -0.15442076325416565,
+              "reported_torque_nm": -1.4345086812973022,
+              "reported_current_a": 1.0514193773269653,
+              "n": 100
+            },
+            "right_hip_yaw_joint": {
+              "tau_gravity_nm": 0.22206354491977662,
+              "error_rad": -0.03361785647596949,
+              "position_rad": -0.15278993546962738,
+              "reported_torque_nm": -1.5138306617736816,
+              "reported_current_a": -1.1374430656433105,
+              "n": 100
+            }
+          }
+        },
+        {
+          "commanded_rad": -0.32062140214642665,
+          "worst_drift_joint": "right_hip_roll_joint",
+          "worst_drift_rad": 0.04693979024887085,
+          "drift_ok": false,
+          "per_side": {
+            "left_hip_yaw_joint": {
+              "tau_gravity_nm": 0.43439163518113166,
+              "error_rad": -0.07876378405293605,
+              "position_rad": -0.2418576180934906,
+              "reported_torque_nm": -3.5345661640167236,
+              "reported_current_a": 2.667640209197998,
+              "n": 100
+            },
+            "right_hip_yaw_joint": {
+              "tau_gravity_nm": 0.36961154615411235,
+              "error_rad": -0.07947416711053035,
+              "position_rad": -0.2411472350358963,
+              "reported_torque_nm": -3.5825672149658203,
+              "reported_current_a": -2.655229330062866,
+              "n": 100
+            }
+          }
+        },
+        {
+          "commanded_rad": -0.45483501234725643,
+          "worst_drift_joint": "left_hip_roll_joint",
+          "worst_drift_rad": 0.07485826313495636,
+          "drift_ok": false,
+          "per_side": {
+            "left_hip_yaw_joint": {
+              "tau_gravity_nm": 0.5772622181467473,
+              "error_rad": -0.1224725095339172,
+              "position_rad": -0.33236250281333923,
+              "reported_torque_nm": -5.533803939819336,
+              "reported_current_a": 4.101795673370361,
+              "n": 100
+            },
+            "right_hip_yaw_joint": {
+              "tau_gravity_nm": 0.4981181572645785,
+              "error_rad": -0.13218225517944027,
+              "position_rad": -0.32265275716781616,
+              "reported_torque_nm": -5.960853576660156,
+              "reported_current_a": -4.429234504699707,
+              "n": 100
+            }
+          }
+        },
+        {
+          "commanded_rad": -0.5590486225480862,
+          "worst_drift_joint": "right_hip_roll_joint",
+          "worst_drift_rad": 0.09162977337837219,
+          "drift_ok": false,
+          "per_side": {
+            "left_hip_yaw_joint": {
+              "tau_gravity_nm": 0.7269829384411737,
+              "error_rad": -0.157043397128088,
+              "position_rad": -0.40200522541999817,
+              "reported_torque_nm": -7.073951244354248,
+              "reported_current_a": 5.268537521362305,
+              "n": 99
+            },
+            "right_hip_yaw_joint": {
+              "tau_gravity_nm": 0.8000266625143695,
+              "error_rad": -0.10293957561205103,
+              "position_rad": -0.45610904693603516,
+              "reported_torque_nm": -4.600130081176758,
+              "reported_current_a": -3.4437613487243652,
+              "n": 99
+            }
+          }
+        }
+      ]
+    },
+    {
+      "joint": "left_knee_pitch_joint",
+      "type": "knee_pitch",
+      "family": "M6C12",
+      "kp_eff": 34.78638357882817,
+      "deadband_nm": 0.05805940795019282,
+      "points": 2,
+      "peak_tau_nm": 1.6932118119212927,
+      "trials": [
+        {
+          "commanded_rad": 0.15464942739190263,
+          "worst_drift_joint": "right_hip_pitch_joint",
+          "worst_drift_rad": 0.010328888893127441,
+          "drift_ok": true,
+          "per_side": {
+            "left_knee_pitch_joint": {
+              "tau_gravity_nm": 0.3503581953153991,
+              "error_rad": -0.007544824622257529,
+              "position_rad": 0.16219425201416016,
+              "reported_torque_nm": -0.34967756271362305,
+              "reported_current_a": -0.2660040557384491,
+              "n": 100
+            },
+            "right_knee_pitch_joint": {
+              "tau_gravity_nm": 0.37548423715800067,
+              "error_rad": -0.0142849178534587,
+              "position_rad": 0.16893434524536133,
+              "reported_torque_nm": -0.6268118619918823,
+              "reported_current_a": 0.4693039059638977,
+              "n": 100
+            }
+          }
+        },
+        {
+          "commanded_rad": 0.4639482821757079,
+          "worst_drift_joint": "right_hip_pitch_joint",
+          "worst_drift_rad": 0.009203910827636719,
+          "drift_ok": true,
+          "per_side": {
+            "left_knee_pitch_joint": {
+              "tau_gravity_nm": -0.3681385725059655,
+              "error_rad": 0.020013007097888058,
+              "position_rad": 0.4439352750778198,
+              "reported_torque_nm": 0.889991819858551,
+              "reported_current_a": 0.6828464865684509,
+              "n": 100
+            },
+            "right_knee_pitch_joint": {
+              "tau_gravity_nm": -0.3413572886845272,
+              "error_rad": 0.009591373377490109,
+              "position_rad": 0.4543569087982178,
+              "reported_torque_nm": 0.4417356550693512,
+              "reported_current_a": -0.3250088095664978,
+              "n": 100
+            }
+          }
+        },
+        {
+          "commanded_rad": 0.7732471369595131,
+          "worst_drift_joint": "right_hip_yaw_joint",
+          "worst_drift_rad": -0.006033658981323242,
+          "drift_ok": true,
+          "per_side": {
+            "left_knee_pitch_joint": {
+              "tau_gravity_nm": -1.0903211921407538,
+              "error_rad": 0.029674305805643453,
+              "position_rad": 0.7435728311538696,
+              "reported_torque_nm": 1.3524302244186401,
+              "reported_current_a": 0.983667254447937,
+              "n": 100
+            },
+            "right_knee_pitch_joint": {
+              "tau_gravity_nm": -1.0342723121879491,
+              "error_rad": 0.02252496708341445,
+              "position_rad": 0.7507221698760986,
+              "reported_torque_nm": 1.0032354593276978,
+              "reported_current_a": -0.7555114030838013,
+              "n": 100
+            }
+          }
+        },
+        {
+          "commanded_rad": 1.0825459917433184,
+          "worst_drift_joint": "left_hip_pitch_joint",
+          "worst_drift_rad": -0.012680888175964355,
+          "drift_ok": true,
+          "per_side": {
+            "left_knee_pitch_joint": {
+              "tau_gravity_nm": -1.6932118119212927,
+              "error_rad": 0.04700553020309628,
+              "position_rad": 1.0355404615402222,
+              "reported_torque_nm": 2.095125675201416,
+              "reported_current_a": 1.5644409656524658,
+              "n": 99
+            },
+            "right_knee_pitch_joint": {
+              "tau_gravity_nm": -1.6500689828423787,
+              "error_rad": 0.03658377727340878,
+              "position_rad": 1.0459622144699097,
+              "reported_torque_nm": 1.6542545557022095,
+              "reported_current_a": -1.2498005628585815,
+              "n": 99
+            }
+          }
+        },
+        {
+          "commanded_rad": 1.3918448465271236,
+          "worst_drift_joint": "left_hip_pitch_joint",
+          "worst_drift_rad": -0.018816828727722168,
+          "drift_ok": false,
+          "per_side": {
+            "left_knee_pitch_joint": {
+              "tau_gravity_nm": -2.172471019070125,
+              "error_rad": 0.060246087829613826,
+              "position_rad": 1.3315987586975098,
+              "reported_torque_nm": 2.717743158340454,
+              "reported_current_a": 2.0133461952209473,
+              "n": 100
+            },
+            "right_knee_pitch_joint": {
+              "tau_gravity_nm": -2.1169776985758677,
+              "error_rad": 0.054119445602440974,
+              "position_rad": 1.3377254009246826,
+              "reported_torque_nm": 2.4505693912506104,
+              "reported_current_a": -1.8153815269470215,
+              "n": 100
+            }
+          }
+        },
+        {
+          "commanded_rad": 1.7011437013109287,
+          "worst_drift_joint": "left_hip_pitch_joint",
+          "worst_drift_rad": -0.0240323543548584,
+          "drift_ok": false,
+          "per_side": {
+            "left_knee_pitch_joint": {
+              "tau_gravity_nm": -2.477283663274026,
+              "error_rad": 0.07062311911183206,
+              "position_rad": 1.6305205821990967,
+              "reported_torque_nm": 3.1966402530670166,
+              "reported_current_a": 2.3753323554992676,
+              "n": 100
+            },
+            "right_knee_pitch_joint": {
+              "tau_gravity_nm": -2.4329607405405436,
+              "error_rad": 0.054679115052994165,
+              "position_rad": 1.6464645862579346,
+              "reported_torque_nm": 2.43192458152771,
+              "reported_current_a": -1.824088215827942,
+              "n": 100
+            }
+          }
+        }
+      ]
+    },
+    {
+      "joint": "right_knee_pitch_joint",
+      "type": "knee_pitch",
+      "family": "M6C12",
+      "kp_eff": 43.801478384898694,
+      "deadband_nm": 0.047645453363216204,
+      "points": 2,
+      "peak_tau_nm": 1.6500689828423787,
+      "trials": [
+        {
+          "commanded_rad": 0.15464942739190263,
+          "worst_drift_joint": "right_hip_pitch_joint",
+          "worst_drift_rad": 0.010328888893127441,
+          "drift_ok": true,
+          "per_side": {
+            "left_knee_pitch_joint": {
+              "tau_gravity_nm": 0.3503581953153991,
+              "error_rad": -0.007544824622257529,
+              "position_rad": 0.16219425201416016,
+              "reported_torque_nm": -0.34967756271362305,
+              "reported_current_a": -0.2660040557384491,
+              "n": 100
+            },
+            "right_knee_pitch_joint": {
+              "tau_gravity_nm": 0.37548423715800067,
+              "error_rad": -0.0142849178534587,
+              "position_rad": 0.16893434524536133,
+              "reported_torque_nm": -0.6268118619918823,
+              "reported_current_a": 0.4693039059638977,
+              "n": 100
+            }
+          }
+        },
+        {
+          "commanded_rad": 0.4639482821757079,
+          "worst_drift_joint": "right_hip_pitch_joint",
+          "worst_drift_rad": 0.009203910827636719,
+          "drift_ok": true,
+          "per_side": {
+            "left_knee_pitch_joint": {
+              "tau_gravity_nm": -0.3681385725059655,
+              "error_rad": 0.020013007097888058,
+              "position_rad": 0.4439352750778198,
+              "reported_torque_nm": 0.889991819858551,
+              "reported_current_a": 0.6828464865684509,
+              "n": 100
+            },
+            "right_knee_pitch_joint": {
+              "tau_gravity_nm": -0.3413572886845272,
+              "error_rad": 0.009591373377490109,
+              "position_rad": 0.4543569087982178,
+              "reported_torque_nm": 0.4417356550693512,
+              "reported_current_a": -0.3250088095664978,
+              "n": 100
+            }
+          }
+        },
+        {
+          "commanded_rad": 0.7732471369595131,
+          "worst_drift_joint": "right_hip_yaw_joint",
+          "worst_drift_rad": -0.006033658981323242,
+          "drift_ok": true,
+          "per_side": {
+            "left_knee_pitch_joint": {
+              "tau_gravity_nm": -1.0903211921407538,
+              "error_rad": 0.029674305805643453,
+              "position_rad": 0.7435728311538696,
+              "reported_torque_nm": 1.3524302244186401,
+              "reported_current_a": 0.983667254447937,
+              "n": 100
+            },
+            "right_knee_pitch_joint": {
+              "tau_gravity_nm": -1.0342723121879491,
+              "error_rad": 0.02252496708341445,
+              "position_rad": 0.7507221698760986,
+              "reported_torque_nm": 1.0032354593276978,
+              "reported_current_a": -0.7555114030838013,
+              "n": 100
+            }
+          }
+        },
+        {
+          "commanded_rad": 1.0825459917433184,
+          "worst_drift_joint": "left_hip_pitch_joint",
+          "worst_drift_rad": -0.012680888175964355,
+          "drift_ok": true,
+          "per_side": {
+            "left_knee_pitch_joint": {
+              "tau_gravity_nm": -1.6932118119212927,
+              "error_rad": 0.04700553020309628,
+              "position_rad": 1.0355404615402222,
+              "reported_torque_nm": 2.095125675201416,
+              "reported_current_a": 1.5644409656524658,
+              "n": 99
+            },
+            "right_knee_pitch_joint": {
+              "tau_gravity_nm": -1.6500689828423787,
+              "error_rad": 0.03658377727340878,
+              "position_rad": 1.0459622144699097,
+              "reported_torque_nm": 1.6542545557022095,
+              "reported_current_a": -1.2498005628585815,
+              "n": 99
+            }
+          }
+        },
+        {
+          "commanded_rad": 1.3918448465271236,
+          "worst_drift_joint": "left_hip_pitch_joint",
+          "worst_drift_rad": -0.018816828727722168,
+          "drift_ok": false,
+          "per_side": {
+            "left_knee_pitch_joint": {
+              "tau_gravity_nm": -2.172471019070125,
+              "error_rad": 0.060246087829613826,
+              "position_rad": 1.3315987586975098,
+              "reported_torque_nm": 2.717743158340454,
+              "reported_current_a": 2.0133461952209473,
+              "n": 100
+            },
+            "right_knee_pitch_joint": {
+              "tau_gravity_nm": -2.1169776985758677,
+              "error_rad": 0.054119445602440974,
+              "position_rad": 1.3377254009246826,
+              "reported_torque_nm": 2.4505693912506104,
+              "reported_current_a": -1.8153815269470215,
+              "n": 100
+            }
+          }
+        },
+        {
+          "commanded_rad": 1.7011437013109287,
+          "worst_drift_joint": "left_hip_pitch_joint",
+          "worst_drift_rad": -0.0240323543548584,
+          "drift_ok": false,
+          "per_side": {
+            "left_knee_pitch_joint": {
+              "tau_gravity_nm": -2.477283663274026,
+              "error_rad": 0.07062311911183206,
+              "position_rad": 1.6305205821990967,
+              "reported_torque_nm": 3.1966402530670166,
+              "reported_current_a": 2.3753323554992676,
+              "n": 100
+            },
+            "right_knee_pitch_joint": {
+              "tau_gravity_nm": -2.4329607405405436,
+              "error_rad": 0.054679115052994165,
+              "position_rad": 1.6464645862579346,
+              "reported_torque_nm": 2.43192458152771,
+              "reported_current_a": -1.824088215827942,
+              "n": 100
+            }
+          }
+        }
+      ]
+    },
+    {
+      "joint": "left_ankle_pitch_joint",
+      "skipped": "fewer than 2 clean loaded points",
+      "trials": [
+        {
+          "commanded_rad": 0.5865631853221451,
+          "worst_drift_joint": "right_knee_pitch_joint",
+          "worst_drift_rad": -0.00951075553894043,
+          "drift_ok": true,
+          "per_side": {
+            "left_ankle_pitch_joint": {
+              "tau_gravity_nm": -0.12862513179418975,
+              "error_rad": 0.00651390897021642,
+              "position_rad": 0.5800492763519287,
+              "reported_torque_nm": 0.3004210889339447,
+              "reported_current_a": 0.3010859787464142,
+              "n": 99
+            },
+            "right_ankle_pitch_joint": {
+              "tau_gravity_nm": -0.1697606706829583,
+              "error_rad": 0.0056056533931290176,
+              "position_rad": 0.5809575319290161,
+              "reported_torque_nm": 0.24895736575126648,
+              "reported_current_a": -0.2519301474094391,
+              "n": 99
+            }
+          }
+        },
+        {
+          "commanded_rad": 0.31217091557822646,
+          "worst_drift_joint": "right_knee_pitch_joint",
+          "worst_drift_rad": -0.009919881820678711,
+          "drift_ok": true,
+          "per_side": {
+            "left_ankle_pitch_joint": {
+              "tau_gravity_nm": 0.036895745621508116,
+              "error_rad": -0.010885543848653423,
+              "position_rad": 0.3230564594268799,
+              "reported_torque_nm": 0.010775553993880749,
+              "reported_current_a": 0.014717912767082453,
+              "n": 100
+            },
+            "right_ankle_pitch_joint": {
+              "tau_gravity_nm": -0.002880549342916013,
+              "error_rad": -0.00514633181252061,
+              "position_rad": 0.31731724739074707,
+              "reported_torque_nm": 0.0,
+              "reported_current_a": -0.01831243373453617,
+              "n": 100
+            }
+          }
+        },
+        {
+          "commanded_rad": 0.03777864583430779,
+          "worst_drift_joint": "right_knee_pitch_joint",
+          "worst_drift_rad": -0.009919881820678711,
+          "drift_ok": true,
+          "per_side": {
+            "left_ankle_pitch_joint": {
+              "tau_gravity_nm": 0.03696086216590768,
+              "error_rad": -0.2852778135925721,
+              "position_rad": 0.3230564594268799,
+              "reported_torque_nm": 0.03662585839629173,
+              "reported_current_a": 0.026158979162573814,
+              "n": 100
+            },
+            "right_ankle_pitch_joint": {
+              "tau_gravity_nm": -0.002880549342916013,
+              "error_rad": -0.2795386015564393,
+              "position_rad": 0.31731724739074707,
+              "reported_torque_nm": 0.018091093748807907,
+              "reported_current_a": -0.02196640893816948,
+              "n": 100
+            }
+          }
+        },
+        {
+          "commanded_rad": -0.23661362390961083,
+          "worst_drift_joint": "right_knee_pitch_joint",
+          "worst_drift_rad": -0.009919881820678711,
+          "drift_ok": true,
+          "per_side": {
+            "left_ankle_pitch_joint": {
+              "tau_gravity_nm": 0.03696610745966741,
+              "error_rad": -0.5596700833364907,
+              "position_rad": 0.3230564594268799,
+              "reported_torque_nm": 0.02261212468147278,
+              "reported_current_a": 0.0337863564491272,
+              "n": 100
+            },
+            "right_ankle_pitch_joint": {
+              "tau_gravity_nm": -0.002880549342916013,
+              "error_rad": -0.5539308713003579,
+              "position_rad": 0.31731724739074707,
+              "reported_torque_nm": 0.014474975876510143,
+              "reported_current_a": -0.021977048367261887,
+              "n": 100
+            }
+          }
+        },
+        {
+          "commanded_rad": -0.5110058936535296,
+          "worst_drift_joint": "right_knee_pitch_joint",
+          "worst_drift_rad": -0.009919881820678711,
+          "drift_ok": true,
+          "per_side": {
+            "left_ankle_pitch_joint": {
+              "tau_gravity_nm": 0.03696086216590768,
+              "error_rad": -0.8340623530804094,
+              "position_rad": 0.3230564594268799,
+              "reported_torque_nm": 0.02261212468147278,
+              "reported_current_a": 0.026158979162573814,
+              "n": 100
+            },
+            "right_ankle_pitch_joint": {
+              "tau_gravity_nm": -0.002880549342916013,
+              "error_rad": -0.8283231410442766,
+              "position_rad": 0.31731724739074707,
+              "reported_torque_nm": 0.028949951753020287,
+              "reported_current_a": -0.018307115882635117,
+              "n": 100
+            }
+          }
+        },
+        {
+          "commanded_rad": -0.7553981633974483,
+          "worst_drift_joint": "right_knee_pitch_joint",
+          "worst_drift_rad": -0.009919881820678711,
+          "drift_ok": true,
+          "per_side": {
+            "left_ankle_pitch_joint": {
+              "tau_gravity_nm": 0.03696086216590768,
+              "error_rad": -1.0784546228243281,
+              "position_rad": 0.3230564594268799,
+              "reported_torque_nm": 0.01507474947720766,
+              "reported_current_a": 0.022882133722305298,
+              "n": 100
+            },
+            "right_ankle_pitch_joint": {
+              "tau_gravity_nm": -0.002880549342916013,
+              "error_rad": -1.0727154107881953,
+              "position_rad": 0.31731724739074707,
+              "reported_torque_nm": 0.028949951753020287,
+              "reported_current_a": -0.018307115882635117,
+              "n": 100
+            }
+          }
+        }
+      ]
+    },
+    {
+      "joint": "right_ankle_pitch_joint",
+      "skipped": "fewer than 2 clean loaded points",
+      "trials": [
+        {
+          "commanded_rad": 0.5865631853221451,
+          "worst_drift_joint": "right_knee_pitch_joint",
+          "worst_drift_rad": -0.00951075553894043,
+          "drift_ok": true,
+          "per_side": {
+            "left_ankle_pitch_joint": {
+              "tau_gravity_nm": -0.12862513179418975,
+              "error_rad": 0.00651390897021642,
+              "position_rad": 0.5800492763519287,
+              "reported_torque_nm": 0.3004210889339447,
+              "reported_current_a": 0.3010859787464142,
+              "n": 99
+            },
+            "right_ankle_pitch_joint": {
+              "tau_gravity_nm": -0.1697606706829583,
+              "error_rad": 0.0056056533931290176,
+              "position_rad": 0.5809575319290161,
+              "reported_torque_nm": 0.24895736575126648,
+              "reported_current_a": -0.2519301474094391,
+              "n": 99
+            }
+          }
+        },
+        {
+          "commanded_rad": 0.31217091557822646,
+          "worst_drift_joint": "right_knee_pitch_joint",
+          "worst_drift_rad": -0.009919881820678711,
+          "drift_ok": true,
+          "per_side": {
+            "left_ankle_pitch_joint": {
+              "tau_gravity_nm": 0.036895745621508116,
+              "error_rad": -0.010885543848653423,
+              "position_rad": 0.3230564594268799,
+              "reported_torque_nm": 0.010775553993880749,
+              "reported_current_a": 0.014717912767082453,
+              "n": 100
+            },
+            "right_ankle_pitch_joint": {
+              "tau_gravity_nm": -0.002880549342916013,
+              "error_rad": -0.00514633181252061,
+              "position_rad": 0.31731724739074707,
+              "reported_torque_nm": 0.0,
+              "reported_current_a": -0.01831243373453617,
+              "n": 100
+            }
+          }
+        },
+        {
+          "commanded_rad": 0.03777864583430779,
+          "worst_drift_joint": "right_knee_pitch_joint",
+          "worst_drift_rad": -0.009919881820678711,
+          "drift_ok": true,
+          "per_side": {
+            "left_ankle_pitch_joint": {
+              "tau_gravity_nm": 0.03696086216590768,
+              "error_rad": -0.2852778135925721,
+              "position_rad": 0.3230564594268799,
+              "reported_torque_nm": 0.03662585839629173,
+              "reported_current_a": 0.026158979162573814,
+              "n": 100
+            },
+            "right_ankle_pitch_joint": {
+              "tau_gravity_nm": -0.002880549342916013,
+              "error_rad": -0.2795386015564393,
+              "position_rad": 0.31731724739074707,
+              "reported_torque_nm": 0.018091093748807907,
+              "reported_current_a": -0.02196640893816948,
+              "n": 100
+            }
+          }
+        },
+        {
+          "commanded_rad": -0.23661362390961083,
+          "worst_drift_joint": "right_knee_pitch_joint",
+          "worst_drift_rad": -0.009919881820678711,
+          "drift_ok": true,
+          "per_side": {
+            "left_ankle_pitch_joint": {
+              "tau_gravity_nm": 0.03696610745966741,
+              "error_rad": -0.5596700833364907,
+              "position_rad": 0.3230564594268799,
+              "reported_torque_nm": 0.02261212468147278,
+              "reported_current_a": 0.0337863564491272,
+              "n": 100
+            },
+            "right_ankle_pitch_joint": {
+              "tau_gravity_nm": -0.002880549342916013,
+              "error_rad": -0.5539308713003579,
+              "position_rad": 0.31731724739074707,
+              "reported_torque_nm": 0.014474975876510143,
+              "reported_current_a": -0.021977048367261887,
+              "n": 100
+            }
+          }
+        },
+        {
+          "commanded_rad": -0.5110058936535296,
+          "worst_drift_joint": "right_knee_pitch_joint",
+          "worst_drift_rad": -0.009919881820678711,
+          "drift_ok": true,
+          "per_side": {
+            "left_ankle_pitch_joint": {
+              "tau_gravity_nm": 0.03696086216590768,
+              "error_rad": -0.8340623530804094,
+              "position_rad": 0.3230564594268799,
+              "reported_torque_nm": 0.02261212468147278,
+              "reported_current_a": 0.026158979162573814,
+              "n": 100
+            },
+            "right_ankle_pitch_joint": {
+              "tau_gravity_nm": -0.002880549342916013,
+              "error_rad": -0.8283231410442766,
+              "position_rad": 0.31731724739074707,
+              "reported_torque_nm": 0.028949951753020287,
+              "reported_current_a": -0.018307115882635117,
+              "n": 100
+            }
+          }
+        },
+        {
+          "commanded_rad": -0.7553981633974483,
+          "worst_drift_joint": "right_knee_pitch_joint",
+          "worst_drift_rad": -0.009919881820678711,
+          "drift_ok": true,
+          "per_side": {
+            "left_ankle_pitch_joint": {
+              "tau_gravity_nm": 0.03696086216590768,
+              "error_rad": -1.0784546228243281,
+              "position_rad": 0.3230564594268799,
+              "reported_torque_nm": 0.01507474947720766,
+              "reported_current_a": 0.022882133722305298,
+              "n": 100
+            },
+            "right_ankle_pitch_joint": {
+              "tau_gravity_nm": -0.002880549342916013,
+              "error_rad": -1.0727154107881953,
+              "position_rad": 0.31731724739074707,
+              "reported_torque_nm": 0.028949951753020287,
+              "reported_current_a": -0.018307115882635117,
+              "n": 100
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "left_right": {
+    "hip_pitch": {
+      "left": 48.76396902536082,
+      "right": 43.68509536990628,
+      "ratio": 1.1162610179158101
+    },
+    "knee_pitch": {
+      "left": 34.78638357882817,
+      "right": 43.801478384898694,
+      "ratio": 0.7941828646318333
+    }
+  },
+  "per_family": {
+    "M6C12": {
+      "mean": 42.91704220830984,
+      "median": 43.68509536990628,
+      "n": 5,
+      "min": 34.78638357882817,
+      "max": 48.76396902536082
+    }
+  },
+  "overall": {
+    "median_kp_eff": 43.68509536990628,
+    "ratio_to_nominal": 0.9707798971090285
+  }
+}

@@ -1,4 +1,13 @@
 #!/usr/bin/env python3
+"""SUPERSEDED by scripts/measure/m7_sweep.py — do not use for new measurements.
+
+This version left the non-swept joints IDLE, so they sagged under gravity while the gravity
+torque was computed assuming them at zero. That overestimated tau by up to 34% on hip_roll and
+69% on ankle_pitch and inflated kp_eff by the same factor (hip_roll read 96-100 N·m/rad). Its
+hip_* and ankle_* results are INVALID. Only knee_pitch survives (~43-45), because nothing upstream
+changes the knee's own distal chain. m7_sweep.py holds all 12 joints, computes tau from the
+measured pose, and chooses each joint's device->URDF frame from the data.
+"""
 """M7 — effective stiffness for every measurable leg joint, with L/R comparison.
 
     python scripts/measure/m7_all_joints.py --i-am-present            # both legs

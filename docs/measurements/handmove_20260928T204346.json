@@ -1,0 +1,58 @@
+{
+  "_meta": {
+    "capture_id": "handmove_20260928T204346",
+    "activity": "handmove",
+    "date": "2026-09-28",
+    "started_epoch": 1790642626.4214628,
+    "host": "nse-MINI-S",
+    "daemon": {
+      "running": true,
+      "pid": 1229,
+      "cmdline": "/home/nse/humanoid-control/daemon/build/humanoid_daemon --config /home/nse/humanoid-studio/configs/humanoid_lite.json --imu-device /dev/humanoid_imu",
+      "started_epoch": 1790638304.8909998,
+      "uptime_s": 4321.540898323059,
+      "config_path": "/home/nse/humanoid-studio/configs/humanoid_lite.json",
+      "config_mtime_epoch": 1790352672.074246,
+      "config_newer_than_daemon": false
+    },
+    "cpu_temp_start_c": 65.0,
+    "throttle_start": {
+      "core_throttle_count": 0,
+      "package_throttle_count": 0
+    },
+    "encoder_quantum_rad": 0.00010226538585904274,
+    "measurement": "LR_sign_convention",
+    "method": "passive candump, joints IDLE, operator moves by hand",
+    "ended_epoch": 1790642626.433505,
+    "duration_s": 0.01204228401184082,
+    "cpu_temp_end_c": 65.0,
+    "throttle_end": {
+      "core_throttle_count": 0,
+      "package_throttle_count": 0
+    }
+  },
+  "correlations": {
+    "hip_roll": -0.8767745992274589,
+    "hip_yaw": -0.9541356301350669,
+    "hip_pitch": 0.6127285766694933
+  },
+  "foot_separation_m": {
+    "min": 0.025968237554464507,
+    "max": 0.3446080476859057,
+    "median": 0.14220811143912862
+  },
+  "ranges_deg": {
+    "left_ankle_roll_joint": 0.005858594760578437,
+    "right_knee_pitch_joint": 0.18162839040897907,
+    "right_hip_pitch_joint": 4.171872714854619,
+    "right_ankle_roll_joint": 0.01172060461574188,
+    "left_hip_yaw_joint": 62.81836311744198,
+    "right_hip_roll_joint": 28.447266610050377,
+    "left_hip_pitch_joint": 5.548832021340019,
+    "left_hip_roll_joint": 34.90429778626959,
+    "left_knee_pitch_joint": 2.87109733837154,
+    "right_ankle_pitch_joint": 0.011717189521156874,
+    "right_hip_yaw_joint": 52.529297849843076,
+    "left_ankle_pitch_joint": 0.6562582358331651
+  }
+}
