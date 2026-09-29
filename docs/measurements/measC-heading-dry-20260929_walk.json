@@ -1,0 +1,180 @@
+{
+  "_meta": {
+    "capture_id": "walk_20260929T141351",
+    "activity": "walk",
+    "date": "2026-09-29",
+    "started_epoch": 1790705631.8289285,
+    "host": "nse-MINI-S",
+    "daemon": {
+      "running": true,
+      "pid": 1210,
+      "cmdline": "/home/nse/humanoid-control/daemon/build/humanoid_daemon --config /home/nse/humanoid-studio/configs/humanoid_lite.json --imu-device /dev/humanoid_imu",
+      "started_epoch": 1790701147.4869998,
+      "uptime_s": 4484.35457611084,
+      "config_path": "/home/nse/humanoid-studio/configs/humanoid_lite.json",
+      "config_mtime_epoch": 1790352672.074246,
+      "config_newer_than_daemon": false
+    },
+    "cpu_temp_start_c": 67.0,
+    "throttle_start": {
+      "core_throttle_count": 0,
+      "package_throttle_count": 0
+    },
+    "encoder_quantum_rad": 0.00010226538585904274,
+    "measurement": "walk_metrics",
+    "label": "measC-heading-dry-20260929",
+    "recording": "run_1790705543932967453_23984.jsonl",
+    "ended_epoch": 1790705631.8423238,
+    "duration_s": 0.013395309448242188,
+    "cpu_temp_end_c": 67.0,
+    "throttle_end": {
+      "core_throttle_count": 0,
+      "package_throttle_count": 0
+    }
+  },
+  "metrics": {
+    "recording": "run_1790705543932967453_23984.jsonl",
+    "bouts": [
+      {
+        "t_start": 3.701998170000479,
+        "duration_s": 6.559857895999812,
+        "heading": {
+          "mode": "dry",
+          "fused_yaw_change_deg": -7.746657300784477,
+          "gyro_yaw_change_deg": -19.36813324433281,
+          "heading_error_max_abs_deg": 38.59888457038659,
+          "wz_loop_mean": -0.09263500830271817,
+          "wz_loop_max_abs": 0.33683881167524143,
+          "wz_loop_clipped_pct": 0.0,
+          "wz_sent_mean": 0.0
+        },
+        "knee_lr_corr": 0.0015713944997988439,
+        "knee_swing_rad": {
+          "left": 0.5340298414230347,
+          "right": 0.4957314729690552
+        },
+        "gait_freq_hz": 1.2194833848139044,
+        "hip_yaw_drift_deg": {
+          "left": -2.6772461999341663,
+          "right": 1.1157228557180032
+        },
+        "heading_change_deg": -19.36813324433281,
+        "heading_rate_deg_s": -2.9525232941621278
+      },
+      {
+        "t_start": 18.569935147999786,
+        "duration_s": 4.999288403000719,
+        "heading": {
+          "mode": "dry",
+          "fused_yaw_change_deg": 35.45128933693706,
+          "gyro_yaw_change_deg": 33.96320536089215,
+          "heading_error_max_abs_deg": 38.01035685357773,
+          "wz_loop_mean": 0.03166750501053666,
+          "wz_loop_max_abs": 0.3317029384764618,
+          "wz_loop_clipped_pct": 0.0,
+          "wz_sent_mean": 0.0
+        },
+        "knee_lr_corr": -0.7117041582098543,
+        "knee_swing_rad": {
+          "left": 0.5717657804489136,
+          "right": 0.5751404762268066
+        },
+        "gait_freq_hz": 0.9999763755474016,
+        "hip_yaw_drift_deg": {
+          "left": -2.329589873558684,
+          "right": 3.6669923173354655
+        },
+        "heading_change_deg": 33.96320536089215,
+        "heading_rate_deg_s": 6.793607934382509
+      },
+      {
+        "t_start": 30.75446937200013,
+        "duration_s": 2.242906619000678,
+        "heading": {
+          "mode": "dry",
+          "fused_yaw_change_deg": -4.482689036648225,
+          "gyro_yaw_change_deg": -8.349806378969056,
+          "heading_error_max_abs_deg": 12.962126447703596,
+          "wz_loop_mean": -0.019558696533320763,
+          "wz_loop_max_abs": 0.11311589228613217,
+          "wz_loop_clipped_pct": 0.0,
+          "wz_sent_mean": 0.0
+        },
+        "knee_lr_corr": -0.7068413797770061,
+        "knee_swing_rad": {
+          "left": 0.5606699585914612,
+          "right": 0.638442799448967
+        },
+        "gait_freq_hz": 1.3392540743938413,
+        "hip_yaw_drift_deg": {
+          "left": -1.8491212658242435,
+          "right": -0.007812313454417485
+        },
+        "heading_change_deg": -8.349806378969056,
+        "heading_rate_deg_s": -3.7227614864720913
+      }
+    ],
+    "n_bouts": 3,
+    "walking_s": 13.802052918001209,
+    "command_vx_mean": 0.5862370241055455,
+    "command_wz_max_abs": 0.0,
+    "knee_swing_rad": {
+      "left": 0.552027463874725,
+      "right": 0.5476858229566025
+    },
+    "knee_lr_corr": -0.3719073865076487,
+    "gait_freq_hz": 1.2194833848139044,
+    "hip_yaw_drift_deg": {
+      "left": -2.4167457397407337,
+      "right": 1.8572464120745273
+    },
+    "heading_abs_rate_deg_s": 4.468983371578507,
+    "tilt_p95_deg": 8.257637553982285,
+    "tilt_max_deg": 12.228619124481677,
+    "joint_vel_max_rad_s": 8.779279708862305,
+    "torque_p95_nm": {
+      "left_hip_roll_joint": 5.9350210860371595,
+      "left_hip_yaw_joint": 7.123053297400474,
+      "left_hip_pitch_joint": 17.391382355111283,
+      "left_knee_pitch_joint": 19.1395515203476,
+      "left_ankle_pitch_joint": 7.056092021498882,
+      "left_ankle_roll_joint": 5.358200070261956,
+      "right_hip_roll_joint": 7.140099611878398,
+      "right_hip_yaw_joint": 8.49264479018748,
+      "right_hip_pitch_joint": 12.597323808073998,
+      "right_knee_pitch_joint": 27.74604206979275,
+      "right_ankle_pitch_joint": 8.201798251457515,
+      "right_ankle_roll_joint": 5.4869613446295284
+    },
+    "cap_source": "contract",
+    "saturation_pct": {
+      "left_hip_roll_joint": 0.0,
+      "left_hip_yaw_joint": 0.0,
+      "left_hip_pitch_joint": 15.942028985507244,
+      "left_knee_pitch_joint": 16.231884057971012,
+      "left_ankle_pitch_joint": 5.507246376811594,
+      "left_ankle_roll_joint": 1.1594202898550725,
+      "right_hip_roll_joint": 1.4492753623188406,
+      "right_hip_yaw_joint": 1.1594202898550725,
+      "right_hip_pitch_joint": 6.666666666666667,
+      "right_knee_pitch_joint": 18.84057971014493,
+      "right_ankle_pitch_joint": 7.246376811594203,
+      "right_ankle_roll_joint": 1.1594202898550725
+    },
+    "policy_id": {
+      "policy": "walk_measC-full_2026-09-28",
+      "mean_abs_action_error": 0.0,
+      "exact": true,
+      "all": {
+        "walk": 0.34239619970321655,
+        "walk_backup_2026-07-15_asymmetric-gains": 0.4956800937652588,
+        "walk_backup_2026-08-18_kp45-bench-tuned": 0.34239619970321655,
+        "walk_measA-full_2026-09-25": 0.22182902693748474,
+        "walk_measC-full_2026-09-28": 0.0,
+        "walk_measD-fast_2026-09-28": 0.13771599531173706,
+        "walk_smoothA-full_2026-08-25": 0.14942246675491333,
+        "walk_smoothB-full_2026-08-29": 0.16742545366287231
+      }
+    }
+  }
+}

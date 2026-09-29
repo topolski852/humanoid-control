@@ -20,6 +20,13 @@ Behaviour, per tick (``update``):
   which zero the whole command), and the target re-latches, so a bout starts from wherever the
   robot is facing.
 
+**Low-pass on the error.** Measured 2026-09-29 in dry mode: the torso yaw oscillates at the gait
+frequency, 12-31 deg peak-to-peak per step (gyro-z p95 80-140 deg/s). A raw P-loop turns that into
+a +-0.3 rad/s wz command that flips direction every step, which fights the gait rather than the
+veer and is nothing like the slowly varying commands the policy was trained on. So the error is
+low-passed (first order, ``tau`` = 1.0 s, longer than one ~0.7 s gait cycle) and only the slow
+veer is corrected. The filter restarts from the raw error whenever the target re-latches.
+
 Modes: ``off`` (default: command untouched, nothing computed), ``dry`` (compute and log, send
 the operator's command unchanged: use this for the sign check), ``on`` (apply).
 
@@ -33,6 +40,7 @@ from __future__ import annotations
 
 import math
 import os
+import time
 
 import numpy as np
 
@@ -50,7 +58,8 @@ def wrap_pi(a: float) -> float:
 
 class HeadingHold:
     def __init__(self, mode: str | None = None, k: float | None = None,
-                 wz_max: float | None = None, deadband: float = 0.05):
+                 wz_max: float | None = None, deadband: float = 0.05,
+                 tau: float | None = None):
         self.mode = mode or os.environ.get("HUMANOID_HEADING", "off")
         if self.mode not in MODES:
             raise ValueError(f"heading mode must be one of {MODES}, got {self.mode!r}")
@@ -60,14 +69,18 @@ class HeadingHold:
         self.wz_max = float(wz_max if wz_max is not None else
                             os.environ.get("HUMANOID_HEADING_WZ_MAX", 0.5))
         self.deadband = deadband
+        self.tau = float(tau if tau is not None else os.environ.get("HUMANOID_HEADING_TAU", 1.0))
         self.target: float | None = None
+        self._err_f = 0.0
+        self._t_last: float | None = None
         self.last: dict = {}
 
     def reset(self) -> None:
         """New engage: forget the target; the next tick latches the current heading."""
         self.target = None
+        self._t_last = None
 
-    def update(self, command: np.ndarray, quaternion) -> np.ndarray:
+    def update(self, command: np.ndarray, quaternion, now: float | None = None) -> np.ndarray:
         """Return the command to feed the policy this tick. Never mutates ``command``."""
         cmd = np.asarray(command, dtype=np.float32)
         if self.mode == "off" or quaternion is None:
@@ -76,15 +89,21 @@ class HeadingHold:
         yaw = yaw_from_quat(quaternion)
         walking = abs(float(cmd[0])) > self.deadband or abs(float(cmd[1])) > self.deadband
         op_yaw = abs(float(cmd[2])) > self.deadband
+        now = time.monotonic() if now is None else now
+        dt = 0.0 if self._t_last is None else min(max(now - self._t_last, 0.0), 0.2)
+        self._t_last = now
         if self.target is None or not walking or op_yaw:
             self.target = yaw
+            self._err_f = 0.0
         err = wrap_pi(self.target - yaw)
-        wz_loop = float(np.clip(self.k * err, -self.wz_max, self.wz_max))
+        a = dt / (self.tau + dt) if self.tau > 0 else 1.0
+        self._err_f += a * (err - self._err_f)
+        wz_loop = float(np.clip(self.k * self._err_f, -self.wz_max, self.wz_max))
         active = walking and not op_yaw
         out = cmd.copy()
         if active and self.mode == "on":
             out[2] = wz_loop
         self.last = {"mode": self.mode, "valid": True, "yaw": yaw, "target": self.target,
-                     "heading_error": err, "wz_loop": wz_loop, "active": active,
+                     "heading_error": err, "heading_error_filtered": self._err_f, "wz_loop": wz_loop, "active": active,
                      "wz_sent": float(out[2])}
         return out

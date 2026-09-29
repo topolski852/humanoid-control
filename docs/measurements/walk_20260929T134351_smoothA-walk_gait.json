@@ -1,0 +1,722 @@
+{
+  "_meta": {
+    "capture": "docs/measurements/walk_20260929T134351_smoothA-walk_can.json",
+    "window_s": 1.0
+  },
+  "windows": [
+    {
+      "t_rel": 0.0,
+      "state": "SAG",
+      "corr": 0.9999564853888229,
+      "left_ct": 9359.001905375128,
+      "right_ct": 9400.000234258074,
+      "hz": 1.0
+    },
+    {
+      "t_rel": 1.0,
+      "state": "SAG",
+      "corr": 0.9762245735393875,
+      "left_ct": 1222.0004734140846,
+      "right_ct": 1424.999378264253,
+      "hz": 1.0
+    },
+    {
+      "t_rel": 2.0,
+      "state": "SAG",
+      "corr": 0.7562559062798243,
+      "left_ct": 53.00022800946684,
+      "right_ct": 54.00038627001015,
+      "hz": 1.0
+    },
+    {
+      "t_rel": 3.0,
+      "state": "move",
+      "corr": -0.2642339432696452,
+      "left_ct": 8142.000474735331,
+      "right_ct": 3610.000134608348,
+      "hz": 1.0
+    },
+    {
+      "t_rel": 4.0,
+      "state": "WALK",
+      "corr": -0.406293235660232,
+      "left_ct": 4854.999002429646,
+      "right_ct": 4366.999872220942,
+      "hz": 1.0
+    },
+    {
+      "t_rel": 5.0,
+      "state": "move",
+      "corr": -0.06135619258921443,
+      "left_ct": 7702.000198390569,
+      "right_ct": 5978.999703066334,
+      "hz": 1.0
+    },
+    {
+      "t_rel": 6.0,
+      "state": "WALK",
+      "corr": -0.634066188275309,
+      "left_ct": 7841.00004857934,
+      "right_ct": 8545.000723868085,
+      "hz": 1.0
+    },
+    {
+      "t_rel": 7.0,
+      "state": "WALK",
+      "corr": -0.6906301426730814,
+      "left_ct": 3347.0004767677187,
+      "right_ct": 3371.999770538828,
+      "hz": 2.0
+    },
+    {
+      "t_rel": 8.0,
+      "state": "SAG",
+      "corr": 0.9796312243252361,
+      "left_ct": 531.0012726695934,
+      "right_ct": 616.9997291632792,
+      "hz": 1.0
+    },
+    {
+      "t_rel": 9.0,
+      "state": "SAG",
+      "corr": 0.9957093271222952,
+      "left_ct": 418.9998670873998,
+      "right_ct": 410.99976668867174,
+      "hz": 1.0
+    },
+    {
+      "t_rel": 10.0,
+      "state": "SAG",
+      "corr": 0.9857004748087014,
+      "left_ct": 207.99911331007578,
+      "right_ct": 369.00011385956293,
+      "hz": 1.0
+    },
+    {
+      "t_rel": 11.0,
+      "state": "SAG",
+      "corr": 0.9897777594214984,
+      "left_ct": 1046.0000131704937,
+      "right_ct": 975.9994261030274,
+      "hz": 1.0
+    },
+    {
+      "t_rel": 12.0,
+      "state": "SAG",
+      "corr": 0.999351047690277,
+      "left_ct": 1553.0009846439027,
+      "right_ct": 1486.9998649329914,
+      "hz": 1.0
+    },
+    {
+      "t_rel": 13.0,
+      "state": "SAG",
+      "corr": 0.9939125787667265,
+      "left_ct": 872.9994448657237,
+      "right_ct": 807.0006565260488,
+      "hz": 1.0
+    },
+    {
+      "t_rel": 14.0,
+      "state": "SAG",
+      "corr": 0.927525707210908,
+      "left_ct": 376.00122168336605,
+      "right_ct": 471.00110252194173,
+      "hz": 1.0
+    },
+    {
+      "t_rel": 15.0,
+      "state": "SAG",
+      "corr": 0.9974567017187251,
+      "left_ct": 295.0000594355417,
+      "right_ct": 517.0002227076054,
+      "hz": 1.0
+    },
+    {
+      "t_rel": 16.0,
+      "state": "SAG",
+      "corr": 0.9691351564089196,
+      "left_ct": 395.9997241517588,
+      "right_ct": 250.99892439972788,
+      "hz": 1.0
+    },
+    {
+      "t_rel": 17.0,
+      "state": "SAG",
+      "corr": 0.9898880125232258,
+      "left_ct": 591.0002771316266,
+      "right_ct": 315.0008932751711,
+      "hz": 1.0
+    },
+    {
+      "t_rel": 18.0,
+      "state": "SAG",
+      "corr": 0.5591576465762259,
+      "left_ct": 527.9996322023451,
+      "right_ct": 87.99993870039084,
+      "hz": 1.0
+    },
+    {
+      "t_rel": 19.0,
+      "state": "SAG",
+      "corr": 0.9295804219198013,
+      "left_ct": 286.99995903681355,
+      "right_ct": 408.9994501675851,
+      "hz": 1.0
+    },
+    {
+      "t_rel": 20.0,
+      "state": "SAG",
+      "corr": 0.9787545083195697,
+      "left_ct": 359.9998552002915,
+      "right_ct": 735.0009186231142,
+      "hz": 1.0
+    },
+    {
+      "t_rel": 21.0,
+      "state": "SAG",
+      "corr": 0.3898874594729158,
+      "left_ct": 358.0007043648232,
+      "right_ct": 388.9986163279557,
+      "hz": 1.0
+    },
+    {
+      "t_rel": 22.0,
+      "state": "SAG",
+      "corr": 0.9930809801394657,
+      "left_ct": 206.99895504953247,
+      "right_ct": 853.9999349722559,
+      "hz": 1.0
+    },
+    {
+      "t_rel": 23.0,
+      "state": "SAG",
+      "corr": 0.9918524941858099,
+      "left_ct": 175.99871171516335,
+      "right_ct": 143.99831012025092,
+      "hz": 1.0
+    },
+    {
+      "t_rel": 24.0,
+      "state": "SAG",
+      "corr": 0.9966257465001634,
+      "left_ct": 1062.0013796535684,
+      "right_ct": 1339.9999143454922,
+      "hz": 1.0
+    },
+    {
+      "t_rel": 25.0,
+      "state": "SAG",
+      "corr": 0.9926977136556637,
+      "left_ct": 769.9982979428015,
+      "right_ct": 736.9989037729641,
+      "hz": 1.0
+    },
+    {
+      "t_rel": 26.0,
+      "state": "SAG",
+      "corr": 0.9908942389462357,
+      "left_ct": 825.0000081589734,
+      "right_ct": 866.9996609880822,
+      "hz": 1.0
+    },
+    {
+      "t_rel": 27.0,
+      "state": "SAG",
+      "corr": 0.9995621768988427,
+      "left_ct": 739.9982128689758,
+      "right_ct": 775.9992475060615,
+      "hz": 1.0
+    },
+    {
+      "t_rel": 28.0,
+      "state": "SAG",
+      "corr": 0.9991771511568651,
+      "left_ct": 1244.998867821298,
+      "right_ct": 1192.9999637579929,
+      "hz": 1.0
+    },
+    {
+      "t_rel": 29.0,
+      "state": "SAG",
+      "corr": 0.9563988377694366,
+      "left_ct": 3280.999357056807,
+      "right_ct": 2645.9991105749855,
+      "hz": 1.0
+    },
+    {
+      "t_rel": 30.0,
+      "state": "stand",
+      "corr": 0.0,
+      "left_ct": 0.0,
+      "right_ct": 1.0001582605433073,
+      "hz": null
+    },
+    {
+      "t_rel": 31.0,
+      "state": "stand",
+      "corr": -0.017674908041006795,
+      "left_ct": 1.002489631780005,
+      "right_ct": 1.0001582605433073,
+      "hz": null
+    },
+    {
+      "t_rel": 32.0,
+      "state": "stand",
+      "corr": 0.0,
+      "left_ct": 0.0,
+      "right_ct": 1.0001582605433073,
+      "hz": null
+    },
+    {
+      "t_rel": 33.0,
+      "state": "stand",
+      "corr": 0.0,
+      "left_ct": 0.0,
+      "right_ct": 1.0001582605433073,
+      "hz": null
+    },
+    {
+      "t_rel": 34.0,
+      "state": "stand",
+      "corr": 0.0,
+      "left_ct": 0.0,
+      "right_ct": 2.0003165210866145,
+      "hz": null
+    },
+    {
+      "t_rel": 35.0,
+      "state": "stand",
+      "corr": 0.0,
+      "left_ct": 0.0,
+      "right_ct": 0.0,
+      "hz": null
+    },
+    {
+      "t_rel": 36.0,
+      "state": "stand",
+      "corr": 0.010101010101010032,
+      "left_ct": 1.0001582605433073,
+      "right_ct": 1.0001582605433073,
+      "hz": null
+    },
+    {
+      "t_rel": 37.0,
+      "state": "stand",
+      "corr": 0.0,
+      "left_ct": 0.0,
+      "right_ct": 1.0001582605433073,
+      "hz": null
+    },
+    {
+      "t_rel": 38.0,
+      "state": "stand",
+      "corr": 0.0,
+      "left_ct": 0.0,
+      "right_ct": 0.0,
+      "hz": null
+    },
+    {
+      "t_rel": 39.0,
+      "state": "stand",
+      "corr": 0.0,
+      "left_ct": 1.002489631780005,
+      "right_ct": 0.0,
+      "hz": null
+    },
+    {
+      "t_rel": 40.0,
+      "state": "stand",
+      "corr": 0.0,
+      "left_ct": 0.0,
+      "right_ct": 0.0,
+      "hz": null
+    },
+    {
+      "t_rel": 41.0,
+      "state": "stand",
+      "corr": 0.0,
+      "left_ct": 1.002489631780005,
+      "right_ct": 0.0,
+      "hz": null
+    },
+    {
+      "t_rel": 42.0,
+      "state": "stand",
+      "corr": -0.010101010101010121,
+      "left_ct": 1.002489631780005,
+      "right_ct": 1.0001582605433073,
+      "hz": null
+    },
+    {
+      "t_rel": 43.0,
+      "state": "stand",
+      "corr": -0.014357683075131604,
+      "left_ct": 1.002489631780005,
+      "right_ct": 1.0001582605433073,
+      "hz": null
+    },
+    {
+      "t_rel": 44.0,
+      "state": "stand",
+      "corr": 0.0,
+      "left_ct": 2.002647892323312,
+      "right_ct": 0.0,
+      "hz": null
+    },
+    {
+      "t_rel": 45.0,
+      "state": "stand",
+      "corr": 0.0,
+      "left_ct": 0.0,
+      "right_ct": 1.0001582605433073,
+      "hz": null
+    },
+    {
+      "t_rel": 46.0,
+      "state": "stand",
+      "corr": 0.0,
+      "left_ct": 0.0,
+      "right_ct": 0.0,
+      "hz": null
+    },
+    {
+      "t_rel": 47.0,
+      "state": "stand",
+      "corr": 0.0,
+      "left_ct": 0.0,
+      "right_ct": 1.0001582605433073,
+      "hz": null
+    },
+    {
+      "t_rel": 48.0,
+      "state": "stand",
+      "corr": 0.0,
+      "left_ct": 0.0,
+      "right_ct": 1.0001582605433073,
+      "hz": null
+    },
+    {
+      "t_rel": 49.0,
+      "state": "stand",
+      "corr": 0.0,
+      "left_ct": 0.0,
+      "right_ct": 1.0001582605433073,
+      "hz": null
+    },
+    {
+      "t_rel": 50.0,
+      "state": "stand",
+      "corr": 0.0,
+      "left_ct": 0.0,
+      "right_ct": 0.0,
+      "hz": null
+    },
+    {
+      "t_rel": 51.0,
+      "state": "stand",
+      "corr": 0.0,
+      "left_ct": 0.0,
+      "right_ct": 0.0,
+      "hz": null
+    },
+    {
+      "t_rel": 52.0,
+      "state": "stand",
+      "corr": -0.014357683075131614,
+      "left_ct": 1.002489631780005,
+      "right_ct": 1.0001582605433073,
+      "hz": null
+    },
+    {
+      "t_rel": 53.0,
+      "state": "stand",
+      "corr": 0.0,
+      "left_ct": 0.0,
+      "right_ct": 0.0,
+      "hz": null
+    },
+    {
+      "t_rel": 54.0,
+      "state": "stand",
+      "corr": 0.0,
+      "left_ct": 0.0,
+      "right_ct": 1.0001582605433073,
+      "hz": null
+    },
+    {
+      "t_rel": 55.0,
+      "state": "stand",
+      "corr": 0.0,
+      "left_ct": 1.002489631780005,
+      "right_ct": 0.0,
+      "hz": null
+    },
+    {
+      "t_rel": 56.0,
+      "state": "stand",
+      "corr": 0.0,
+      "left_ct": 0.0,
+      "right_ct": 0.0,
+      "hz": null
+    },
+    {
+      "t_rel": 57.0,
+      "state": "stand",
+      "corr": 0.0,
+      "left_ct": 0.0,
+      "right_ct": 0.0,
+      "hz": null
+    },
+    {
+      "t_rel": 58.0,
+      "state": "stand",
+      "corr": 0.0,
+      "left_ct": 0.0,
+      "right_ct": 1.0001582605433073,
+      "hz": null
+    },
+    {
+      "t_rel": 59.0,
+      "state": "stand",
+      "corr": 0.0,
+      "left_ct": 0.0,
+      "right_ct": 1.0001582605433073,
+      "hz": null
+    },
+    {
+      "t_rel": 60.0,
+      "state": "stand",
+      "corr": 0.0,
+      "left_ct": 0.0,
+      "right_ct": 1.0001582605433073,
+      "hz": null
+    },
+    {
+      "t_rel": 61.0,
+      "state": "stand",
+      "corr": -0.02051524849655555,
+      "left_ct": 1.002489631780005,
+      "right_ct": 1.0001582605433073,
+      "hz": null
+    },
+    {
+      "t_rel": 62.0,
+      "state": "stand",
+      "corr": 0.0,
+      "left_ct": 0.0,
+      "right_ct": 0.0,
+      "hz": null
+    },
+    {
+      "t_rel": 63.0,
+      "state": "stand",
+      "corr": 0.0,
+      "left_ct": 0.0,
+      "right_ct": 1.0001582605433073,
+      "hz": null
+    },
+    {
+      "t_rel": 64.0,
+      "state": "stand",
+      "corr": 0.0,
+      "left_ct": 0.0,
+      "right_ct": 1.0001582605433073,
+      "hz": null
+    },
+    {
+      "t_rel": 65.0,
+      "state": "stand",
+      "corr": 0.0,
+      "left_ct": 0.0,
+      "right_ct": 0.0,
+      "hz": null
+    },
+    {
+      "t_rel": 66.0,
+      "state": "stand",
+      "corr": 0.0,
+      "left_ct": 0.0,
+      "right_ct": 1.0001582605433073,
+      "hz": null
+    },
+    {
+      "t_rel": 67.0,
+      "state": "stand",
+      "corr": -0.010101010101010097,
+      "left_ct": 1.002489631780005,
+      "right_ct": 1.0001582605433073,
+      "hz": null
+    },
+    {
+      "t_rel": 68.0,
+      "state": "stand",
+      "corr": 0.0,
+      "left_ct": 0.0,
+      "right_ct": 1.0001582605433073,
+      "hz": null
+    },
+    {
+      "t_rel": 69.0,
+      "state": "stand",
+      "corr": 0.0,
+      "left_ct": 1.002489631780005,
+      "right_ct": 0.0,
+      "hz": null
+    },
+    {
+      "t_rel": 70.0,
+      "state": "stand",
+      "corr": 0.0,
+      "left_ct": 0.0,
+      "right_ct": 0.0,
+      "hz": null
+    },
+    {
+      "t_rel": 71.0,
+      "state": "stand",
+      "corr": 0.0,
+      "left_ct": 0.0,
+      "right_ct": 1.0001582605433073,
+      "hz": null
+    },
+    {
+      "t_rel": 72.0,
+      "state": "stand",
+      "corr": 0.0,
+      "left_ct": 0.0,
+      "right_ct": 1.0001582605433073,
+      "hz": null
+    },
+    {
+      "t_rel": 73.0,
+      "state": "stand",
+      "corr": 0.0,
+      "left_ct": 1.002489631780005,
+      "right_ct": 0.0,
+      "hz": null
+    },
+    {
+      "t_rel": 74.0,
+      "state": "stand",
+      "corr": 0.014357683075131604,
+      "left_ct": 1.0001582605433073,
+      "right_ct": 1.0001582605433073,
+      "hz": null
+    },
+    {
+      "t_rel": 75.0,
+      "state": "stand",
+      "corr": 0.0,
+      "left_ct": 0.0,
+      "right_ct": 1.0001582605433073,
+      "hz": null
+    },
+    {
+      "t_rel": 76.0,
+      "state": "stand",
+      "corr": -0.014357683075131671,
+      "left_ct": 1.002489631780005,
+      "right_ct": 1.0001582605433073,
+      "hz": null
+    },
+    {
+      "t_rel": 77.0,
+      "state": "stand",
+      "corr": 0.0,
+      "left_ct": 0.0,
+      "right_ct": 1.0001582605433073,
+      "hz": null
+    },
+    {
+      "t_rel": 78.0,
+      "state": "stand",
+      "corr": 0.0,
+      "left_ct": 0.0,
+      "right_ct": 0.0,
+      "hz": null
+    },
+    {
+      "t_rel": 79.0,
+      "state": "stand",
+      "corr": 0.0,
+      "left_ct": 0.0,
+      "right_ct": 1.0001582605433073,
+      "hz": null
+    },
+    {
+      "t_rel": 80.0,
+      "state": "stand",
+      "corr": 0.0,
+      "left_ct": 0.0,
+      "right_ct": 1.0001582605433073,
+      "hz": null
+    },
+    {
+      "t_rel": 81.0,
+      "state": "stand",
+      "corr": -2.895318236660163e-05,
+      "left_ct": 2.002647892323312,
+      "right_ct": 1.0001582605433073,
+      "hz": null
+    },
+    {
+      "t_rel": 82.0,
+      "state": "stand",
+      "corr": 0.0,
+      "left_ct": 1.0001582605433073,
+      "right_ct": 0.0,
+      "hz": null
+    },
+    {
+      "t_rel": 83.0,
+      "state": "stand",
+      "corr": 0.0,
+      "left_ct": 0.0,
+      "right_ct": 1.0001582605433073,
+      "hz": null
+    },
+    {
+      "t_rel": 84.0,
+      "state": "stand",
+      "corr": 0.0,
+      "left_ct": 0.0,
+      "right_ct": 1.0001582605433073,
+      "hz": null
+    },
+    {
+      "t_rel": 85.0,
+      "state": "stand",
+      "corr": 0.0,
+      "left_ct": 0.0,
+      "right_ct": 1.0001582605433073,
+      "hz": null
+    },
+    {
+      "t_rel": 86.0,
+      "state": "stand",
+      "corr": -0.010101010101010123,
+      "left_ct": 1.002489631780005,
+      "right_ct": 1.0001582605433073,
+      "hz": null
+    },
+    {
+      "t_rel": 87.0,
+      "state": "stand",
+      "corr": -0.010101010101010098,
+      "left_ct": 1.002489631780005,
+      "right_ct": 1.0001582605433073,
+      "hz": null
+    },
+    {
+      "t_rel": 88.0,
+      "state": "stand",
+      "corr": -0.010101010101010133,
+      "left_ct": 1.002489631780005,
+      "right_ct": 1.0001582605433073,
+      "hz": null
+    }
+  ],
+  "walk_windows": 3,
+  "sag_windows": 25
+}

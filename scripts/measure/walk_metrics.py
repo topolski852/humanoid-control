@@ -58,6 +58,7 @@ def load(path):
     tgt = np.array([r["targets"] for r in rows], dtype=float)
     gz = np.array([(r.get("base_ang_vel") or [0, 0, 0])[2] for r in rows], dtype=float)
     g = np.array([r.get("projected_gravity") or [0, 0, -1] for r in rows], dtype=float)
+    load.heading = [r.get("heading") for r in rows]          # None on logs before the loop existed
     return order, t, cmd, q, v, tgt, gz, g
 
 
@@ -115,7 +116,21 @@ def metrics(path, policy=None):
         h = max(1, n1s // 2)
         drift = {s: float(np.degrees(q[b - h + 1:b + 1, J[f"{s}_hip_yaw_joint"]].mean() -
                                      q[a:a + h, J[f"{s}_hip_yaw_joint"]].mean())) for s in ("left", "right")}
-        return {"t_start": float(t[a]), "duration_s": float(t[b] - t[a] + dt),
+        hd = [load.heading[i] for i in range(a, b + 1)]
+        heading = None
+        if all(h and h.get("yaw") is not None for h in hd):
+            yaw = np.degrees(np.unwrap([h["yaw"] for h in hd]))
+            wzl = np.array([h["wz_loop"] for h in hd]); sent = np.array([h["wz_sent"] for h in hd])
+            err = np.degrees([h["heading_error"] for h in hd])
+            heading = {"mode": hd[-1]["mode"],
+                       "fused_yaw_change_deg": float(yaw[-1] - yaw[0]),
+                       "gyro_yaw_change_deg": float(np.degrees(np.sum(gz[sl]) * dt)),
+                       "heading_error_max_abs_deg": float(np.abs(err).max()),
+                       "wz_loop_mean": float(wzl.mean()), "wz_loop_max_abs": float(np.abs(wzl).max()),
+                       "wz_loop_clipped_pct": float((np.abs(wzl) >= hd[-1].get("wz_max", 0.5) * 0.999).mean() * 100)
+                       if "wz_max" in hd[-1] else float((np.abs(wzl) >= 0.4995).mean() * 100),
+                       "wz_sent_mean": float(sent.mean())}
+        return {"t_start": float(t[a]), "duration_s": float(t[b] - t[a] + dt), "heading": heading,
                 "knee_lr_corr": float(np.corrcoef(L, R)[0, 1]),
                 "knee_swing_rad": {"left": float(np.median(pp(kl))) if pp(kl) else None,
                                    "right": float(np.median(pp(kr))) if pp(kr) else None},
@@ -164,6 +179,12 @@ def show(m, label=""):
               f"{ks['left'] or 0:.2f}/{ks['right'] or 0:.2f}  {gf}  hip_yaw {hy['left']:+.1f}/"
               f"{hy['right']:+.1f}°  heading {p['heading_change_deg']:+6.1f}° "
               f"({p['heading_rate_deg_s']:+.1f}°/s)")
+        h = p.get("heading")
+        if h:
+            print(f"           loop[{h['mode']}] fused yaw {h['fused_yaw_change_deg']:+6.1f}° vs gyro "
+                  f"{h['gyro_yaw_change_deg']:+6.1f}°  |err| max {h['heading_error_max_abs_deg']:5.1f}°  "
+                  f"wz_loop mean {h['wz_loop_mean']:+.3f} max {h['wz_loop_max_abs']:.3f} "
+                  f"(clipped {h['wz_loop_clipped_pct']:.0f}%)  sent {h['wz_sent_mean']:+.3f}")
     ks = m["knee_swing_rad"]; hy = m["hip_yaw_drift_deg"]
     print(f"  POOLED  knee corr {m['knee_lr_corr']:+.3f}  swing {ks['left']:.3f}/{ks['right']:.3f} rad  "
           f"gait {m['gait_freq_hz'] or float('nan'):.2f} Hz  |heading rate| {m['heading_abs_rate_deg_s']:.1f}°/s")
