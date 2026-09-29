@@ -123,3 +123,31 @@ stall detector can't distinguish from buckling.
   and back to back, where feet don't slide out and the 17% baseline exists.
 - **Suggestion for both sides:** rubber or TPU sole pads would remove PLA slip from every future
   test, on any floor.
+
+## Test 1b on the rug (15:53): the robot walked much worse than in the morning. Suspect battery sag.
+
+measC-full, knee cap 12, 3 bouts, **23.2 s**, same rug as the morning. Clean: no faults, network
+verified.
+
+| measC-full on rug | morning (4 sessions) | **15:53** |
+|---|---|---|
+| stall fraction | 17% | **54%** |
+| knee L/R corr | −0.35 … −0.45 | **+0.03** |
+| tilt p95 | 8–12° | **19.4°** (max 25°) |
+| hip_pitch sat L / R | 15–23% | **30 / 43%** |
+| torso heading rate | 5.7–10.8 °/s | 2.4 °/s |
+
+- **The standing pose is unchanged.** Every joint is within ~2–3° of the morning stand, standing
+  tilt is 0–1°, and holding errors are the same. So this is not calibration or a mechanical shift.
+  The robot stands the same and walks worse.
+- **Bus voltage right after the run, at rest, read passively from the ESCs' slow-poll replies: 19.5–19.8 V on all 12.**
+  - If the pack is a 6S LiPo, that is ~3.27 V per cell, nearly empty, and it sags further under
+    walking load.
+  - Voltage headroom caps deliverable torque at speed. That would starve exactly the saturating
+    sagittal joints, and explain a walk that degrades across the day while the stand doesn't.
+  - **ESC `undervoltage_threshold` is 0 (disabled)**, so nothing protects against brownouts.
+    Whether sag contributes to the node-8 encoder faults is worth checking.
+- **Test 2 (knee cap 18) is on hold** until the robot runs from a known-full supply. Otherwise the
+  cap comparison is confounded, and a higher cap draws more current from a sagging pack.
+- The morning-vs-afternoon comparisons in this report may be partly battery state. The morning
+  rug numbers (17%) are the best-supplied data.
