@@ -81,3 +81,19 @@ What a stall looks like, consistently:
   `run_1790707044544619019_6844.jsonl`
 - **smoothA-full:** `run_1790703826926256452_2328.jsonl`, `run_1790704208451381629_2328.jsonl`
 - All six are on the robot PC (not in git). Per-stall and per-step records are in the JSON.
+
+## D. Floor friction (preliminary, one trial)
+
+**Walk surface:** rug over concrete (the parents' basement), with a **PLA foot sole**.
+**Tilt test:** the foot slid at **30°** (853 g on the foot), so **μ_static ≈ tan 30° = 0.58**.
+The tilt test is independent of the load.
+
+- 0.58 is **inside** the training range (μ 0.4–1.2) and about twice the μ 0.3 that reproduced the
+  torso twist in the plant-ID eval. **Low static friction alone does not explain the twist.**
+- **Remaining candidates:**
+  - **Kinetic friction.** It can be well below static once the foot slides, which is the case
+    the μ 0.3 eval represents. Pending: the lowest angle at which the foot keeps sliding.
+  - **Rug compliance.** The foot sinks into and pivots on the pile. Sim's rigid ground has no
+    equivalent; this is a contact model, not a μ.
+- Two more repeats and a kinetic angle are pending. The next test location will have hard
+  flooring; measure it there too, and keep each comparison on one surface.
