@@ -27,6 +27,7 @@ class BaseState:
     projected_gravity: np.ndarray   # (3,) gravity unit vector in base frame
     base_ang_vel: np.ndarray        # (3,) rad/s, base frame
     valid: bool = True              # False if no fresh IMU data (stub is always True)
+    quaternion: np.ndarray | None = None   # (4,) [w, x, y, z] when the IMU provides it (heading)
 
 
 def quat_rotate_inverse(q: np.ndarray, v: np.ndarray) -> np.ndarray:
@@ -94,4 +95,6 @@ class TelemetryBaseState(BaseStateSource):
             pg = np.array(base["projected_gravity"], dtype=np.float32)
         else:
             pg = quat_rotate_inverse(base["quaternion"], self._GRAVITY_WORLD)
-        return BaseState(projected_gravity=pg, base_ang_vel=ang_vel, valid=True)
+        q = base.get("quaternion")
+        return BaseState(projected_gravity=pg, base_ang_vel=ang_vel, valid=True,
+                         quaternion=np.asarray(q, dtype=np.float32) if q is not None else None)

@@ -299,6 +299,19 @@ def disarm(request: Request):
 # The gamepad drives these live (A=arm, triggers=run-gate, sticks=command); these routes let
 # the web UI pick the session (e.g. the walk checkpoint) and arm/disarm without the controller.
 
+class HeadingBody(BaseModel):
+    mode: str                          # "off" | "dry" | "on"
+
+
+@router.post("/api/heading", response_model=None)
+def heading_mode(request: Request, body: HeadingBody):
+    try:
+        _service(request).set_heading_mode(body.mode)
+    except ControlError as exc:
+        return _err(str(exc), exc.status)
+    return _ok(_service(request).telemetry_snapshot())
+
+
 @router.post("/api/deadman/select", response_model=None)
 def deadman_select(request: Request, body: SelectBody):
     try:

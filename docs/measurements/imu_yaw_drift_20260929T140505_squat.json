@@ -1,0 +1,58 @@
+{
+  "_meta": {
+    "capture_id": "rest_20260929T140505",
+    "activity": "rest",
+    "date": "2026-09-29",
+    "started_epoch": 1790705105.1698895,
+    "host": "nse-MINI-S",
+    "daemon": {
+      "running": true,
+      "pid": 1210,
+      "cmdline": "/home/nse/humanoid-control/daemon/build/humanoid_daemon --config /home/nse/humanoid-studio/configs/humanoid_lite.json --imu-device /dev/humanoid_imu",
+      "started_epoch": 1790701147.4869998,
+      "uptime_s": 3957.694856405258,
+      "config_path": "/home/nse/humanoid-studio/configs/humanoid_lite.json",
+      "config_mtime_epoch": 1790352672.074246,
+      "config_newer_than_daemon": false
+    },
+    "cpu_temp_start_c": 63.0,
+    "throttle_start": {
+      "core_throttle_count": 0,
+      "package_throttle_count": 0
+    },
+    "encoder_quantum_rad": 0.00010226538585904274,
+    "measurement": "imu_yaw_drift",
+    "label": "squat",
+    "seconds": 300.0,
+    "ended_epoch": 1790705105.1832633,
+    "duration_s": 0.013373851776123047,
+    "cpu_temp_end_c": 63.0,
+    "throttle_end": {
+      "core_throttle_count": 0,
+      "package_throttle_count": 0
+    }
+  },
+  "result": {
+    "samples": 6001,
+    "span_s": 300.0035090446472,
+    "rate_hz": 20.003099360770868,
+    "fused_yaw": {
+      "total_change_deg": 0.0008112059293391033,
+      "drift_deg_per_min": -0.00014007294220804513,
+      "residual_std_deg": 0.0014002318214583226,
+      "peak_to_peak_deg": 0.005909954649651408
+    },
+    "gyro_z": {
+      "bias_deg_s": 0.0,
+      "std_deg_s": 0.0,
+      "integrated_change_deg": 0.0
+    },
+    "stillness": {
+      "max_joint_ptp_deg": 0.01172060461574188,
+      "tilt_ptp_deg": 0.013215385745091623,
+      "states": [
+        "CONNECTED"
+      ]
+    }
+  }
+}

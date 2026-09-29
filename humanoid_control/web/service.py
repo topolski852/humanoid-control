@@ -35,6 +35,7 @@ from ..interface import (JointFaultError, JointGroupInterface, JointOfflineError
 from ..layout import RobotLayout
 from ..policy import ZeroPolicy, load_policy
 from ..runner import PolicyRunner
+from ..heading import HeadingHold, MODES as HEADING_MODES
 from ..safety import EstopController, ramp_to_pose
 from ..base_state import TelemetryBaseState
 from ..daemon import DaemonClient
@@ -179,6 +180,9 @@ class ControlService:
         self._warm_arm_chains()
         self._command_lock = threading.Lock()
         self._command = np.zeros(3, dtype=np.float32)
+        # One heading loop shared by every leg-policy runner, so its mode survives across
+        # sessions and /api/heading can switch it. Default "off" (HUMANOID_HEADING overrides).
+        self._heading = HeadingHold()
         self._arm_command = np.zeros(4, dtype=np.float32)   # raw sticks: lx, ly, ry, rx
         # 6-DOF-tracker command per arm: {limb: (displacement-since-clutch m, seq)}.
         self._arm_pose_commands: dict[str, tuple[np.ndarray, int]] = {}
@@ -415,6 +419,8 @@ class ControlService:
             "control_clients": self._control_clients,
             "last_error": self._last_error,
             "all_calibrated": self.all_calibrated(),
+            "heading": {"k": self._heading.k, "wz_max": self._heading.wz_max,
+                        **self._heading.last, "mode": self._heading.mode},
             "quest": self._xr_status(),
             "gamepad": {**self._gamepad, "run_gate": self.any_run_gate(),
                         "input": self._gamepad_input},
@@ -1322,6 +1328,7 @@ class ControlService:
                 self.client, self.contract, policy,
                 base_source=TelemetryBaseState(lambda: {"base": self.client.latest_base()}),
                 command=command, estop=self.estop, ramp_seconds=ramp,
+                heading=self._heading,
             )
             t = threading.Thread(
                 target=self._session_worker, args=(runner, seconds, kind, checkpoint),
@@ -1400,6 +1407,21 @@ class ControlService:
     def available_sessions(self) -> list[str]:
         """Session kinds this layout can actually run, for the UI to offer."""
         return [k for k, cap in self.SESSION_CAPABILITY.items() if self._layout.can(cap)]
+
+    def set_heading_mode(self, mode: str) -> None:
+        """Heading loop mode: off | dry | on (humanoid_control/heading.py).
+
+        Refused while a motion session is live: turning the loop on mid-walk would step the yaw
+        command. Switch it between bouts, with the trigger released or the session disarmed.
+        """
+        if mode not in HEADING_MODES:
+            raise ControlError(f"heading mode must be one of {', '.join(HEADING_MODES)}.", 400)
+        if self._state in _MOTION_STATES:
+            raise ControlError("Release the trigger before changing the heading mode.", 409)
+        self._heading.mode = mode
+        self._heading.reset()
+        _log.info("heading loop mode -> %s (K=%.2f, wz_max=%.2f)",
+                  mode, self._heading.k, self._heading.wz_max)
 
     def select_session(self, kind: str, checkpoint: str | None = None,
                        limb: str | None = None) -> None:
@@ -1905,6 +1927,7 @@ class ControlService:
                 self.client, self.contract, policy,
                 base_source=TelemetryBaseState(lambda: {"base": self.client.latest_base()}),
                 command=self._command.copy(), estop=self.estop, ramp_seconds=ramp,
+                heading=self._heading,
             )
             self._armed = True
             self._stop_evt.clear()

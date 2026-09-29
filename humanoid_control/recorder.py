@@ -53,7 +53,8 @@ class StepRecorder:
             "policy_hz": policy_hz,
         }}) + "\n")
 
-    def record(self, *, base, joint_pos, joint_vel, obs, action, targets, command) -> None:
+    def record(self, *, base, joint_pos, joint_vel, obs, action, targets, command,
+               operator_command=None, heading=None) -> None:
         """Called inside the control loop — non-blocking; drops the frame if the queue is full."""
         rec = {
             "t": time.monotonic() - self._t0,
@@ -65,8 +66,15 @@ class StepRecorder:
             "obs": _l(obs),
             "action": _l(action),
             "targets": _l(targets),
-            "command": _l(command),
+            "command": _l(command),                   # what the policy saw
         }
+        if getattr(base, "quaternion", None) is not None:
+            rec["quaternion"] = _l(base.quaternion)
+        if operator_command is not None:
+            rec["operator_command"] = _l(operator_command)   # before the heading loop
+        if heading:
+            rec["heading"] = {k: (float(v) if isinstance(v, (int, float)) and not isinstance(v, bool)
+                                  else v) for k, v in heading.items()}
         try:
             self._q.put_nowait(rec)
         except queue.Full:

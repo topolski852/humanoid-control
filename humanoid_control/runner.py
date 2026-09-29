@@ -20,6 +20,7 @@ from .action import ActionMapper
 from .base_state import BaseStateSource, UprightStubBaseState
 from .config import LegPolicyContract
 from .daemon import DaemonClient
+from .heading import HeadingHold
 from .interface import LegInterface
 from .observation import ObservationBuilder
 from .policy import Policy
@@ -38,6 +39,7 @@ class PolicyRunner:
         estop: EstopController | None = None,
         ramp_seconds: float = 4.0,
         require_valid_base: bool = False,
+        heading: HeadingHold | None = None,
     ):
         self.client = client
         self.contract = contract
@@ -50,6 +52,9 @@ class PolicyRunner:
         self.estop = estop or EstopController(client)
         self.ramp_seconds = ramp_seconds
         self.require_valid_base = require_valid_base
+        # Heading loop (humanoid_control/heading.py). Default mode comes from HUMANOID_HEADING
+        # and is "off", so the command reaches the policy untouched unless explicitly enabled.
+        self.heading = heading or HeadingHold()
         self._warned_invalid_base = False
         # Opt-in per-tick recorder (env HUMANOID_RECORD_DIR); None => zero overhead.
         self._recorder = None
@@ -92,6 +97,7 @@ class PolicyRunner:
             should_abort=abort,
         )
         self.action_mapper.reset()
+        self.heading.reset()
         if ok:
             print("[runner] ramped to default_pose; holding.", file=sys.stderr)
         return ok
@@ -107,9 +113,10 @@ class PolicyRunner:
             self._warned_invalid_base = True
 
         joint_pos, joint_vel = self.legs.read_states()
+        command = self.heading.update(self.command, base.quaternion if base.valid else None)
         obs = self.obs_builder.build(
             joint_pos=joint_pos, joint_vel=joint_vel, base_state=base,
-            command=self.command, prev_action=self.action_mapper.prev_action,
+            command=command, prev_action=self.action_mapper.prev_action,
         )
         action = self.policy.forward(obs)
         targets = self.action_mapper.map(action)   # clipped, scaled, clamped to limits
@@ -117,7 +124,8 @@ class PolicyRunner:
         if self._recorder is not None:
             self._recorder.record(
                 base=base, joint_pos=joint_pos, joint_vel=joint_vel,
-                obs=obs, action=action, targets=targets, command=self.command,
+                obs=obs, action=action, targets=targets, command=command,
+                operator_command=self.command, heading=self.heading.last,
             )
 
     async def run(self, max_seconds: float | None = None) -> None:
