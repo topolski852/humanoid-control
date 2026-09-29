@@ -124,7 +124,7 @@ stall detector can't distinguish from buckling.
 - **Suggestion for both sides:** rubber or TPU sole pads would remove PLA slip from every future
   test, on any floor.
 
-## Test 1b on the rug (15:53): the robot walked much worse than in the morning. Suspect battery sag.
+## Test 1b on the rug (15:53): the robot walked much worse than in the morning; the decline is gradual
 
 measC-full, knee cap 12, 3 bouts, **23.2 s**, same rug as the morning. Clean: no faults, network
 verified.
@@ -140,14 +140,22 @@ verified.
 - **The standing pose is unchanged.** Every joint is within ~2–3° of the morning stand, standing
   tilt is 0–1°, and holding errors are the same. So this is not calibration or a mechanical shift.
   The robot stands the same and walks worse.
-- **Bus voltage right after the run, at rest, read passively from the ESCs' slow-poll replies: 19.5–19.8 V on all 12.**
-  - If the pack is a 6S LiPo, that is ~3.27 V per cell, nearly empty, and it sags further under
-    walking load.
-  - Voltage headroom caps deliverable torque at speed. That would starve exactly the saturating
-    sagittal joints, and explain a walk that degrades across the day while the stand doesn't.
-  - **ESC `undervoltage_threshold` is 0 (disabled)**, so nothing protects against brownouts.
-    Whether sag contributes to the node-8 encoder faults is worth checking.
-- **Test 2 (knee cap 18) is on hold** until the robot runs from a known-full supply. Otherwise the
-  cap comparison is confounded, and a higher cap draws more current from a sagging pack.
+- **CORRECTION: the robot runs from a bench power supply, not a battery.** It has for every test
+  (operator, 2026-09-29), so the battery-sag hypothesis in the first version of this section is
+  withdrawn. The 19.5–19.8 V at rest is the supply's output.
+- **The decline is gradual across the afternoon, on the same supply.** measC rug stall fraction per
+  session: 13:41–13:47 ~12–41% (pooled ~25%) → 14:12 49/0/0% → 14:37 50/29/36/0/51% →
+  **15:53 54%**, while right-knee faults grew over the same hours.
+- **Candidates:**
+  - motor or driver **heat**. The ESCs expose no temperature, only an over-temp error flag, which
+    never fired.
+  - **mechanical** loosening after repeated E-stops, slips and falls.
+  - the supply's **current limit**. If walking peaks exceed it, the supply drops into
+    current-limit mode and the bus sags *only during steps*, which a reading at rest can't show.
+- **Next:** walk with the bus voltage and motor current logged passively (ESC slow-poll replies,
+  ~3 Hz per node). Then a cool-down of 20–30 min and the same walk again. A drop in stalls after
+  cooling points at heat.
+- **Test 2 (knee cap 18) stays on hold** until the decline is explained: a cap comparison on a
+  drifting robot is not interpretable.
 - The morning-vs-afternoon comparisons in this report may be partly battery state. The morning
   rug numbers (17%) are the best-supplied data.
