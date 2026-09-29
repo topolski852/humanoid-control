@@ -24,9 +24,10 @@
       "REPORT_2026-09-28_M7.md",
       "REPORT_2026-09-29_AB_measD_vs_measC.md",
       "REPORT_2026-09-29_walk_measC_vs_smoothA.md",
-      "REPORT_2026-09-29_heading.md"
+      "REPORT_2026-09-29_heading.md",
+      "REPORT_2026-09-29_contact_B_C.md"
     ],
-    "READ_FIRST": "CORRECTION 2026-09-29: the 09-28 'measC walk' ran the August policies/walk bundle, NOT measC-full (verified by replaying the tick log through every ONNX). measC-full has never been walked on hardware. Every *measC* WALK number below (circle, shuffle, knee swing, hip_yaw drift, ankle saturation, gait frequency, knee corr) belongs to that August bundle. measC's STAND numbers are verified. SPLIT VERDICT 2026-09-28. measC has the BEST STAND ever measured (tilt rate 0.04 deg/s untouched, 10x smoothA) and a WORSE WALK than smoothA: it shuffles (knee swing 0.17-0.24 rad vs sim 0.849) and walks in a CIRCLE (both hip_yaw drift 14-22 deg over 12 s against a zero yaw command, never recovering). The two objectives may be in tension -- a policy trained to hold position very tightly may be learning not to move. Also: the knee torque penalty MOVED load to the ankles rather than removing it (left_ankle_pitch now 3.9x its cap and above the motor ceiling). See REPORT_2026-09-28_measC_walk.md. M7 RESULT 2026-09-28: the joints are NOT soft -- every leg servo delivers kp=45 (medians 44.8-45.2 on all 10 joints), Kt*gear and URDF masses verified against gravity. Do NOT lower kp or rescale effort limits in sim. The reconstructed hardware torque (kp*err) equals ESC-commanded torque, so the 3-5x saturation gap is real demand; its cause is dynamic (filter/armature/damping) and not yet measured. See REPORT_2026-09-28_M7.md. A/B 2026-09-29 (same calibration, back to back): measD and measC-full are indistinguishable standers untouched (tilt rate 0.06 vs 0.04 deg/s, both at the IMU floor) and on push recovery; measD is worse on the stand-up ramp (5 vs 1 excursions >8 deg), matching sim's ranking. measD stands ~11 deg straighter-kneed with ~15% less holding torque. Use measC-full for the next hardware tests. See REPORT_2026-09-29_AB_measD_vs_measC.md. WALK 2026-09-29 (first real measC-full walk, verified network, trigger-held bouts only): measC-full steps (knee swing 0.61/0.65 rad, gait 1.41 Hz, knee corr -0.41) and beats smoothA (corr -0.04, 1.11 Hz, ~30% more saturation). Neither circles: both veer 6-11 deg/s with direction changing per bout, hip_yaw steady. Still far from sim knee corr (-0.84..-0.92); hips/knees saturate 11-25% on measC. See REPORT_2026-09-29_walk_measC_vs_smoothA.md. HEADING 2026-09-29: the torso yaw OSCILLATES at the gait frequency, 12-31 deg peak-to-peak per step, |ang_vel_z| p95 ~1.4-2.5 rad/s on hardware (both policies). Check sim's walking yaw-rate distribution against this. IMU heading is sound (CCW-positive, drift <=1 deg/min). See REPORT_2026-09-29_heading.md."
+    "READ_FIRST": "CORRECTION 2026-09-29: the 09-28 'measC walk' ran the August policies/walk bundle, NOT measC-full (verified by replaying the tick log through every ONNX). measC-full has never been walked on hardware. Every *measC* WALK number below (circle, shuffle, knee swing, hip_yaw drift, ankle saturation, gait frequency, knee corr) belongs to that August bundle. measC's STAND numbers are verified. SPLIT VERDICT 2026-09-28. measC has the BEST STAND ever measured (tilt rate 0.04 deg/s untouched, 10x smoothA) and a WORSE WALK than smoothA: it shuffles (knee swing 0.17-0.24 rad vs sim 0.849) and walks in a CIRCLE (both hip_yaw drift 14-22 deg over 12 s against a zero yaw command, never recovering). The two objectives may be in tension -- a policy trained to hold position very tightly may be learning not to move. Also: the knee torque penalty MOVED load to the ankles rather than removing it (left_ankle_pitch now 3.9x its cap and above the motor ceiling). See REPORT_2026-09-28_measC_walk.md. M7 RESULT 2026-09-28: the joints are NOT soft -- every leg servo delivers kp=45 (medians 44.8-45.2 on all 10 joints), Kt*gear and URDF masses verified against gravity. Do NOT lower kp or rescale effort limits in sim. The reconstructed hardware torque (kp*err) equals ESC-commanded torque, so the 3-5x saturation gap is real demand; its cause is dynamic (filter/armature/damping) and not yet measured. See REPORT_2026-09-28_M7.md. A/B 2026-09-29 (same calibration, back to back): measD and measC-full are indistinguishable standers untouched (tilt rate 0.06 vs 0.04 deg/s, both at the IMU floor) and on push recovery; measD is worse on the stand-up ramp (5 vs 1 excursions >8 deg), matching sim's ranking. measD stands ~11 deg straighter-kneed with ~15% less holding torque. Use measC-full for the next hardware tests. See REPORT_2026-09-29_AB_measD_vs_measC.md. WALK 2026-09-29 (first real measC-full walk, verified network, trigger-held bouts only): measC-full steps (knee swing 0.61/0.65 rad, gait 1.41 Hz, knee corr -0.41) and beats smoothA (corr -0.04, 1.11 Hz, ~30% more saturation). Neither circles: both veer 6-11 deg/s with direction changing per bout, hip_yaw steady. Still far from sim knee corr (-0.84..-0.92); hips/knees saturate 11-25% on measC. See REPORT_2026-09-29_walk_measC_vs_smoothA.md. HEADING 2026-09-29: the torso yaw OSCILLATES at the gait frequency, 12-31 deg peak-to-peak per step, |ang_vel_z| p95 ~1.4-2.5 rad/s on hardware (both policies). Check sim's walking yaw-rate distribution against this. IMU heading is sound (CCW-positive, drift <=1 deg/min). See REPORT_2026-09-29_heading.md. CONTACT B/C 2026-09-29: 'stuck then breaks free' = stance KNEE BUCKLING at its 12 N\u00b7m cap (error -0.31..-0.53 rad, both feet down, torso +3-7 deg pitch), NOT swing-foot scuffing. measC stalls 17% of walking, smoothA 36%. Swing clearance (brief proxy) measC median 32 mm / p10 14 mm -- compute the same in sim at vx 0.6."
   },
   "observation_model": {
     "joint_pos_noise": {
@@ -670,6 +671,25 @@
       },
       "frequency": "equals the knee gait frequency in 9 of 11 bouts",
       "guidance": "compare against sim base yaw rate while walking; a large gap points at foot contact/friction or hip_yaw compliance, and means the ang_vel_z observation on hardware is far outside what the policy trained on"
+    },
+    "swing_clearance_mm_brief_proxy": {
+      "measC_20260929": {
+        "median": 32.2,
+        "p10": 13.7,
+        "n_steps": 80
+      },
+      "smoothA_20260929": {
+        "median": 38.7,
+        "p10": 16.1,
+        "n_steps": 31
+      },
+      "definition": "d=z_L-z_R of ankle_roll origins (FK, world up=-projected_gravity); split at sign changes; per-step max|d|; drop half-steps <0.15 s and bout-edge segments"
+    },
+    "stall_fraction_of_walking": {
+      "measC_20260929": 0.17,
+      "smoothA_20260929": 0.36,
+      "definition": "same hip_pitch/knee_pitch joint >=0.98*cap for >=0.3 s, or both knees <0.5 rad/s for >=0.3 s (never fired)",
+      "signature": "knee at cap, error -0.31..-0.53 rad (buckled under load), both feet down, torso +3-7 deg pitch"
     }
   },
   "standing_constraint": {
