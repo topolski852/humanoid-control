@@ -1,5 +1,9 @@
 # Hardware Plan — 2026-09-28
 
+> **The current work queue is [ROBOT_PC_BRIEF_2026-09-29.md](ROBOT_PC_BRIEF_2026-09-29.md)** — start
+> there. It orders the open items and specs the two tools that don't exist yet (step response,
+> heading loop). This document remains the background for §2 (heading) and §3 (right leg).
+
 Robot-side work following the measC-full session. **Training is paused until item 1 returns.**
 
 > **Update 2026-09-28, evening: M7's stiffness test has returned, and the hypothesis is refuted.**
