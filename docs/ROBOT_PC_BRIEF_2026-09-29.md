@@ -75,6 +75,49 @@ evals ran at 0.3). Hardware numbers are pooled from the two clean walk captures.
   - **Sim swing clearance (item C's reference):** median 5.3 cm, p10 4.4 cm. Hardware p10 near
     0–1 cm would confirm scuffing.
 
+### NEXT HARDWARE SESSION (added after items B–D) — two no-retrain tests on the hard floor
+
+B found that the stalls are **stance-knee torque starvation**. A knee sits pinned at its 12 N·m
+cap while bent 0.31–0.53 rad further than commanded, both feet are down, and the torso is pitched
+forward 3–7°. That takes 17% of measC-full's walking time and 36% of smoothA's. Sim reproduces
+almost none of it: **0.01%** stall fraction, using the identical definition. D found the walks
+were on **a rug over concrete, with PLA soles** (μ_static ≈ 0.58). The next location has hard
+flooring. Two tests separate the causes without training anything:
+
+**Test 1 — measC-full on the hard floor, knee cap 12 N·m (as flashed now).**
+* Same stand + walk protocol as 09-29: full stick (vx ≈ 0.6), supported the same way.
+* Score with `gait_contact.py` (stall fraction, clearance) and `walk_metrics.py` (knee
+  correlation, cadence, torso yaw rate).
+* **If the stall fraction falls well below 17%, the rug was a large part of the buckling.** It
+  would also mean the next training target is a floor-agnostic policy, not a rug model. If it
+  stays near 17%, the cause is on the robot.
+* Also finish D on this floor: static and kinetic μ, and name the surface.
+
+**Test 2 — the same, with the knee cap raised to 18 N·m. Same floor, same calibration, same day
+as Test 1.**
+* Change `torque_limit` on **left_knee_pitch and right_knee_pitch only**, 12.0 → 18.0, in the
+  studio config and apply with `apply_all_configs`. `write_policy_gains.py` preserves
+  `torque_limit`, so it won't work. `current_limit` is already 20 A, so the ceiling is 26.9 N·m
+  and 18 is 67% of it.
+* **Why this is valid without retraining:** in sim, measC-full's knee hits its 12 N·m cap only
+  0.01% of the time, so the policy never learned to depend on that ceiling. Raising it on
+  hardware makes the robot *more* like the sim it trained in.
+* `test_policy_compat` only compares kp, kd, stand pose and observation count, not torque
+  limits, so the bundle stays selectable.
+* **If the stall fraction drops,** torque starvation is confirmed as the mechanism and a hardware
+  mitigation exists. The training side would then decide whether to move knees (or all M6C12) to
+  18 in `_MOTOR_SPECS` so sim and hardware match again.
+* Watch: this is more authority at the knee. Keep the velocity hinge's 8 rad/s in mind, keep the
+  heading loop **off**, and run it only after the right knee is repaired.
+* **Restore 12.0 afterwards** unless the training side has moved the contract to 18. A cap that
+  differs from `_CONTRACT_EFFORT` must not be left in place silently.
+
+**Test 3 (optional) — measE on the hard floor at cap 12.** measE is measC-full fine-tuned on floor
+friction 0.25–1.2 plus the M7 ankle friction. The training PC stages it overnight as
+`policies/walk_measE-full-ft_<date>/`, and its `NOTE.md` carries the sim comparison.
+
+Order: Test 1 → Test 2 → Test 1 again if the knee-cap change looks large, to check nothing drifted.
+
 ### Corrections to the session's own record
 
 * **The right knee has faulted at least six times, not five.**
