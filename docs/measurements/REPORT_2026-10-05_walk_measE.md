@@ -47,3 +47,9 @@ ankle friction), on the battery and on the rug, same protocol as the measC batte
 
 Data: `measE-walk-20261005_walk.json`, `power_log_*_measE-walk2.json`,
 `walk_*_measE-walk2_{can,M2M3M6}.json`; tick log `recordings/run_1791239581891331095_6709.jsonl`.
+
+## Operator verdict (2026-10-05)
+
+"measE is walking weird and moving more drastic than measC." **measE testing is stopped. measC-full
+remains the best bundle** and the base for the next round. The numbers agree: measE has more
+twist, more veer, more knee saturation and slower cadence for its bigger steps.
