@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Log ESC bus voltage and q-axis current per joint, passively, during a session.
+"""Log ESC bus voltage, q-axis current and DELIVERED torque per joint, passively, during a session.
 
     python scripts/measure/power_log.py --seconds 90 --label rug-walk
 
@@ -53,7 +53,7 @@ def main() -> int:
     chans = C.leg_channels()
     proc = subprocess.Popen(["candump", "-t", "a"] + chans, stdout=subprocess.PIPE,
                             stderr=subprocess.DEVNULL, text=True, bufsize=1)
-    series = defaultdict(lambda: {"t": [], "v": [], "iq": [], "t_iq": []})
+    series = defaultdict(lambda: {"t": [], "v": [], "iq": [], "t_iq": [], "tau": [], "t_tau": []})
     t_end = time.time() + args.seconds
     next_live, live_min = time.time() + (args.live or 1e9), 1e9
     print(f"logging bus V / I_q for {args.seconds:.0f}s (passive) ...", flush=True)
@@ -92,6 +92,10 @@ def main() -> int:
                     next_live, live_min = time.time() + args.live, 1e9
             elif p_iq is not None and pid == p_iq:
                 series[name]["t_iq"].append(t); series[name]["iq"].append(val)
+            elif pid == P_TORQUE:
+                # ESC-measured (delivered) output torque, N·m. The brief's item W: every other
+                # torque figure so far is commanded kp*err, which cannot see a delivery shortfall.
+                series[name]["t_tau"].append(t); series[name]["tau"].append(val)
     finally:
         proc.terminate()
         try:
@@ -101,17 +105,22 @@ def main() -> int:
 
     allv = np.concatenate([np.asarray(s["v"]) for s in series.values() if s["v"]]) if series else np.array([])
     summary = {}
-    print(f"\n{'joint':26s} {'V min':>6s} {'V p5':>6s} {'V med':>6s} {'|Iq| p95':>8s} {'n':>4s}")
+    print(f"\n{'joint':26s} {'V min':>6s} {'V p5':>6s} {'V med':>6s} {'|Iq| p95':>8s} {'|tau| p95':>9s} {'max':>6s} {'n':>4s}")
     for j in sorted(series):
         s = series[j]
         v = np.asarray(s["v"]); iq = np.abs(np.asarray(s["iq"]))
         summary[j] = {"v_min": float(v.min()) if len(v) else None,
                       "v_p5": float(np.percentile(v, 5)) if len(v) else None,
                       "v_median": float(np.median(v)) if len(v) else None,
-                      "iq_abs_p95": float(np.percentile(iq, 95)) if len(iq) else None, "n": len(v)}
+                      "iq_abs_p95": float(np.percentile(iq, 95)) if len(iq) else None,
+                      "tau_delivered_abs_p95": (float(np.percentile(np.abs(s["tau"]), 95))
+                                                if s["tau"] else None),
+                      "tau_delivered_abs_max": (float(np.max(np.abs(s["tau"]))) if s["tau"] else None),
+                      "n": len(v)}
         f = lambda x: f"{x:6.2f}" if x is not None else "   -  "  # noqa: E731
         print(f"{j:26s} {f(summary[j]['v_min'])} {f(summary[j]['v_p5'])} {f(summary[j]['v_median'])} "
-              f"{f(summary[j]['iq_abs_p95']):>8s} {summary[j]['n']:>4d}")
+              f"{f(summary[j]['iq_abs_p95']):>8s} {f(summary[j]['tau_delivered_abs_p95']):>9s} "
+              f"{f(summary[j]['tau_delivered_abs_max'])} {summary[j]['n']:>4d}")
     if len(allv):
         print(f"\nALL: bus V min {allv.min():.2f}  p5 {np.percentile(allv, 5):.2f}  median "
               f"{np.median(allv):.2f}  -> sag {np.median(allv) - allv.min():.2f} V")
