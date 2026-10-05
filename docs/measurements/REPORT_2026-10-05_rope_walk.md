@@ -1,4 +1,17 @@
-# Rope-supported walk, 2026-10-05: the supporting hand was most of the sagittal "torque gap"
+# Rope-supported walk, 2026-10-05: INVALID (right knee slipped mechanically)
+
+> **INVALID: the right knee slipped mechanically during this walk.** The operator saw the right
+> knee "stuck" and the robot "didn't walk at all". The data agrees:
+>
+> - The right knee's *reading* moved 21–70° and tracked its target (median error 2.1°), but it
+>   delivered almost no torque (p95 0.69 N·m).
+> - Recalibration afterwards shifted the right knee's position_offset by **−25.35°** (left knee
+>   −3.33°, normal spread).
+>
+> The encoder is on the motor side, so the motor turned while the knee output did not: a
+> coupling, set screw, gear or linkage slip. **Every conclusion below is void:** the hand
+> effect, the left yaw bias and the knee asymmetry are all confounded by a decoupled right knee.
+> The rope-supported walk must be repeated after the slip is fixed.
 
 measC-full on the battery and the rug, knee cap 12, heading loop off, **supported by a slack
 rope instead of the operator's hands**. Network verified; no faults (capture clean, freeze guard
