@@ -28,8 +28,14 @@ sleep 4
 import sys, glob, os
 sys.path.insert(0, "scripts/measure")
 import stand_metrics as S
+import time
 f = max(glob.glob("recordings/run_*.jsonl"), key=os.path.getmtime)
-r = S.identify_policy(f, n=60)
+# "Run policy" ramps ~5 s before the first logged tick; retry instead of reporting None.
+for _ in range(10):
+    r = S.identify_policy(f, n=60)
+    if r.get("policy"):
+        break
+    time.sleep(2)
 ok = r["policy"] == sys.argv[1] and r["exact"]
 print(f"recording {os.path.basename(f)}\nNETWORK: {r['policy']} exact={r['exact']}  -> "
       f"{'OK' if ok else 'WRONG POLICY'}")
