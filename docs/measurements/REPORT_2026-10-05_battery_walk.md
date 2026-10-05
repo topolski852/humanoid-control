@@ -57,3 +57,44 @@ foot clearance match sim.
 
 Data: `measC-rug-battB-20261005_walk.json`, `power_log_*_battB.json`,
 `walk_*_measC-rug-battB_{can,M2M3M6}.json`; tick log `recordings/run_1791235133913906592_6654.jsonl`.
+
+---
+
+## Session 2 (17:39) and the pooled battery baseline
+
+Session 2: 6 bouts, 13.8 s of walking, mean vx 0.45 (bouts were 1–3 s). No faults (mode watcher).
+**No CAN capture:** `capture_run.sh` failed with `python: command not found` after the reboot. It
+now uses the venv python. The voltage logger and the tick log cover everything below.
+
+- Bus voltage: median 23.31 V, **min 21.19 V** (brief dips).
+- Delivered torque again reaches the cap: hip_pitch max 13.1 / 12.3 N·m, knee max 12.0 / 12.4 N·m.
+
+**Pooled, both battery sessions: 8 bouts, 18.2 s of walking**
+
+| measC-full on rug | bench supply (09-29) | **battery (pooled)** | sim (vx 0.6) |
+|---|---|---|---|
+| **stall fraction** | 17–54% | **6%** (3 stalls, all right leg) | 0.01% |
+| knee L/R corr | −0.35 … −0.45 | −0.39 (bouts ≥ 2 s: −0.48) | −0.87 |
+| knee swing L/R | 0.61 / 0.65 | 0.63 / 0.64 | 0.85 |
+| gait | 1.0–1.4 Hz | **1.64 Hz** | 1.58 |
+| clearance median / p10 | 32 / 14 mm | **41.5 / 22.7 mm** | 53 / 44 |
+| torso \|heading rate\| | 5.7–10.8 °/s | 8.3 °/s | |
+| **commanded** sat hip_pitch L/R | 15–23% | **29 / 26%** | ~0.1% |
+| **commanded** sat knee L/R | 12–25% | **20 / 16%** | ~1% |
+
+### Corrected reading (supersedes the single-session section above)
+
+1. **The stalls were mostly the supply.** 17–54% on the collapsing bench supply falls to **6%** on
+   the battery, and the ESCs deliver the full 12 N·m. Brief items **S1/S2 are effectively
+   answered**: hip_pitch and knee delivered 12–16 N·m during walking, with all four sagittal
+   joints loaded at once. There is no single-joint or simultaneous-load delivery shortfall.
+2. **The sagittal DEMAND gap is real and remains.** Commanded kp·err exceeds the cap on 16–29% of
+   hip_pitch and knee ticks on the battery, against ~0–1% in sim. The joints deliver what is asked
+   up to the cap, but the policy asks for more than the cap on hardware far more often than in
+   sim. Knee alternation (−0.39 … −0.48) stays well short of sim (−0.87). Session 1's single
+   bout at −0.86 was not representative.
+3. **Do not train around a reduced torque budget** (delivery is fine). The hip/knee demand gap
+   and the weak knee alternation are still open. Candidates are the supporting hand, foot contact
+   (kinetic μ ≈ 0.3), and dynamics. The supported-walk confound still applies.
+4. **Ankle_pitch:** left delivered |τ| max 13.2 N·m against a 7 N·m cap (impact back-drive), and
+   joint velocity spikes to 24–25 rad/s. No faults.

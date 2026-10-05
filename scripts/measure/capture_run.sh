@@ -24,7 +24,7 @@ OUTDIR="docs/measurements"
 mkdir -p "$OUTDIR"
 
 echo "=== capture '$LABEL'  ${SECS}s  activity=$ACTIVITY ==="
-python scripts/measure/m1_can_timing.py --seconds "$SECS" --label "$LABEL" \
+"$REPO/.venv/bin/python" scripts/measure/m1_can_timing.py --seconds "$SECS" --label "$LABEL" \
        --activity "$ACTIVITY" --outdir "$OUTDIR"
 
 CAP="$(ls -t "$OUTDIR"/*_"$LABEL"_can.json 2>/dev/null | head -1)"
@@ -35,4 +35,4 @@ fi
 
 echo
 echo "=== M2 / M3 / M6 ==="
-python scripts/measure/analyse.py --capture "$CAP"
+"$REPO/.venv/bin/python" scripts/measure/analyse.py --capture "$CAP"
