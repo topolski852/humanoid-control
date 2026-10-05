@@ -1,0 +1,101 @@
+{
+  "_meta": {
+    "capture_id": "stand_20261005T182522",
+    "activity": "stand",
+    "date": "2026-10-05",
+    "started_epoch": 1791239122.3286974,
+    "host": "nse-MINI-S",
+    "daemon": {
+      "running": true,
+      "pid": 1162,
+      "cmdline": "/home/nse/humanoid-control/daemon/build/humanoid_daemon --config /home/nse/humanoid-studio/configs/humanoid_lite.json --imu-device /dev/humanoid_imu",
+      "started_epoch": 1791237631.2829998,
+      "uptime_s": 1491.0568587779999,
+      "config_path": "/home/nse/humanoid-studio/configs/humanoid_lite.json",
+      "config_mtime_epoch": 1791235088.9403775,
+      "config_newer_than_daemon": false
+    },
+    "cpu_temp_start_c": 66.0,
+    "throttle_start": {
+      "core_throttle_count": 0,
+      "package_throttle_count": 0
+    },
+    "encoder_quantum_rad": 0.00010226538585904274,
+    "measurement": "stand_metrics",
+    "label": "measC-stand-20261005",
+    "recording": "run_1791238424942108149_6920.jsonl",
+    "ended_epoch": 1791239122.341249,
+    "duration_s": 0.012551546096801758,
+    "cpu_temp_end_c": 65.0,
+    "throttle_end": {
+      "core_throttle_count": 0,
+      "package_throttle_count": 0
+    }
+  },
+  "metrics": {
+    "recording": "run_1791238424942108149_6920.jsonl",
+    "ticks": 15555,
+    "span_s": 622.160175136,
+    "dt_ms": 40.00735200008876,
+    "phases": {
+      "settle": {
+        "window_s": [
+          0,
+          120.0
+        ],
+        "n": 3000,
+        "tilt_med_deg": 4.743053057532803,
+        "tilt_p95_deg": 4.760392326091433,
+        "tilt_max_deg": 4.765807502674134,
+        "tilt_rate_p95_deg_s": 0.061480778844920536,
+        "excursions_over_8deg": 0,
+        "excursions_per_min": 0.0,
+        "joint_vel_p99_rad_s": 0.7179542434215546
+      },
+      "untouched": {
+        "window_s": [
+          120,
+          300.0
+        ],
+        "n": 4500,
+        "tilt_med_deg": 4.780890946714077,
+        "tilt_p95_deg": 4.793783464040853,
+        "tilt_max_deg": 4.799690482689441,
+        "tilt_rate_p95_deg_s": 0.03725502377016794,
+        "excursions_over_8deg": 0,
+        "excursions_per_min": 0.0,
+        "joint_vel_p99_rad_s": 0.7182576161623002
+      },
+      "pushes": {
+        "window_s": [
+          300,
+          622.160175136
+        ],
+        "n": 8055,
+        "tilt_med_deg": 4.804297914930773,
+        "tilt_p95_deg": 4.933627338009384,
+        "tilt_max_deg": 5.592971007527827,
+        "tilt_rate_p95_deg_s": 0.9881946326728591,
+        "excursions_over_8deg": 0,
+        "excursions_per_min": 0.0,
+        "joint_vel_p99_rad_s": 0.7312199473381042
+      }
+    },
+    "policy_id": {
+      "policy": "walk_measC-full_2026-09-28",
+      "mean_abs_action_error": 0.0,
+      "exact": true,
+      "all": {
+        "walk": 0.2713313400745392,
+        "walk_backup_2026-07-15_asymmetric-gains": 0.172710582613945,
+        "walk_backup_2026-08-18_kp45-bench-tuned": 0.2713313400745392,
+        "walk_measA-full_2026-09-25": 0.058603230863809586,
+        "walk_measC-full_2026-09-28": 0.0,
+        "walk_measD-fast_2026-09-28": 0.11464200168848038,
+        "walk_measE-full-ft_2026-09-29": 0.051373567432165146,
+        "walk_smoothA-full_2026-08-25": 0.10299884527921677,
+        "walk_smoothB-full_2026-08-29": 0.06950279325246811
+      }
+    }
+  }
+}

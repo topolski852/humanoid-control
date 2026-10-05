@@ -1,0 +1,39 @@
+{
+  "results": [
+    {
+      "tag": "hold_20261005T182315_measC-stand2-pushes_can",
+      "capture": "docs/measurements/hold_20261005T182315_measC-stand2-pushes_can.json",
+      "duration_s": 119.97988557815552,
+      "baseline_ct": 0.9700201227607168,
+      "first_half": {
+        "median": 1.546089526644588,
+        "p95": 1540.402698206338,
+        "max": 7726.338484672511
+      },
+      "second_half": {
+        "median": 1.0919133168099755,
+        "p95": 1.6245836769076125,
+        "max": 21615.11872344053,
+        "dominant_hz": 0.21666666666666667,
+        "ratio_to_baseline": 1.1256604798077237
+      },
+      "events": [
+        {
+          "t": 9.75,
+          "peak_ct": 94.01142569684076,
+          "settle_s": 1.5
+        },
+        {
+          "t": 22.75,
+          "peak_ct": 118.73997331457956,
+          "settle_s": 1.5
+        },
+        {
+          "t": 56.5,
+          "peak_ct": 5831.532512279932,
+          "settle_s": 3.5
+        }
+      ]
+    }
+  ]
+}
