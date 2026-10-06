@@ -7,6 +7,12 @@
 EMCY until the end. Nothing noticed: the policy kept driving against a dead sensor and the ESC sat
 at its torque cap 97% of the time. This guard closes that gap from outside the control path.
 
+2026-10-06: left_ankle_pitch's reading RAN AWAY from -0.8 to -128 rad in ~7 s (commutation/encoder
+angle corrupted after a fall) while the motor drove into its hardstop and heated. The reading was
+moving, so the freeze rule could not see it. Second rule: a joint reading more than OUT_OF_RANGE
+rad outside its mechanical limits is physically impossible, so it is a runaway or a corrupt reading
+-> E-stop. Replayed on that log it fires at t=401.40 s, at the second runaway tick (0.5 rad threshold; 0.2 false-fired on a real end-of-bout hip move past its configured limit).
+
 Rule, per leg joint, while the service is HOLDING or RUNNING: the position is bit-identical for
 >= 0.5 s AND the last commanded target is > 0.15 rad away. Then POST /api/estop (all joints to
 DAMPING) and exit. A healthy joint under load changes reading nearly every tick, and one that is
@@ -26,6 +32,7 @@ import urllib.request
 
 BASE = "http://127.0.0.1:8000"
 MOTION = {"HOLDING", "RUNNING"}
+OUT_OF_RANGE = 0.5   # rad beyond a joint's limits = impossible -> runaway or corrupt reading (0.2 false-fired on a real fall past a hip limit)
 
 
 def get_status():
@@ -64,6 +71,18 @@ def main() -> int:
             name, pos, tgt = j.get("name"), j.get("position"), j.get("target")
             if pos is None:
                 continue
+            lim = j.get("limit") or {}
+            if lim.get("min") is not None and lim.get("max") is not None:
+                beyond = max(lim["min"] - pos, pos - lim["max"])
+                if beyond > OUT_OF_RANGE:
+                    print(time.strftime("%H:%M:%S"), f"OUT OF RANGE: {name} at {pos:+.3f} rad, "
+                          f"{beyond:.3f} rad beyond its limits [{lim['min']:+.3f}, {lim['max']:+.3f}] "
+                          f"-> E-STOP (runaway or corrupt reading)", flush=True)
+                    try:
+                        print("estop:", estop(), flush=True)
+                    except Exception as exc:
+                        print("ESTOP REQUEST FAILED:", exc, flush=True)
+                    return 4
             prev = last.get(name)
             if prev is None or pos != prev[0]:
                 last[name] = (pos, now)

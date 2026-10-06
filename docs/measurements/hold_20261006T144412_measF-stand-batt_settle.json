@@ -1,0 +1,29 @@
+{
+  "results": [
+    {
+      "tag": "hold_20261006T144412_measF-stand-batt_can",
+      "capture": "docs/measurements/hold_20261006T144412_measF-stand-batt_can.json",
+      "duration_s": 479.9795422554016,
+      "baseline_ct": 0.8796821462201345,
+      "first_half": {
+        "median": 1.2885320059504446,
+        "p95": 65.10398916570799,
+        "max": 3449.6036248756577
+      },
+      "second_half": {
+        "median": 1.2674401425949686,
+        "p95": 1516.9652065179105,
+        "max": 650358.8345311629,
+        "dominant_hz": 0.275,
+        "ratio_to_baseline": 1.4407933002175541
+      },
+      "events": [
+        {
+          "t": 404.75,
+          "peak_ct": 44051.348668820705,
+          "settle_s": 1.75
+        }
+      ]
+    }
+  ]
+}
