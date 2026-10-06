@@ -103,3 +103,26 @@ Untouched residual motion is 1.9× baseline (a small 0.24 Hz sway; "marginal dam
 - Both sit at the IMU floor untouched.
 - Tilt medians are on different calibrations (measF was before the ESC swap) and are not
   comparable.
+
+### Stance width explains the first two pushes (operator observation, confirmed by FK)
+
+The operator: "the first two pushes went out of control and I had to hold the robot. Once its
+feet stood further apart it levelled off easier." Foot positions from FK of the logged joint
+angles (ankle_roll origins):
+
+| | stance width | left foot ahead of right |
+|---|---|---|
+| trained default_pose | **179 mm** | 0 mm |
+| untouched / before push 1 | **153–156 mm** | 0 mm |
+| after push 2 (stepped out) | **238 mm** | +36 mm |
+
+- **measC stands ~25 mm narrower on hardware than its trained stance.** Width here is pure
+  joint-angle geometry, so this is the policy's standing posture on the robot, or a
+  hip_roll/ankle_roll calibration offset pulling the feet in. It is not the floor.
+- At that width two firm pushes needed the operator to catch it. **Push events 1 and 2 above are
+  operator-held and are not valid push-recovery numbers.**
+- The pushes made it step out to 238 mm, one foot ahead, and from there it handled pushes
+  easily.
+- **For training:** compare measC's stand width in sim against 153 mm on hardware. A
+  narrower-than-trained stance is a direct robustness gap. Consider randomising the initial
+  stance or rewarding a stance width near default.
