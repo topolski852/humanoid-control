@@ -75,3 +75,31 @@ its mechanical limits**, which is physically impossible. Replayed over all 36 ti
 on this ankle runaway (t = 401.4 s) and on measE's knee runaway (t = 30.82 s). The only other
 hits are two 09-23 logs, from the old reversed ankle_roll calibration. 0.2 rad false-fired on a
 real end-of-bout hip move.
+
+## measC-full stand on the battery (16:30), the reference for measF
+
+After the right-knee ESC swap and recalibration. Clean: no faults, freeze/runaway guards quiet,
+bus voltage min 23.34 V, median 24.47 V. Network verified.
+
+| measC-full, battery | settle | untouched | pushes |
+|---|---|---|---|
+| tilt median | 5.00° | 5.01° | 5.40° (max 17.0°) |
+| tilt rate p95 | **0.08 °/s** | **0.06 °/s** | 2.77 °/s |
+| joint vel p99 | 0.73 | 0.73 | 1.22 |
+
+**Push recovery (firm pushes, CAN 100 Hz):**
+
+| push | peak | ring | settle | frequency |
+|---|---|---|---|---|
+| 1 | 4494 ct | 7.2 s | 5.2 s | 0.56 Hz |
+| 2 | 4931 ct | 6.0 s | 1.5 s | 0.22 Hz |
+| 3 (small) | 51 ct | 0.5 s | 1.8 s | 0.22 Hz |
+
+Untouched residual motion is 1.9× baseline (a small 0.24 Hz sway; "marginal damping").
+
+**Against measF:**
+- measC settles from stand-up at 0.08 °/s; measF at 0.68–1.86 °/s.
+- measC survives firm pushes up to 17° of tilt; measF fell (to 50°) under a push on the battery.
+- Both sit at the IMU floor untouched.
+- Tilt medians are on different calibrations (measF was before the ESC swap) and are not
+  comparable.
