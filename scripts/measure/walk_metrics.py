@@ -155,6 +155,11 @@ def metrics(path, policy=None):
         "heading_abs_rate_deg_s": wavg([abs(p["heading_rate_deg_s"]) for p in per]),
         "tilt_p95_deg": float(np.percentile(tilt[W], 95)), "tilt_max_deg": float(tilt[W].max()),
         "joint_vel_max_rad_s": float(np.abs(v[W]).max()),
+        # Foot-strike ankle spikes (measF's target). Same 25 Hz tick-log source as the
+        # 24-29 rad/s figures reported for measC/measE, so they compare directly.
+        "ankle_pitch_vel": {s: {"max_rad_s": float(np.abs(v[W, J[f"{s}_ankle_pitch_joint"]]).max()),
+                                "ticks_over_13": int((np.abs(v[W, J[f"{s}_ankle_pitch_joint"]]) > 13.0).sum())}
+                            for s in ("left", "right")},
         "torque_p95_nm": {n: float(np.percentile(np.abs(tau[W, i]), 95)) for i, n in enumerate(order)},
         "cap_source": cap_src,
         "saturation_pct": {n: float((np.abs(tau[W, i]) >= cap[i] * 0.999).mean() * 100)
@@ -190,6 +195,10 @@ def show(m, label=""):
           f"gait {m['gait_freq_hz'] or float('nan'):.2f} Hz  |heading rate| {m['heading_abs_rate_deg_s']:.1f}°/s")
     print(f"  tilt p95 {m['tilt_p95_deg']:.1f}° max {m['tilt_max_deg']:.1f}°   |vel| max "
           f"{m['joint_vel_max_rad_s']:.2f} rad/s")
+    ap = m.get("ankle_pitch_vel")
+    if ap:
+        print(f"  ankle_pitch |vel| max L/R {ap['left']['max_rad_s']:.1f} / {ap['right']['max_rad_s']:.1f} rad/s"
+              f"   ticks >13 rad/s L/R {ap['left']['ticks_over_13']} / {ap['right']['ticks_over_13']}")
     sat = {k: v for k, v in m["saturation_pct"].items() if v > 0.5}
     print("  saturation >0.5%: " + (", ".join(f"{k.replace('_joint', '')} {v:.1f}%"
                                                for k, v in sat.items()) or "none"))
