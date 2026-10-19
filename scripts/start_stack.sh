@@ -103,9 +103,10 @@ echo "[2/4] CAN daemon"
 if daemon_up; then
   ok "already running"
 else
+  [ -x "$REPO/core/daemon/build/humanoid_daemon" ] || fail "no daemon binary at core/daemon/build/ — run: git submodule update --init && (cd core/daemon && make)"
   IMU_ARGS=""
   [ -n "$IMU_DEVICE" ] && IMU_ARGS="--imu-device $IMU_DEVICE"
-  ( cd "$REPO" && setsid nohup stdbuf -o0 -e0 ./daemon/build/humanoid_daemon \
+  ( cd "$REPO" && setsid nohup stdbuf -o0 -e0 ./core/daemon/build/humanoid_daemon \
       --config "$CONFIG" --rt-prio 0 $IMU_ARGS > "$LOGDIR/daemon.log" 2>&1 < /dev/null & )
   for i in $(seq 1 20); do daemon_up && break; sleep 0.5; done
   daemon_up || fail "daemon did not bind :9001 — see $LOGDIR/daemon.log"

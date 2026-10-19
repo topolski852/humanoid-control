@@ -26,7 +26,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from humanoid_control.config import LegPolicyContract           # noqa: E402
-from humanoid_control.layout import RobotLayout                 # noqa: E402
+from humanoid_core.layout import RobotLayout                 # noqa: E402
 from humanoid_control.web import xr as xr_mod                   # noqa: E402
 from humanoid_control.web.service import ControlService, SessionState  # noqa: E402
 
@@ -95,7 +95,7 @@ def frame(seq, *, left_trig=0.0, right_trig=0.0, left_p=None, right_p=None,
 
 
 def give_profiles(q):
-    from humanoid_control.arm_profile import ArmProfile, JOINTS
+    from humanoid_core.arm.profile import ArmProfile, JOINTS
     n = len(JOINTS)
     for h, st in q._hands.items():
         st.profile = ArmProfile(name="test", side=h, captured_utc="2026-01-01T00:00:00Z",
@@ -321,8 +321,8 @@ def main() -> int:
     # for the wrong reason — which is exactly what this block is here to catch.
     import time as _time
     _now = _time.perf_counter
-    from humanoid_control.arm_kinematics import ArmChain as _AC
-    from humanoid_control.layout import LIMB_JOINTS as _LJ
+    from humanoid_core.arm.kinematics import ArmChain as _AC
+    from humanoid_core.layout import LIMB_JOINTS as _LJ
 
     svc, q = build()
     # WAIT ON THE COMPLETION EVENT, not on _chain_cache. Constructing a chain takes ~0.5 ms

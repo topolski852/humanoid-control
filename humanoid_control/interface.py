@@ -9,7 +9,7 @@ rad, the same frame the policy works in).
 ``LegInterface`` is the 12-leg specialization the policy path uses: it takes its joint order
 straight from the policy contract, so the sim↔real interface stays the single source of truth
 for anything the trained policy touches. Other groups (an arm, a whole configured robot) pass
-their joint list explicitly — see ``humanoid_control.layout``.
+their joint list explicitly — see ``humanoid_core.layout``.
 """
 from __future__ import annotations
 
@@ -18,7 +18,7 @@ from collections.abc import Iterable
 import numpy as np
 
 from .config import LegPolicyContract
-from .daemon import DaemonClient
+from humanoid_core.daemon import DaemonClient
 
 
 class JointOfflineError(RuntimeError):

@@ -26,7 +26,7 @@ import sys
 from pathlib import Path
 
 from humanoid_control import LegPolicyContract, LIVE_ROBOT_CONFIG_PATH, resolve_robot_config_path
-from humanoid_control.daemon import DaemonClient, DaemonError, RobotConfig
+from humanoid_core.daemon import DaemonClient, DaemonError, RobotConfig
 
 # Default location of the trained-policy bundles: this repo's self-hosted policies/ dir (NOT the
 # sibling humanoid-policy checkout, which can sit on any branch). Override with the env var.

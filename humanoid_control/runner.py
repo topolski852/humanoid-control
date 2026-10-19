@@ -19,7 +19,7 @@ import numpy as np
 from .action import ActionMapper
 from .base_state import BaseStateSource, UprightStubBaseState
 from .config import LegPolicyContract
-from .daemon import DaemonClient
+from humanoid_core.daemon import DaemonClient
 from .heading import HeadingHold
 from .interface import LegInterface
 from .observation import ObservationBuilder

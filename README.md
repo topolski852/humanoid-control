@@ -13,17 +13,25 @@ policy runner (Python)  ──UDP :9001/:9000──▶  daemon (C++, owns CAN @2
 > and the policy↔device joint-sign fix that's already landed).
 
 ## Layout
-- `daemon/` — the real-time CAN daemon (C++). **Copied verbatim from
-  [`humanoid-studio`](https://github.com/topolski852/humanoid-studio); keep the two
-  in sync.** Build with `cd daemon && make`. Only one daemon may own the CAN bus at
-  a time (don't run this and the humanoid-studio app's daemon simultaneously).
+- `core/` — the [`humanoid-core`](https://github.com/topolski852/humanoid-core) **git
+  submodule**, shared with `teleop-station`. Run `git submodule update --init` after cloning.
+  It holds:
+  - `core/daemon/` — the real-time CAN daemon (C++). Build with `cd core/daemon && make`. Only
+    one daemon may own the CAN bus at a time (don't run this and the humanoid-studio app's
+    daemon simultaneously).
+  - `humanoid_core.daemon` — `DaemonClient`, `RobotConfig`, `ActuatorState`. The only thing
+    that talks to the daemon.
+  - `humanoid_core.layout` — **which limbs are attached to this machine** (see *Robot layout*
+    below). Deliberately separate from the policy contract: the contract is the sim↔real
+    interface the trainer agreed to, not a description of the hardware in the room.
+  - `humanoid_core.arm` — arm kinematics, teleop, calibration, operator profiles, retargeting.
+  - `core/docs/HANDOFF.md`, `core/docs/DAEMON_SPEC.md` — firmware/CAN/daemon reference.
+
+  `humanoid_core` at the repo root is a symlink into the submodule, so anything that can import
+  `humanoid_control` can import it too. Changing core is a commit there, then a submodule
+  pointer bump here (see core's README).
 - `humanoid_control/` — the Python control package (this repo's core):
-  - `daemon/` — **vendored** studio client (`daemon_client.py`, `robot_config.py`,
-    `actuator.py` trimmed to `ActuatorState`). The only thing that talks to the daemon.
   - `config.py` — loads the policy contract (`configs/leg_policy_params.json`).
-  - `layout.py` — **which limbs are attached to this machine** (see *Robot layout* below).
-    Deliberately separate from the policy contract: the contract is the sim↔real interface
-    the trainer agreed to, not a description of the hardware in the room.
   - `base_state.py` — pluggable base state: `TelemetryBaseState` reads the daemon's `base`
     block (live IMU), `UprightStubBaseState` is the explicit no-IMU fallback.
   - `observation.py` / `action.py` — obs assembly (45) and action→target mapping + clamps.
@@ -35,17 +43,17 @@ policy runner (Python)  ──UDP :9001/:9000──▶  daemon (C++, owns CAN @2
 - `configs/` — `esc_pull_latest.json` (per-joint config pulled from the ESCs),
   `policy_starting_pose.json`, `leg_policy_params.json` (the trainer contract).
 - `POLICY_CONTRACT.md` — the sim↔real interface the trainer must match.
-- `docs/HANDOFF.md`, `docs/DAEMON_SPEC.md` — authoritative firmware/CAN/daemon reference.
 
 ## Quick start
 ```bash
-cd daemon && make                 # build the daemon
+git submodule update --init       # fetch humanoid-core (daemon + client + arm modules)
+cd core/daemon && make            # build the daemon
 # ensure the leg CAN adapters are powered (can_left_leg / can_right_leg come up)
 # --imu-device is what ENABLES the IMU: no robot config ships an `imu` block, so without it
 # the daemon logs `imu: disabled` and telemetry carries `base: null` forever.
 ./build/humanoid_daemon --config ~/humanoid-studio/configs/humanoid_lite.json \
                         --imu-device /dev/humanoid_imu &
-cd .. && pip install -r requirements.txt
+cd ../.. && pip install -r requirements.txt
 python scripts/smoke_test.py --connect --seconds 3    # read-only telemetry (no motion)
 ```
 Or bring the whole stack up in order, which handles all of the above:

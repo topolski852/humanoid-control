@@ -35,7 +35,7 @@ P_BUS_V, P_TORQUE = 0x100, 0x048
 
 
 def iq_param_id() -> int | None:
-    hdr = Path(__file__).resolve().parents[2] / "daemon/src/motor/recoil_protocol.hpp"
+    hdr = Path(__file__).resolve().parents[2] / "core/daemon/src/motor/recoil_protocol.hpp"
     m = re.search(r"PARAM_CURRENT_CONTROLLER_I_Q_MEASURED\s*=\s*(0x[0-9A-Fa-f]+)", hdr.read_text())
     return int(m.group(1), 16) if m else None
 

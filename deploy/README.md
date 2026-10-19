@@ -3,7 +3,26 @@
 Bring the CAN daemon and the web control UI up on boot so the robot needs no monitor, keyboard,
 or held-open SSH. Power on → wait ~15 s → open `http://<robot-ip>:8000` from any PC on the WiFi.
 
-## Upgrading an existing robot to the Quest build — read this first
+## Upgrading past the humanoid-core split: read this first
+
+The daemon, its Python client and the arm modules moved into the
+[`humanoid-core`](https://github.com/topolski852/humanoid-core) submodule at `core/`. After
+`git pull` on a robot PC:
+
+```bash
+cd /home/nse/humanoid-control
+git submodule update --init
+(cd core/daemon && make)
+rm -rf daemon/                       # the OLD binary survives the pull (build/ is ignored)
+sudo cp deploy/humanoid-daemon.service /etc/systemd/system/   # ExecStart moved to core/daemon
+sudo systemctl daemon-reload && sudo systemctl restart humanoid-daemon humanoid-web
+```
+
+Skip the `rm` and the unit copy, and the old unit keeps launching the stale `daemon/build/`
+binary. Nothing fails, but every later daemon fix silently doesn't apply. The Python side needs
+no install step: the repo-root `humanoid_core` symlink points into the submodule.
+
+## Upgrading an existing robot to the Quest build
 
 Two things changed underneath every machine, including legs-only ones that will never see a
 headset.
@@ -16,7 +35,7 @@ fine, engages fine, and **E-STOPs one second after the operator releases the tri
 possibly standing.
 
 ```bash
-cd daemon && make && cd ..
+git submodule update --init && (cd core/daemon && make)
 sudo systemctl restart humanoid-daemon.service
 ```
 
@@ -57,8 +76,9 @@ and are **machine-local** — they do not travel with git, so each robot needs i
 ```bash
 cd /home/nse/humanoid-control
 
-# 1. Build the daemon (if not already built)
-cd daemon && make && cd ..
+# 1. Fetch the shared humanoid-core submodule and build the daemon (it lives in core/daemon)
+git submodule update --init
+(cd core/daemon && make)
 
 # 2. Python env for the web server
 python3 -m venv .venv
@@ -128,7 +148,7 @@ The `humanoid-daemon.service` `ExecStart` passes `--imu-device /dev/humanoid_imu
 the daemon reads the IMU (921600 baud) and adds a `base` block (quaternion, angular velocity,
 projected gravity) to its telemetry. The web control layer consumes it automatically. With no
 IMU present the daemon emits `base: null` and the policy falls back to the upright stub.
-- **Verify streaming (no daemon needed):** `cd daemon && make imu-test && ./build/imu_test`
+- **Verify streaming (no daemon needed):** `cd core/daemon && make imu-test && ./build/imu_test`
 - **Mounting orientation:** gravity/ang-vel must be in the robot base frame. Hold the robot
   upright and run `python scripts/imu_calibrate.py`, then paste the printed `mounting_rotation`
   into an `"imu"` block in the daemon config (see the config note below). Default is identity.

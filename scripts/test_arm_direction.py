@@ -35,10 +35,10 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from humanoid_control.arm_kinematics import ArmChain          # noqa: E402
-from humanoid_control.arm_profile import ArmProfile, JOINTS    # noqa: E402
-from humanoid_control.arm_retarget import human_angles         # noqa: E402
-from humanoid_control.layout import LIMB_JOINTS                # noqa: E402
+from humanoid_core.arm.kinematics import ArmChain          # noqa: E402
+from humanoid_core.arm.profile import ArmProfile, JOINTS    # noqa: E402
+from humanoid_core.arm.retarget import human_angles         # noqa: E402
+from humanoid_core.layout import LIMB_JOINTS                # noqa: E402
 from humanoid_control.web.xr import webxr_to_robot             # noqa: E402
 
 PASS, FAIL = [], []

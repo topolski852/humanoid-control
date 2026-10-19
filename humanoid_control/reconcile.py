@@ -13,7 +13,7 @@ retries until ``position_offset`` is non-null.
 LIMIT TIERS. The limits pushed here are the HARD tier — the robot config's
 ``position_limits`` (humanoid_lite.json), which for the arms are WIDER than the URDF. They are
 the mechanical backstop the firmware enforces, reachable from Studio and during calibration.
-The SOFT tier is the URDF range vendored in ``app/src/data/viz_kinematics.json``; ArmChain
+The SOFT tier is the URDF range vendored in ``core/humanoid_core/data/viz_kinematics.json``; ArmChain
 loads it and ``arm_profile.to_robot`` maps headset teleop onto it. The two sources are meant
 to differ — do not reconcile them with each other.
 """
@@ -22,7 +22,7 @@ from __future__ import annotations
 import sys
 import time
 
-from .daemon import DaemonClient, RobotConfig
+from humanoid_core.daemon import DaemonClient, RobotConfig
 
 
 def read_live_offset(client: DaemonClient, name: str, attempts: int = 6) -> float | None:

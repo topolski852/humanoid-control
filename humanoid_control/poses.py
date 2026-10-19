@@ -9,7 +9,7 @@ A pose maps joints → target angles. Keys may be a joint **type** ("hip_pitch" 
 
 ``resolve_pose`` takes the joint set to resolve against, so the same file serves a legs-only
 gantry, a bench arm, or the whole robot — pass the configured joints from
-:class:`~humanoid_control.layout.RobotLayout`. It defaults to the legs for backwards
+:class:`~humanoid_core.layout.RobotLayout`. It defaults to the legs for backwards
 compatibility with the CLI scripts.
 """
 from __future__ import annotations

@@ -238,7 +238,7 @@ def _on_signal(signum, _frame):
 async def capture(args, raw):
     sys.path.insert(0, str(C.REPO_ROOT / "scripts"))
     import _bootstrap  # noqa: F401
-    from humanoid_control.daemon import DaemonClient, RobotConfig
+    from humanoid_core.daemon import DaemonClient, RobotConfig
     model = LG.LegModel()
     joints = C.canonical_joint_order()
     client = DaemonClient(RobotConfig.from_json(str(C.robot_config_path())))

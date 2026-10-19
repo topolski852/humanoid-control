@@ -19,7 +19,7 @@ import {
 // Read rather than `import ... with { type: 'json' }`: import attributes need Node >= 20.10 and
 // the older `assert { type: 'json' }` spelling is deprecated in newer Node. fs works on both.
 const bundle = JSON.parse(
-  readFileSync(fileURLToPath(new URL('../data/viz_kinematics.json', import.meta.url)), 'utf8'),
+  readFileSync(fileURLToPath(new URL('../../../core/humanoid_core/data/viz_kinematics.json', import.meta.url)), 'utf8'),
 )
 
 // The bundled model is the SUPERSET of every limb the robot could have. The app renders the

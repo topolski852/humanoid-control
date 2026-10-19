@@ -18,7 +18,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import numpy as np                                              # noqa: E402
 
 from humanoid_control.config import LegPolicyContract           # noqa: E402
-from humanoid_control.layout import RobotLayout                 # noqa: E402
+from humanoid_core.layout import RobotLayout                 # noqa: E402
 from humanoid_control.web import xr as xr_mod                   # noqa: E402
 from humanoid_control.web.service import ControlError, ControlService, SessionState  # noqa: E402
 
@@ -125,7 +125,7 @@ def give_profile(q, hand=None):
     named — the tests below drive whichever arm the layout selected and should not have to
     know which that is.
     """
-    from humanoid_control.arm_profile import ArmProfile, JOINTS
+    from humanoid_core.arm.profile import ArmProfile, JOINTS
     n = len(JOINTS)
     prof = None
     for h in ([hand] if hand else list(q._hands)):

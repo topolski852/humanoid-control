@@ -4,7 +4,8 @@
 The URDF lives in the sibling ``humanoid-policy`` repo (it is the trainer's asset, not
 ours) so the browser can never reach it. This script extracts the *shape* of the robot —
 joint origins, rotation matrices and the collision primitives — into
-``app/src/data/viz_kinematics.json``, which Vite inlines into the bundle at build time.
+``core/humanoid_core/data/viz_kinematics.json`` (the shared humanoid-core submodule, where
+``humanoid_core.arm.kinematics`` reads it), which Vite also inlines into the bundle at build time.
 
 What is deliberately NOT vendored: ``default_pose``, the device-frame position limits and
 ``policy_frame_sign``. Those are frame-critical and the whole point of the visualizer is
@@ -17,7 +18,7 @@ Frame conventions (URDF, and therefore this file):
   - a child frame is ``T(xyz) @ R(rpy) @ R_axis(q)``; every leg joint has axis [0,0,1]
 
 Usage:
-    python scripts/gen_viz_kinematics.py            # write app/src/data/viz_kinematics.json
+    python scripts/gen_viz_kinematics.py            # write core/humanoid_core/data/viz_kinematics.json
     python scripts/gen_viz_kinematics.py --check    # exit 1 if the checked-in file is stale
 """
 from __future__ import annotations
@@ -33,7 +34,7 @@ import numpy as np
 
 import _bootstrap  # noqa: F401  (puts the repo root on sys.path)
 from humanoid_control.config import REPO_ROOT, LegPolicyContract
-from humanoid_control.layout import LIMB_JOINTS, LIMB_ORDER
+from humanoid_core.layout import LIMB_JOINTS, LIMB_ORDER
 
 # The FULL-BODY urdf (not humanoid_biped.urdf, which is legs only) — the arms are half the
 # reason this file exists now. Searched rather than hardcoded: the sibling checkout has moved
@@ -54,7 +55,7 @@ def _find_urdf() -> Path:
 
 
 URDF_PATH = _find_urdf()
-OUT_PATH = REPO_ROOT / "app" / "src" / "data" / "viz_kinematics.json"
+OUT_PATH = REPO_ROOT / "core" / "humanoid_core" / "data" / "viz_kinematics.json"
 
 # Measured dimensions that override the URDF's COSMETIC geometry (see the file's own _meta for
 # why). Joint origins are never overridden — those are the sim/real contract the policy was
@@ -484,7 +485,7 @@ def build(contract: LegPolicyContract) -> dict:
                 "`python scripts/gen_viz_kinematics.py` if the URDF changes."
             ),
         },
-        # The full superset of joints the robot could have, in humanoid_control.layout order.
+        # The full superset of joints the robot could have, in humanoid_core.layout order.
         # The app renders the subset the live layout enables.
         "joint_order": [name for _, name in all_joints],
         "limbs": {limb: list(LIMB_JOINTS[limb]) for limb in LIMB_ORDER},

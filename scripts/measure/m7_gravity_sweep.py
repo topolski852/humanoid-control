@@ -67,7 +67,7 @@ import _bootstrap  # noqa: F401,E402
 import common as C  # noqa: E402
 import leg_gravity as LG  # noqa: E402
 from humanoid_control import resolve_robot_config_path  # noqa: E402
-from humanoid_control.daemon import DaemonClient, RobotConfig  # noqa: E402
+from humanoid_core.daemon import DaemonClient, RobotConfig  # noqa: E402
 
 NOMINAL_KP = 45.0
 

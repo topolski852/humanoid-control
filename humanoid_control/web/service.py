@@ -32,13 +32,13 @@ from ..config import LegPolicyContract, REPO_ROOT
 from .. import can_recovery
 from ..interface import (JointFaultError, JointGroupInterface, JointOfflineError,
                          LegInterface)
-from ..layout import RobotLayout
+from humanoid_core.layout import RobotLayout
 from ..policy import ZeroPolicy, load_policy
 from ..runner import PolicyRunner
 from ..heading import HeadingHold, MODES as HEADING_MODES
 from ..safety import EstopController, ramp_to_pose
 from ..base_state import TelemetryBaseState
-from ..daemon import DaemonClient
+from humanoid_core.daemon import DaemonClient
 
 _log = logging.getLogger(__name__)
 
@@ -857,13 +857,13 @@ class ControlService:
         """Zero one arm from the T-pose the operator is holding.
 
         The arms have no hardstops, so the per-joint capture flow cannot be used on them (see
-        ``humanoid_control.arm_calibration``). This samples the held pose, solves each joint's
+        ``humanoid_core.arm.calibration``). This samples the held pose, solves each joint's
         ``position_offset`` so it reads its known T-pose angle, writes it, and verifies by
         reading back — a write that does not land is reported rather than assumed.
 
         Writes ``position_offset`` only. Nothing is commanded to move.
         """
-        from ..arm_calibration import is_declared, t_pose_targets
+        from humanoid_core.arm.calibration import is_declared, t_pose_targets
 
         if limb not in self._layout.arms:
             raise ControlError(
@@ -1896,7 +1896,7 @@ class ControlService:
         if cache is None:
             cache = self._chain_cache = {}
         if limb not in cache:
-            from ..arm_kinematics import ArmChain
+            from humanoid_core.arm.kinematics import ArmChain
             cache[limb] = ArmChain(list(self._layout.joints_of(limb)))
         return cache[limb]
 
@@ -2061,8 +2061,8 @@ class ControlService:
         recorder = None
         rigs: list[_ArmRig] = []
         if arm_mode:
-            from ..arm_kinematics import ArmChain
-            from ..arm_teleop import ArmTeleop, TeleopTuning
+            from humanoid_core.arm.kinematics import ArmChain
+            from humanoid_core.arm.teleop import ArmTeleop, TeleopTuning
             from ..recorder import ArmRunRecorder
             arm_joints = list(self._layout.joints_of(limb))
             group = JointGroupInterface(self.client, arm_joints)
@@ -2142,7 +2142,7 @@ class ControlService:
             # Two wrong comments stood here before this one, in both directions, and the
             # honest version is: the firmware watchdog DOES run in DAMPING, and the daemon
             # feeds it (Actuator::tick). Neither half is optional. The firmware docs claimed
-            # otherwise and that cost this repo the same bug twice; docs/HANDOFF.md §2
+            # otherwise and that cost this repo the same bug twice; core/docs/HANDOFF.md §2
             # ("Watchdog → DAMPING") now records the correction, and the hardware is the
             # authority over both.
             self._rest(group)

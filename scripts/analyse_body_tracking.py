@@ -34,7 +34,7 @@ API = "http://127.0.0.1:8000/api/status"
 # From the retargeter, not a copy: a local list here drifted from what human_angles reads
 # (it omitted `hips` and the opposite shoulder, which define the torso frame), so this
 # script's "joints present" count was measured against the wrong denominator.
-from humanoid_control.arm_retarget import required as _required   # noqa: E402
+from humanoid_core.arm.retarget import required as _required   # noqa: E402
 
 REQUIRED = _required("left")
 

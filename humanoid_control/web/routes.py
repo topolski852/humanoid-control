@@ -21,7 +21,7 @@ from pydantic import BaseModel
 from ..config import REPO_ROOT
 from ..policy import bundle_issues
 from ..config import ARM_FRAME_SIGN
-from ..layout import (LIMB_BUS, LIMB_JOINTS, LIMB_LABEL, LIMB_ORDER, RobotLayout,
+from humanoid_core.layout import (LIMB_BUS, LIMB_JOINTS, LIMB_LABEL, LIMB_ORDER, RobotLayout,
                       default_layout_path)
 from ..poses import DEG, delete_pose, load_poses, pose_names, resolve_pose, save_pose
 from .service import ControlError, ControlService
@@ -179,7 +179,7 @@ def contract(request: Request):
     """Frame-critical constants the robot visualizer needs, straight from the live contract.
 
     The wireframe's *geometry* is vendored into the JS bundle
-    (``app/src/data/viz_kinematics.json``), but these four values are exactly the ones whose
+    (``core/humanoid_core/data/viz_kinematics.json``), but these four values are exactly the ones whose
     drift would make the visualizer confidently draw the wrong robot — which is the bug class
     it exists to catch. So they are served live and the app cross-checks ``policy_frame_sign``
     against the copy recorded in the bundled model before it will draw anything.
@@ -338,7 +338,7 @@ def deadman_select(request: Request, body: SelectBody):
 @router.get("/api/arm_profile", response_model=None)
 def get_arm_profiles(request: Request):
     """List saved operator calibration profiles."""
-    from ..arm_profile import default_profile_path, load_all
+    from humanoid_core.arm.profile import default_profile_path, load_all
 
     def _side(v: dict) -> dict:
         return {"captured_utc": v.get("captured_utc"),
@@ -358,7 +358,7 @@ def get_arm_profiles(request: Request):
 @router.delete("/api/arm_profile/{name}", response_model=None)
 def del_arm_profile(request: Request, name: str, side: str | None = None):
     """Delete one operator. ``?side=left|right`` drops just that arm's capture."""
-    from ..arm_profile import delete
+    from humanoid_core.arm.profile import delete
     if not delete(name, side):
         what = f"{name!r}" if side is None else f"{name!r} side {side!r}"
         return _err(f"no profile named {what}", 404)

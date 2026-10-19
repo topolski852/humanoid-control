@@ -145,7 +145,7 @@ POLICY_FRAME_MIRRORED_JOINTS = (
 #
 # If the URDF's axis is wrong, the RENDER is wrong for that joint too — which is exactly the
 # unexplained disagreement above. That points at the model, not at a sign constant. The fix
-# belongs in the URDF (app/src/data/viz_kinematics.json and whatever generates it), after
+# belongs in the URDF (core/humanoid_core/data/viz_kinematics.json and whatever generates it), after
 # which BOTH the picture and the -1 in HUMAN_TO_ROBOT_SIGN go away together. Until someone
 # verifies that on the machine, nothing here changes.
 ARM_FRAME_SIGN: dict[str, float] = {}

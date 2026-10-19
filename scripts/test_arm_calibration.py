@@ -32,7 +32,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from humanoid_control.config import LegPolicyContract           # noqa: E402
-from humanoid_control.layout import RobotLayout                 # noqa: E402
+from humanoid_core.layout import RobotLayout                 # noqa: E402
 from humanoid_control.web import xr as xr_mod                   # noqa: E402
 from humanoid_control.web import xr_calib as calib_mod          # noqa: E402
 from humanoid_control.web.service import ControlService, SessionState  # noqa: E402
@@ -93,7 +93,7 @@ def build(clk):
 def give_profiles(q):
     """A loaded profile, so the normal HUD is the MIRRORING card rather than NOT CALIBRATED —
     which makes 'the HUD handed back' unambiguous."""
-    from humanoid_control.arm_profile import ArmProfile, JOINTS
+    from humanoid_core.arm.profile import ArmProfile, JOINTS
     n = len(JOINTS)
     for h, st in q._hands.items():
         st.profile = ArmProfile(name="test", side=h, captured_utc="2026-01-01T00:00:00Z",
@@ -102,13 +102,13 @@ def give_profiles(q):
 
 
 def arm(vals=(0.0, 0.0, 0.0, 0.0, 0.0)):
-    from humanoid_control.arm_retarget import HumanArm
+    from humanoid_core.arm.retarget import HumanArm
     return HumanArm(*vals, 0.26, 0.22)
 
 
 def run_to_completion(c, clk, sides=("left", "right"), tmpdir=None):
     """Walk every pose. Returns when the run ends."""
-    import humanoid_control.arm_profile as ap
+    import humanoid_core.arm.profile as ap
     if tmpdir is not None:
         ap.default_profile_path = lambda: tmpdir / "arm_profiles.json"
     for k in range(len(c.seq)):

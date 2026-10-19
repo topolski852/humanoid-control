@@ -6,7 +6,7 @@ upright) and ``base_ang_vel``. We express those behind a swappable interface so 
 code doesn't change with the base-state source:
 
 - ``TelemetryBaseState`` (default with the IMU): reads the daemon telemetry ``base`` block
-  (an external WitMotion USB IMU, read by the daemon — see docs/DAEMON_SPEC.md §9). Yields
+  (an external WitMotion USB IMU, read by the daemon — see core/docs/DAEMON_SPEC.md §9). Yields
   ``valid=False`` whenever the daemon reports no fresh IMU data (``base: null``).
 - ``UprightStubBaseState``: always upright, zero angular velocity — the no-IMU fallback.
 
@@ -70,7 +70,7 @@ class TelemetryBaseState(BaseStateSource):
     """Reads the planned daemon telemetry ``base`` block.
 
     ``telemetry_getter`` returns the latest telemetry frame dict (or None); the daemon emits
-    the ``base`` block from the external IMU (docs/DAEMON_SPEC.md §9). It accepts either a
+    the ``base`` block from the external IMU (core/docs/DAEMON_SPEC.md §9). It accepts either a
     precomputed ``projected_gravity`` (what the daemon ships — same convention as
     ``quat_rotate_inverse`` here) or a bare ``quaternion``, converting the latter if needed.
     """

@@ -1,5 +1,4 @@
-# Daemon build
-daemon/build/
+# Build outputs (the daemon lives in the core/ submodule, which ignores its own build/)
 *.o
 *.a
 *.so

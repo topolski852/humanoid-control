@@ -39,7 +39,7 @@ FUNC_SYNC_EMCY = 0x1
 FUNC_ID_SHIFT = 7
 DEVICE_ID_MASK = 0x7F
 
-# Mirrors ErrorCode in daemon/src/motor/recoil_protocol.hpp.
+# Mirrors ErrorCode in core/daemon/src/motor/recoil_protocol.hpp.
 ERROR_BITS = {
     0x0001: "GENERAL", 0x0002: "ESTOP", 0x0004: "INITIALIZATION", 0x0008: "CALIBRATION",
     0x0010: "POWERSTAGE", 0x0020: "INVALID_MODE", 0x0040: "WATCHDOG_TIMEOUT",

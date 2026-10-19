@@ -57,7 +57,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import _bootstrap  # noqa: F401,E402
 import common as C  # noqa: E402
 from humanoid_control import resolve_robot_config_path  # noqa: E402
-from humanoid_control.daemon import DaemonClient, RobotConfig  # noqa: E402
+from humanoid_core.daemon import DaemonClient, RobotConfig  # noqa: E402
 
 G = 9.80665
 SETTLE_S = 3.0

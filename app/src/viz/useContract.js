@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { api } from '../api'
 import { useTelemetry } from '../context/TelemetryContext'
-import bundled from '../data/viz_kinematics.json'
+import bundled from '../../../core/humanoid_core/data/viz_kinematics.json'
 import { selectModel } from './kinematics'
 
 // The wireframe's geometry is bundled (viz_kinematics.json, inlined by Vite) and describes every
@@ -29,7 +29,7 @@ function verify(data) {
   if (unknown.length) {
     throw new Error(
       `the server reports joints the bundled robot model does not contain: ${unknown.join(', ')}. ` +
-      `Regenerate app/src/data/viz_kinematics.json (python scripts/gen_viz_kinematics.py).`,
+      `Regenerate core/humanoid_core/data/viz_kinematics.json (python scripts/gen_viz_kinematics.py).`,
     )
   }
 
@@ -39,7 +39,7 @@ function verify(data) {
   if (bad.length) {
     throw new Error(
       `frame sign map disagrees with the bundled robot model — ${bad.join('; ')}. ` +
-      `Regenerate app/src/data/viz_kinematics.json (python scripts/gen_viz_kinematics.py).`,
+      `Regenerate core/humanoid_core/data/viz_kinematics.json (python scripts/gen_viz_kinematics.py).`,
     )
   }
   return data

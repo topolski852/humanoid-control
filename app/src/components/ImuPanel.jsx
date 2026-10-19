@@ -2,7 +2,7 @@ import { useTelemetry } from '../context/TelemetryContext'
 import { RAD2DEG } from '../format'
 
 // Live IMU monitor. Shows ONLY the two quantities the control policy actually consumes from
-// the daemon `base` block (docs/DAEMON_SPEC.md §9): projected_gravity (tilt/lean) and
+// the daemon `base` block (core/docs/DAEMON_SPEC.md §9): projected_gravity (tilt/lean) and
 // angular_velocity (body rotation rate). The raw quaternion carries no extra info the policy
 // uses, so it isn't drawn. `base: null` from the daemon means no fresh IMU → shown as offline.
 

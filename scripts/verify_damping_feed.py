@@ -37,7 +37,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from humanoid_control.layout import LIMB_JOINTS                   # noqa: E402
+from humanoid_core.layout import LIMB_JOINTS                   # noqa: E402
 
 HOLD_S = float(sys.argv[1]) if len(sys.argv) > 1 else 60.0
 WATCHDOG_MS = 1000          # config_loader.cpp: watchdog_timeout, default

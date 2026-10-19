@@ -32,7 +32,7 @@ from humanoid_control import (
     LegPolicyContract, LIVE_ROBOT_CONFIG_PATH, resolve_robot_config_path, PolicyRunner, load_policy,
     TelemetryBaseState, UprightStubBaseState, EstopController,
 )
-from humanoid_control.daemon import DaemonClient, RobotConfig
+from humanoid_core.daemon import DaemonClient, RobotConfig
 
 
 async def main() -> int:

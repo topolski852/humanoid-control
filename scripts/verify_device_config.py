@@ -34,7 +34,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import _bootstrap  # noqa: F401,E402
 from humanoid_control import resolve_robot_config_path  # noqa: E402
-from humanoid_control.daemon import DaemonClient, RobotConfig  # noqa: E402
+from humanoid_core.daemon import DaemonClient, RobotConfig  # noqa: E402
 
 LEGS = [f"{s}_{j}_joint" for s in ("left", "right")
         for j in ("hip_roll", "hip_yaw", "hip_pitch", "knee_pitch", "ankle_pitch", "ankle_roll")]

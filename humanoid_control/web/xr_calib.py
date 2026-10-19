@@ -29,7 +29,7 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
-from ..arm_profile import SIDES
+from humanoid_core.arm.profile import SIDES
 
 _log = logging.getLogger(__name__)
 
@@ -228,7 +228,7 @@ class CalibrationRun:
         headset and has no way to press a Save button, and a calibration that is only in
         memory is one crash away from being redone.
         """
-        from ..arm_profile import ArmProfile, save
+        from humanoid_core.arm.profile import ArmProfile, save
         stamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
         saved, failed = [], []
         for side in SIDES:

@@ -29,7 +29,7 @@ from humanoid_control import (
     LegPolicyContract, LIVE_ROBOT_CONFIG_PATH, resolve_robot_config_path, EstopController, ramp_to_pose,
     reconcile_firmware_limits,
 )
-from humanoid_control.daemon import DaemonClient, RobotConfig
+from humanoid_core.daemon import DaemonClient, RobotConfig
 
 DEG = math.pi / 180.0
 

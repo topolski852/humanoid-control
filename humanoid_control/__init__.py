@@ -18,7 +18,7 @@ from .interface import (JointGroupInterface, LegInterface, JointOfflineError,
                         JointFaultError)
 from .reconcile import reconcile_firmware_limits, read_live_offset
 from .poses import load_poses, resolve_pose, pose_names, LEG_JOINTS
-from .layout import RobotLayout, LIMB_JOINTS, LIMB_ORDER
+from humanoid_core.layout import RobotLayout, LIMB_JOINTS, LIMB_ORDER
 from .runner import PolicyRunner
 
 __all__ = [

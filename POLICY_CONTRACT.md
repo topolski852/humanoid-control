@@ -147,7 +147,7 @@ URDF `position_limits`**. It's a deep squat — the intended start for squat→s
 
 ## 8. Base state / IMU
 **The IMU has landed.** An external WitMotion sensor is read by the daemon, which publishes the
-`base` telemetry block (`docs/DAEMON_SPEC.md §9`, `docs/HANDOFF.md §7`) carrying `quaternion`,
+`base` telemetry block (`core/docs/DAEMON_SPEC.md §9`, `core/docs/HANDOFF.md §7`) carrying `quaternion`,
 `angular_velocity` and a daemon-computed `projected_gravity`. The runtime consumes it through
 `TelemetryBaseState`; `UprightStubBaseState` remains only as the explicit no-IMU fallback.
 

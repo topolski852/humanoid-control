@@ -26,8 +26,8 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from ..config import LegPolicyContract, resolve_robot_config_path
-from ..daemon import DaemonClient, RobotConfig
-from .. import layout as layout_mod
+from humanoid_core.daemon import DaemonClient, RobotConfig
+from humanoid_core import layout as layout_mod
 from .auth import (
     auth_required, issue_token, login_locked,
     record_login_failure, record_login_success, require_auth, token_valid,

@@ -18,7 +18,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from humanoid_control.config import LegPolicyContract          # noqa: E402
-from humanoid_control.layout import RobotLayout                 # noqa: E402
+from humanoid_core.layout import RobotLayout                 # noqa: E402
 from humanoid_control.web import service as svc_mod             # noqa: E402
 from humanoid_control.web.service import ControlError, ControlService, SessionState  # noqa: E402
 

@@ -194,7 +194,7 @@ chown nse:nse "$CFG_ARMS"
 ok "wrote $CFG_ARMS"
 
 # ── 4b. Machine-local robot layout (which limbs are attached HERE) ───────────
-# Separate from the daemon config: humanoid_control/layout.py reads this to decide which
+# Separate from the daemon config: humanoid_core/layout.py reads this to decide which
 # limbs the web UI serves. When the file is ABSENT it defaults to legs-only, so without
 # this the teleop box would come up showing two legs and no arms.
 say "Writing machine-local robot layout -> $LAYOUT"

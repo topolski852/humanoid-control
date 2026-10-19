@@ -24,6 +24,9 @@ export default defineConfig({
   server: {
     port: 5173,
     strictPort: true,
+    // The robot geometry (viz_kinematics.json) lives in the humanoid-core submodule at
+    // ../core, outside the app root; the dev server refuses to serve it without this.
+    fs: { allow: ['..'] },
     proxy: {
       '/api': 'http://localhost:8000',
       '/auth': 'http://localhost:8000',

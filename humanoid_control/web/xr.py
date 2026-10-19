@@ -72,7 +72,7 @@ import time
 
 import numpy as np
 
-from ..arm_retarget import human_angles, required as retarget_required
+from humanoid_core.arm.retarget import human_angles, required as retarget_required
 
 _log = logging.getLogger(__name__)
 
@@ -333,7 +333,7 @@ class QuestSource:
 
     def reload_profile(self) -> None:
         """Pick up the operator profile from disk. Called on attach and after calibration."""
-        from ..arm_profile import load
+        from humanoid_core.arm.profile import load
         for hand, st in self._hands.items():
             try:
                 st.profile = load(side=hand)
