@@ -14,13 +14,18 @@ cd /home/nse/humanoid-control
 git submodule update --init
 (cd core/daemon && make)
 rm -rf daemon/                       # the OLD binary survives the pull (build/ is ignored)
-sudo cp deploy/humanoid-daemon.service /etc/systemd/system/   # ExecStart moved to core/daemon
+# Repoint the INSTALLED unit in place. Do not cp deploy/humanoid-daemon.service over it: on the
+# arms PC, convert-to-arms-teleop.sh rewrote that unit (arms config, no --imu-device).
+sudo sed -i 's|/home/nse/humanoid-control/daemon|/home/nse/humanoid-control/core/daemon|g' \
+     /etc/systemd/system/humanoid-daemon.service
 sudo systemctl daemon-reload && sudo systemctl restart humanoid-daemon humanoid-web
 ```
 
-Skip the `rm` and the unit copy, and the old unit keeps launching the stale `daemon/build/`
+Skip the `rm` and the unit edit, and the old unit keeps launching the stale `daemon/build/`
 binary. Nothing fails, but every later daemon fix silently doesn't apply. The Python side needs
-no install step: the repo-root `humanoid_core` symlink points into the submodule.
+no install step: the repo-root `humanoid_core` symlink points into the submodule. In Claude
+Code, `/update-core` walks through all of this with checks
+(`.claude/skills/update-core/SKILL.md`).
 
 ## Upgrading an existing robot to the Quest build
 
